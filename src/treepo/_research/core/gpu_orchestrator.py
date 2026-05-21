@@ -507,8 +507,8 @@ class OrchestratorConfig:
     embedding: Optional[ServerConfig] = None
 
     # Paths
-    venv_path: str = "/home/mlinegar/vllm-env"
-    sglang_venv_path: str = "/home/mlinegar/sglang-env"
+    venv_path: str = "~/vllm-env"
+    sglang_venv_path: str = "~/sglang-env"
     config_path: Optional[Path] = None
 
     # Timeouts
@@ -688,9 +688,9 @@ class OrchestratorConfig:
             venv_path=(
                 backend_cfg.get("vllm_venv_path")
                 or orch_cfg.get("venv_path")
-                or "/home/mlinegar/vllm-env"
+                or "~/vllm-env"
             ),
-            sglang_venv_path=str(backend_cfg.get("sglang_venv_path") or "/home/mlinegar/sglang-env"),
+            sglang_venv_path=str(backend_cfg.get("sglang_venv_path") or "~/sglang-env"),
             config_path=config_path,
             sleep_timeout=orch_cfg.get("sleep_timeout", 30.0),
             wake_timeout=orch_cfg.get("wake_timeout", 60.0),
@@ -1322,8 +1322,8 @@ class GPUOrchestrator:
         def _server_venv_path(server_cfg: ServerConfig) -> str:
             backend = str(getattr(server_cfg, "backend", "vllm") or "vllm").strip().lower()
             if backend == "sglang":
-                return str(getattr(config, "sglang_venv_path", "/home/mlinegar/sglang-env"))
-            return str(getattr(config, "venv_path", "/home/mlinegar/vllm-env"))
+                return str(getattr(config, "sglang_venv_path", "~/sglang-env"))
+            return str(getattr(config, "venv_path", "~/vllm-env"))
 
         # Create managed servers
         self._task_primary = ManagedServer(

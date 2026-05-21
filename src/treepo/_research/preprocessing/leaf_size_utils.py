@@ -38,7 +38,8 @@ LOGGER = logging.getLogger(__name__)
 #: Absolute path to the on-disk EmbeddingGemma-300m model directory. Its
 #: tokenizer files are the canonical Gemma-family tokenizer used everywhere a
 #: token budget is evaluated.
-DEFAULT_TOKENIZER_PATH = "/mnt/data/models/google/embeddinggemma-300m"
+from treepo.paths import default_tokenizer_path as _default_tokenizer_path
+DEFAULT_TOKENIZER_PATH = _default_tokenizer_path()
 
 _TOKENIZER_CACHE: dict = {}
 _TOKENIZER_LOCK = threading.Lock()

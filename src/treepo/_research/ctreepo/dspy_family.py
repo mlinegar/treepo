@@ -66,6 +66,7 @@ from treepo._research.tree.state_tree import (
     update_state_tree_node,
     write_state_trees_jsonl,
 )
+from treepo.paths import default_tokenizer_path
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_LOCAL_LAW_WEIGHT_WITH_ANCHORS = 0.25
@@ -340,7 +341,7 @@ class DSPyFamilyConfig:
     #: the actual LM request. Tune by inspection if MIPRO reports OOC.
     prompt_template_overhead_tokens: int = 1500
     #: Tokenizer used for exact record-level and inference-time budget checks.
-    tokenizer_model_path: str = "/mnt/data/models/google/embeddinggemma-300m"
+    tokenizer_model_path: str = field(default_factory=default_tokenizer_path)
     #: Policy dimension (economic, social, immigration, eu, environment,
     #: decentralization). Drives the rubric / scoring context injected into
     #: the DSPy signatures so the student has teacher-level task framing

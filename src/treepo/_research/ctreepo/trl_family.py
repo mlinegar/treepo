@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from treepo._research.ctreepo.alternating import FamilyRuntime
 from treepo._research.ctreepo.fg_arity import check_two_child_lm_budget
 from treepo._research.tree.labeled import LabeledNode, LabeledTree
+from treepo.paths import default_tokenizer_path
 
 LOGGER = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class TRLFamilyConfig:
     lm_context_window_tokens: int = 12000
     max_completion_tokens: int = 512
     prompt_template_overhead_tokens: int = 1500
-    tokenizer_model_path: str = "/mnt/data/models/google/embeddinggemma-300m"
+    tokenizer_model_path: str = field(default_factory=default_tokenizer_path)
     #: distill_ctreepo_students.py args passed through when training.
     distill_script: str = "scripts/distill_ctreepo_students.py"
     #: Optional shared subprocess env.

@@ -23,8 +23,8 @@ DEFAULT_INFERENCE_BACKEND: Dict[str, Any] = {
     "fallback_backend": "vllm",
     "routing_policy": "affinity_load_aware",
     "metrics_poll_seconds": 2.0,
-    "sglang_venv_path": "/home/mlinegar/sglang-env",
-    "vllm_venv_path": "/home/mlinegar/vllm-env",
+    "sglang_venv_path": "~/sglang-env",
+    "vllm_venv_path": "~/vllm-env",
 }
 
 

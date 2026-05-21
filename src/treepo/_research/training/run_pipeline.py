@@ -2555,7 +2555,7 @@ class InferenceBackendConfig:
     fallback_backend: str = "vllm"
     routing_policy: str = "affinity_load_aware"
     metrics_poll_seconds: float = 2.0
-    sglang_venv_path: str = "/home/mlinegar/sglang-env"
+    sglang_venv_path: str = "~/sglang-env"
 
 
 def resolve_inference_backend_config(
@@ -2607,7 +2607,7 @@ def resolve_inference_backend_config(
     sglang_venv_path = str(
         getattr(args, "sglang_venv_path", None)
         or cfg.get("sglang_venv_path")
-        or "/home/mlinegar/sglang-env"
+        or "~/sglang-env"
     )
 
     return InferenceBackendConfig(
@@ -16474,12 +16474,12 @@ def run_training_pipeline(args: argparse.Namespace) -> Dict[str, Any]:
 
             orchestrator_config.venv_path = str(
                 backend_settings.get("vllm_venv_path")
-                or getattr(orchestrator_config, "venv_path", "/home/mlinegar/vllm-env")
+                or getattr(orchestrator_config, "venv_path", "~/vllm-env")
             )
             orchestrator_config.sglang_venv_path = str(
                 getattr(args, "sglang_venv_path", None)
                 or backend_settings.get("sglang_venv_path")
-                or getattr(orchestrator_config, "sglang_venv_path", "/home/mlinegar/sglang-env")
+                or getattr(orchestrator_config, "sglang_venv_path", "~/sglang-env")
             )
 
             for server_cfg in (

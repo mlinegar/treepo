@@ -7,14 +7,15 @@ name = "treepo"
 version = "0.1.0"
 description = "TreePO/C-TreePO paper methods, runtime benchmarks, and simulation harness"
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "PolyForm-Noncommercial-2.0.0-pre.2"}
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
-authors = [{name = "TreePO Contributors"}]
+authors = [{name = "Mitchell Linegar"}]
 keywords = ["treepo", "ctreepo", "benchmarks", "simulation", "lda"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
-  "License :: OSI Approved :: MIT License",
+  "License :: Free for non-commercial use",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",

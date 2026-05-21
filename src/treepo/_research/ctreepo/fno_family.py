@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -49,6 +49,7 @@ from treepo._research.tree.state_tree import (
     update_state_tree_node,
     write_state_trees_jsonl,
 )
+from treepo.paths import default_tokenizer_path
 
 LOGGER = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ class FNOFamilyConfig:
     #: Default 2048 matches Google EmbeddingGemma-300m's max_position_embeddings.
     #: Set to ``None`` to disable the no-truncation enforcement (legacy / smoke).
     embedding_max_length_tokens: Optional[int] = 2048
-    tokenizer_model_path: str = "/mnt/data/models/google/embeddinggemma-300m"
+    tokenizer_model_path: str = field(default_factory=default_tokenizer_path)
     #: Optional expected FNO spatial width after any within-leaf concatenation.
     #: For the EmbeddingGemma defaults this is 768. If a future embedding model
     #: has max length smaller than leaf_size_tokens, callers should set this to

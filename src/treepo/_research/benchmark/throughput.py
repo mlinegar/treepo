@@ -789,7 +789,7 @@ class VLLMServerManager:
         profile: str,
         port: int = 8000,
         host: str = "0.0.0.0",
-        venv_path: str = "/home/mlinegar/vllm-env",
+        venv_path: str = "~/vllm-env",
         startup_timeout: float = 300.0,  # 5 minutes max for model loading
         health_check_interval: float = 2.0,
         cuda_devices: Optional[str] = None,  # e.g., "0,1" or "2,3"
@@ -1069,7 +1069,7 @@ def load_sglang_config(profile: str, config_path: Optional[Path] = None) -> Dict
         "disable_cuda_graph": bool(effective_runtime.get("disable_cuda_graph", False)),
         "cuda_graph_max_bs": int(effective_runtime.get("cuda_graph_max_bs", 0) or 0),
         "cuda_toolkit_venv_path": str(
-            backend_cfg.get("vllm_venv_path", "/home/mlinegar/vllm-env")
+            backend_cfg.get("vllm_venv_path", "~/vllm-env")
         ),
     }
 
@@ -1097,7 +1097,7 @@ class SGLangServerManager:
         profile: str,
         port: int = 30000,
         host: str = "0.0.0.0",
-        venv_path: str = "/home/mlinegar/sglang-env",
+        venv_path: str = "~/sglang-env",
         startup_timeout: float = 300.0,
         health_check_interval: float = 2.0,
         cuda_devices: Optional[str] = None,
@@ -1200,7 +1200,7 @@ class SGLangServerManager:
         # Reuse the toolkit path from vLLM env for CUDA/NVCC/curand headers on NVFP4 profiles.
         _configure_nvfp4_runtime_env(
             env,
-            venv_path=str(self._config.get("cuda_toolkit_venv_path", "/home/mlinegar/vllm-env")),
+            venv_path=str(self._config.get("cuda_toolkit_venv_path", "~/vllm-env")),
             profile=str(self._config.get("path", self.profile)),
         )
         if self.cuda_devices:
