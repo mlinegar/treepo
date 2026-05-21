@@ -90,7 +90,7 @@ from treepo._research.core.semantic_prompting import semantic_document_memory
 from treepo._research.core.prompting import clean_summary_text, is_degenerate_summary_text
 from treepo._research.tasks.prompting import PromptBuilders, default_merge_prompt, default_summarize_prompt
 from treepo._research.preprocessing.chunker import chunk_for_ops
-from unified_g_v1.core.specs import (
+from treepo._research.unified_g_v1.core.specs import (
     UnifiedFGSpec,
     build_ctreepo_program_spec,
     build_llm_text_program_spec,

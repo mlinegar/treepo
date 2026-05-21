@@ -47,7 +47,7 @@ from treepo._research.tree.builder import BuildConfig, BuildResult
 from treepo._research.core.async_utils import cancel_tasks, to_thread
 from treepo._research.core.prompting import clean_summary_text, is_degenerate_summary_text
 from treepo._research.training.supervision import SupervisionDataset
-from unified_g_v1.core.specs import build_llm_text_program_spec
+from treepo._research.unified_g_v1.core.specs import build_llm_text_program_spec
 
 
 logger = logging.getLogger(__name__)

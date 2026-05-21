@@ -100,7 +100,7 @@ def ensure_default_method_adapters() -> None:
     global _DEFAULT_ADAPTERS_REGISTERED
     if _DEFAULT_ADAPTERS_REGISTERED:
         return
-    importlib.import_module("src.experiments.adapters")
+    importlib.import_module("treepo._research.experiments.adapters")
     _DEFAULT_ADAPTERS_REGISTERED = True
 
 

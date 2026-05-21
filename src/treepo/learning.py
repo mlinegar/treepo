@@ -208,7 +208,7 @@ def _fit_runtime(cfg: FitConfig, *, mode: str) -> FitResult:
 
 
 def _fit_learning(cfg: FitConfig, *, mode: str) -> FitResult:
-    learning = importlib.import_module("src.ctreepo.learning")
+    learning = importlib.import_module("treepo._research.ctreepo.learning")
     spec = dict(cfg.spec or cfg.config or {})
     if cfg.train_data is not None:
         spec["train_data"] = cfg.train_data

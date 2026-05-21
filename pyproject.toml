@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+# 77.0 added PEP 639 SPDX license-expression support (string form for `license`).
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,15 +8,17 @@ name = "treepo"
 version = "0.1.0"
 description = "TreePO/C-TreePO paper methods, runtime benchmarks, and simulation harness"
 readme = "README.md"
-license = {text = "PolyForm-Noncommercial-2.0.0-pre.2"}
+# LicenseRef- prefix (PEP 639) for custom non-SPDX licenses like PolyForm-NC.
+license = "LicenseRef-PolyForm-Noncommercial-2.0.0-pre.2"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{name = "Mitchell Linegar"}]
 keywords = ["treepo", "ctreepo", "benchmarks", "simulation", "lda"]
 classifiers = [
+  # License classifier removed per PEP 639 — license expression above
+  # (LicenseRef-PolyForm-Noncommercial-2.0.0-pre.2) is the canonical signal.
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
-  "License :: Free for non-commercial use",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -25,43 +28,19 @@ classifiers = [
 dependencies = [
   "numpy>=1.24",
   "pyyaml>=6.0",
+  # Tree-construction (treepo._research.preprocessing.chunker) — reachable
+  # from treepo.cld so it's a core requirement, not optional.
+  "langextract>=1.1.1",
+  "tiktoken>=0.12.0",
 ]
 
-[project.optional-dependencies]
-sklearn = ["scikit-learn>=1.4.2"]
-torch = ["torch>=2.0.0"]
-sketches = ["datasketches>=5.2.0"]
-reports = ["matplotlib>=3.8.0"]
-llm = [
-  "openai>=1.0.0",
-  "tiktoken>=0.12.0",
-  "more-itertools>=10.0",
-  "tqdm>=4.65",
-]
-runtime = [
-  "openai>=1.0.0",
-  "tiktoken>=0.12.0",
-  "more-itertools>=10.0",
-  "tqdm>=4.65",
-  "datasets>=2.14.0",
-  "nltk>=3.9.0",
-  "wonderwords>=2.2.0",
-]
-manifesto = ["pandas>=2.0.0", "openpyxl>=3.0.0"]
-train = [
-  "openai>=1.0.0",
-  "tiktoken>=0.12.0",
-  "more-itertools>=10.0",
-  "tqdm>=4.65",
-  "torch>=2.0.0",
-  "scikit-learn>=1.4.2",
-  "dspy>=3.0.0",
-  "transformers>=4.40.0",
-  "datasets>=2.14.0",
-  "peft>=0.8.0",
-  "trl>=0.8.0",
-]
+[dependency-groups]
+# Dev-only deps (PEP 735). Auto-installed by `uv sync`; skip with
+# `uv sync --no-dev` for the slim runtime surface. Following the uv
+# pattern, there's no [project.optional-dependencies] — every dep that
+# isn't required to `import treepo` lives here.
 dev = [
+  # Test + lint + type tooling
   "pytest>=7.0.0",
   "pytest-cov>=4.0.0",
   "hypothesis>=6.0.0",
@@ -69,8 +48,25 @@ dev = [
   "isort>=5.0.0",
   "mypy>=1.0.0",
   "ruff>=0.1.0",
+  # Research-tier deps consumed by treepo._research / treepo.cld
+  "scikit-learn>=1.4.2",
+  "torch>=2.0.0",
+  "transformers>=4.40.0",
+  "dspy>=3.0.0",
+  "datasets>=2.14.0",
+  "peft>=0.8.0",
+  "trl>=0.8.0",
+  "nltk>=3.9.0",
+  "wonderwords>=2.2.0",
+  "matplotlib>=3.8.0",
+  "datasketches>=5.2.0",
+  "pandas>=2.0.0",
+  "openpyxl>=3.0.0",
+  # LLM endpoints used by cld + research scripts
+  "openai>=1.0.0",
+  "more-itertools>=10.0",
+  "tqdm>=4.65",
 ]
-all = ["treepo[sklearn,torch,sketches,reports,llm,runtime,manifesto,train,dev]"]
 
 [project.scripts]
 treepo-bench = "treepo.cli:main"
@@ -78,6 +74,11 @@ treepo-bench = "treepo.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["treepo*"]
+
+# uv-specific tooling config
+[tool.uv]
+# Allow editable installs into the venv (default true; explicit for clarity).
+package = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

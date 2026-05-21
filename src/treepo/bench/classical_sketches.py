@@ -301,7 +301,7 @@ def _attach_tree_bundle_contract(
 ) -> Dict[str, object]:
     out = dict(row)
     try:
-        contracts = importlib.import_module("src.ctreepo.contracts")
+        contracts = importlib.import_module("treepo._research.ctreepo.contracts")
     except Exception:
         return out
     fg_lineage_metadata = contracts.fg_lineage_metadata

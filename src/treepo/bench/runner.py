@@ -143,7 +143,7 @@ def _run_classical_sketches_via_unified_g(
     output_dir: Path,
 ):
     try:
-        learning = importlib.import_module("src.ctreepo.learning")
+        learning = importlib.import_module("treepo._research.ctreepo.learning")
         return learning.fit_classical_sketch_grid(cfg, output_dir=output_dir)
     except ModuleNotFoundError:
         # Standalone treepo installs may not include the monorepo `src.ctreepo`
@@ -151,8 +151,8 @@ def _run_classical_sketches_via_unified_g(
         pass
 
     _ensure_unified_g_src_on_path()
-    from unified_g_v1.sketch.classical_sketch_grid import classical_sketch_grid_task
-    from unified_g_v1.training.fit import fit
+    from treepo._research.unified_g_v1.sketch.classical_sketch_grid import classical_sketch_grid_task
+    from treepo._research.unified_g_v1.training.fit import fit
 
     trainer_cfg = classical_sketch_grid_task(config=cfg)
     return fit(trainer_config=trainer_cfg, output_dir=output_dir)

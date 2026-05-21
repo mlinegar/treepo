@@ -4,12 +4,26 @@
 
 ## Quick start
 
+[uv](https://docs.astral.sh/uv/) is the canonical workflow — it manages a `.venv/`, resolves dependencies from `uv.lock` for reproducible installs, and is much faster than pip:
+
 ```bash
 git clone <this-repo-url> treepo
 cd treepo
-pip install -e .              # core (numpy + pyyaml)
-pip install -e ".[all]"       # everything including sklearn, torch, dspy, ...
-pytest tests/                 # 273 tests, ~30s on a laptop
+uv sync                       # creates .venv, installs everything (dev + research deps)
+uv run pytest tests/          # 281 passed, ~35s on a laptop
+```
+
+The slim runtime surface (just `import treepo`) requires only `numpy`, `pyyaml`, `langextract`, `tiktoken`. Everything else (sklearn, torch, dspy, transformers, pandas, ruff, pytest, …) lives in the `dev` dependency group and is auto-installed by `uv sync`. For the minimal install:
+
+```bash
+uv sync --no-dev              # just core deps; dev / research tooling left out
+```
+
+For pip users (no uv):
+
+```bash
+pip install -e .              # core only
+# Then install dev deps from pyproject.toml [dependency-groups].dev manually if needed.
 ```
 
 ## Repo layout

@@ -15,6 +15,8 @@ outputs/
 *.log
 *.db
 *.lock
+# Reproducibility lockfile — keep tracked (uv convention for applications).
+!uv.lock
 
 # Editors / OS
 .DS_Store

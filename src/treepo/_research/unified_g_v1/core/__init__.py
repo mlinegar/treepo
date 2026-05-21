@@ -1,0 +1,100 @@
+"""Core interfaces for the Unified-G V1 lane."""
+
+from .artifact import (
+    LLMTextUnifiedFGProgram,
+    TextUnifiedGProgram,
+    UnifiedGArtifact,
+    build_llm_text_unified_fg_contract,
+    build_text_unified_g_contract,
+    build_unified_dspy_strategy,
+    resolve_text_unified_g_program,
+)
+from .bundle import StoredRunBundle, create_stored_run_bundle
+from .contracts import (
+    ComparatorPolicy,
+    MarkovRunSpec,
+    MarkovScope,
+    Profile,
+    SupervisionPolicy,
+)
+from .manifest import now_iso, write_json
+from .program import UnifiedFGProgram, UnifiedGContract, UnifiedGProgram, UnifiedGSurface
+from .splits import (
+    DocumentSplitIds,
+    load_phase1_split_ids,
+    load_split_ids_json,
+    resolve_document_split_ids,
+    write_split_ids_json,
+)
+from .specs import (
+    LearnerSpec,
+    SpaceSpec,
+    UnifiedFGSpec,
+    build_token_sequence_fno_program_spec,
+    build_ctreepo_program_spec,
+    build_embedding_sequence_fno_program_spec,
+    build_llm_text_program_spec,
+    build_markov_token_fno_program_spec,
+    build_mergeable_sketch_program_spec,
+    build_program_family,
+    build_semantic_embedding_program_spec,
+    resolve_program_spec_alias,
+)
+from .supervision import UnifiedGSupervisionDataset
+from .tensor_program import (
+    EmbeddingLeafAdapter,
+    EmbeddingOperatorModules,
+    EmbeddingOperatorUnifiedFGProgram,
+    FNO_HEAD_MIN_RATIO,
+    NeuralOperatorFHead,
+    SharedTensorG,
+    StatePairMergeAdapter,
+    build_embedding_operator_unified_fg_program,
+    build_embedding_unified_g_program,
+    resolve_operator_head_width,
+)
+
+__all__ = [
+    "DocumentSplitIds",
+    "EmbeddingLeafAdapter",
+    "EmbeddingOperatorModules",
+    "EmbeddingOperatorUnifiedFGProgram",
+    "FNO_HEAD_MIN_RATIO",
+    "LearnerSpec",
+    "LLMTextUnifiedFGProgram",
+    "NeuralOperatorFHead",
+    "SpaceSpec",
+    "SharedTensorG",
+    "StatePairMergeAdapter",
+    "TextUnifiedGProgram",
+    "UnifiedFGSpec",
+    "UnifiedFGProgram",
+    "UnifiedGContract",
+    "UnifiedGArtifact",
+    "UnifiedGProgram",
+    "StoredRunBundle",
+    "UnifiedGSurface",
+    "UnifiedGSupervisionDataset",
+    "build_ctreepo_program_spec",
+    "build_embedding_operator_unified_fg_program",
+    "build_embedding_sequence_fno_program_spec",
+    "build_token_sequence_fno_program_spec",
+    "build_embedding_unified_g_program",
+    "build_llm_text_program_spec",
+    "build_mergeable_sketch_program_spec",
+    "build_program_family",
+    "build_llm_text_unified_fg_contract",
+    "build_text_unified_g_contract",
+    "build_unified_dspy_strategy",
+    "build_semantic_embedding_program_spec",
+    "create_stored_run_bundle",
+    "load_phase1_split_ids",
+    "load_split_ids_json",
+    "now_iso",
+    "resolve_document_split_ids",
+    "resolve_program_spec_alias",
+    "resolve_text_unified_g_program",
+    "resolve_operator_head_width",
+    "write_split_ids_json",
+    "write_json",
+]

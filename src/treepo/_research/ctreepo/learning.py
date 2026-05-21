@@ -802,8 +802,8 @@ def fit_classical_sketch_grid(config: Any, *, output_dir: str | Path) -> Any:
         else ClassicalSketchComparisonConfig(**dict(config or {}))
     )
     try:
-        from unified_g_v1.sketch.classical_sketch_grid import classical_sketch_grid_task
-        from unified_g_v1.training.fit import fit as unified_fit
+        from treepo._research.unified_g_v1.sketch.classical_sketch_grid import classical_sketch_grid_task
+        from treepo._research.unified_g_v1.training.fit import fit as unified_fit
     except ImportError:
         for parent in Path(__file__).resolve().parents:
             candidate = parent / "parallel" / "unified_g_v1" / "src"
@@ -814,8 +814,8 @@ def fit_classical_sketch_grid(config: Any, *, output_dir: str | Path) -> Any:
                     if path not in sys.path:
                         sys.path.insert(0, path)
                 break
-        from unified_g_v1.sketch.classical_sketch_grid import classical_sketch_grid_task
-        from unified_g_v1.training.fit import fit as unified_fit
+        from treepo._research.unified_g_v1.sketch.classical_sketch_grid import classical_sketch_grid_task
+        from treepo._research.unified_g_v1.training.fit import fit as unified_fit
 
     return unified_fit(
         trainer_config=classical_sketch_grid_task(config=cfg),
