@@ -43,12 +43,14 @@ dev = [
   # Test + lint + type tooling
   "pytest>=7.0.0",
   "pytest-cov>=4.0.0",
-  "hypothesis>=6.0.0",
   "black>=23.0.0",
   "isort>=5.0.0",
   "mypy>=1.0.0",
   "ruff>=0.1.0",
-  # Research-tier deps consumed by treepo._research / treepo.cld
+  # Research-tier deps directly imported by treepo._research / treepo.cld /
+  # the test suite. Several lightweight packages (more-itertools, tqdm)
+  # arrive transitively via transformers / datasets / dspy — they don't
+  # need to be listed here. If you run into a missing-import error, add it.
   "scikit-learn>=1.4.2",
   "torch>=2.0.0",
   "transformers>=4.40.0",
@@ -56,16 +58,10 @@ dev = [
   "datasets>=2.14.0",
   "peft>=0.8.0",
   "trl>=0.8.0",
-  "nltk>=3.9.0",
-  "wonderwords>=2.2.0",
   "matplotlib>=3.8.0",
   "datasketches>=5.2.0",
   "pandas>=2.0.0",
-  "openpyxl>=3.0.0",
-  # LLM endpoints used by cld + research scripts
   "openai>=1.0.0",
-  "more-itertools>=10.0",
-  "tqdm>=4.65",
 ]
 
 [project.scripts]
