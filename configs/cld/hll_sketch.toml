@@ -1,0 +1,14 @@
+# HLL classical sketch — flat TOML over `HllSketchConfig` fields.
+# Paper grid (`test_markov_hll_grids.py`) sweeps precision ∈ {6,8,10,12,14};
+# 14 is the min-MAE point. HLL is schedule-invariant — balanced /
+# left_to_right / right_to_left all bit-for-bit identical.
+
+backend           = "native"
+precision         = 14
+hash_bits         = 64
+schedule          = "balanced"
+n_trees           = 6
+leaves_per_tree   = 4
+leaf_token_count  = 24
+vocabulary_size   = 200
+seed              = 0

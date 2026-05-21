@@ -1,0 +1,104 @@
+version: 1
+policy:
+  package_root: treepo
+  default_for_unlisted: exclude_legacy
+  allowed_classes:
+    - package_module
+    - cli_command
+    - compat_shim
+    - exclude_legacy
+
+required_families:
+  - id: hll_cardinality
+    status: migrated
+    package: treepo.bench.cardinality_recovery
+    notes: HLL/cardinality recovery and merge-learning API.
+  - id: classical_sketches
+    status: migrated
+    package: treepo.bench.classical_sketches
+    notes: Classical sketch comparison suite and reports.
+  - id: lda_identifiable_zero
+    status: migrated_refactor_needed
+    package: treepo.bench.lda
+    notes: Present in package; large modules should be split by config/data/estimator/eval.
+  - id: mergeable_ablations
+    status: planned
+    source_glob: scripts/run_mergeable_*.py
+    notes: Migrate only paper-facing simulations; exclude plotting-only wrappers.
+  - id: learned_sketch
+    status: partially_migrated
+    package: treepo.bench.learned.mergeable_sketch
+    notes: Keep torch pieces behind treepo[torch].
+  - id: ipw_audit
+    status: planned
+    source_glob: scripts/run_ipw_*.py
+    notes: Migrate as deterministic simulation modules plus suite commands.
+  - id: runtime_longbench_ruler
+    status: longbench_fixture_runnable
+    package: treepo.runtime
+    notes: LongBench fixture runtime runs all v1 methods; RULER and live embedding/operator clients remain.
+  - id: llm_stack
+    status: scaffolded
+    package: treepo.llm
+    notes: OpenAI-compatible payload helpers present; clients stay behind treepo[llm].
+  - id: manifesto_rile
+    status: scaffolded
+    package: treepo.tasks.manifesto
+    notes: Minimal constants present; full RILE demo remains behind treepo[manifesto,llm].
+  - id: training_state_models
+    status: scaffolded
+    package: treepo.training
+    notes: Lifecycle protocol present; neural operators stay behind treepo[torch,train].
+
+entries:
+  - source: treepo/src/treepo/bench
+    target: treepo.bench
+    class: package_module
+    reason: Existing package simulation/report implementation.
+  - source: treepo/src/treepo/sketches
+    target: treepo.sketches
+    class: package_module
+    reason: Existing package sketch protocols and adapters.
+  - source: scripts/run_runtime_eval.py
+    target: treepo.runtime
+    class: package_module
+    reason: Migrate benchmark adapters/callstream/methods; do not copy CLI wholesale.
+  - source: scripts/run_longbench_batched_example.py
+    target: treepo-bench suite longbench-batched
+    class: cli_command
+    reason: Keep as package suite command after runtime callstream migration.
+  - source: scripts/run_manifesto_batched_example.py
+    target: treepo-bench suite manifesto-batched
+    class: cli_command
+    reason: Minimal paper example; no server management or local absolute defaults.
+  - source: scripts/run_method_compare.py
+    target: treepo-bench suite method-compare
+    class: cli_command
+    reason: Method matrix belongs in the package once runtime methods are migrated.
+  - source: scripts/report_method_compare.py
+    target: treepo-bench report method-compare
+    class: cli_command
+    reason: Report over package method-matrix outputs.
+  - source: scripts/train_neural_operators.py
+    target: treepo.training
+    class: package_module
+    reason: State-model training path; keep torch dependency optional.
+  - source: scripts/run_markov_publication_bundle.py
+    target: treepo-bench suite markov-publication
+    class: cli_command
+    reason: Paper workflow, but should become package suite specs rather than launcher code.
+  - source: scripts/plot_*.py
+    class: exclude_legacy
+    reason: Plot wrappers become report functions or remain outside the release package.
+  - source: scripts/build_*.py
+    class: exclude_legacy
+    reason: Command builders are replaced by package suite specs.
+  - source: scripts/launch_*.py
+    class: exclude_legacy
+    reason: Launchers are workspace operations, not package API.
+  - source: scripts/*overnight*.sh
+    class: exclude_legacy
+    reason: Overnight orchestration is not package code.
+  - source: scripts/long_job.py
+    class: exclude_legacy
+    reason: Detached process management remains in the workspace.

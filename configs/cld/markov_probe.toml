@@ -1,0 +1,36 @@
+# Markov FNO probe — flat dict of probe argparse flag values.
+# The dispatcher (`treepo.cld.run("probe", ...)`) validates these keys against
+# `allowed_config_keys("probe")` in treepo/src/treepo/cld/methods.py
+# and forwards each as `--flag-name value` to scripts/probe_clean_unified_no.py.
+# Anything you omit falls back to the probe script's own argparse default.
+#
+# Reference: treepo/docs/training_defaults.md (Markov probe section)
+# Memory: feedback_no_per_node_cpu_sync_in_forward_doc.md.
+
+# Data / corpus
+benchmark    = "recoverable_v5_t2048"
+leaf_tokens  = 2048   # 2048 = 1 leaf/doc; 256 = 8 leaves/doc; 16 = 128 leaves/doc
+train_docs   = 1024
+
+# Architecture
+channels        = 64
+g_n_modes       = 32
+g_n_layers      = 2
+scorer_n_modes  = 16
+scorer_n_layers = 2
+leaf_pool       = "sum"
+
+# Training
+epochs        = 30
+batch_size    = 16
+lr            = 1e-4
+optimizer     = "adamw"
+weight_decay  = 1e-2
+lr_schedule   = "cosine"
+grad_clip     = 1.0
+seed          = 0
+
+# Objective: "root" | "contextual_sufficiency" | "markov_node_witness" | "markov_local_laws_fno"
+training_objective              = "root"
+enable_contextual_sufficiency   = false
+root_only                       = false

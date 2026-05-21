@@ -1,0 +1,37 @@
+experiment_id: lbv2_all_methods_smoke
+benchmark:
+  family: longbench_v2
+  dataset: examples/longbench_v2_tiny.yaml
+  split: fixture
+methods:
+  - full_context
+  - retrieval
+  - summary_tree
+  - state_tree
+  - neural_operator
+scorer:
+  kind: mock
+  model: deterministic-overlap
+summarizer:
+  kind: mock
+  model: deterministic-sentence
+embedder:
+  kind: mock
+  model: deterministic-overlap
+state_model:
+  kind: native_fno
+  model: deterministic-state-selector
+  checkpoint: ""
+  operations:
+    - encode_leaf
+    - merge_state
+    - select_evidence
+    - render_state
+oracle:
+  kind: benchmark_labels
+runtime_defaults:
+  mock: true
+  chunk_chars: 2000
+  top_k: 6
+  temperature: 0.0
+  max_output_tokens: 4

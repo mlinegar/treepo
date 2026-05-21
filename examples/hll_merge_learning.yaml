@@ -1,0 +1,12 @@
+model_kind: induced_projection
+objective_mode: corrected_local_law
+proxy_mode: frozen_rollout
+precisions: [6]
+train_docs_grid: [8]
+audit_policies: [all]
+n_test: 8
+n_epochs: 1
+batch_docs: 4
+hidden_dim: 8
+use_cuda: false
+seed: 0

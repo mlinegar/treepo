@@ -1,0 +1,106 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "treepo"
+version = "0.1.0"
+description = "TreePO/C-TreePO paper methods, runtime benchmarks, and simulation harness"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "TreePO Contributors"}]
+keywords = ["treepo", "ctreepo", "benchmarks", "simulation", "lda"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "numpy>=1.24",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+sklearn = ["scikit-learn>=1.4.2"]
+torch = ["torch>=2.0.0"]
+sketches = ["datasketches>=5.2.0"]
+reports = ["matplotlib>=3.8.0"]
+llm = [
+  "openai>=1.0.0",
+  "tiktoken>=0.12.0",
+  "more-itertools>=10.0",
+  "tqdm>=4.65",
+]
+runtime = [
+  "openai>=1.0.0",
+  "tiktoken>=0.12.0",
+  "more-itertools>=10.0",
+  "tqdm>=4.65",
+  "datasets>=2.14.0",
+  "nltk>=3.9.0",
+  "wonderwords>=2.2.0",
+]
+manifesto = ["pandas>=2.0.0", "openpyxl>=3.0.0"]
+train = [
+  "openai>=1.0.0",
+  "tiktoken>=0.12.0",
+  "more-itertools>=10.0",
+  "tqdm>=4.65",
+  "torch>=2.0.0",
+  "scikit-learn>=1.4.2",
+  "dspy>=3.0.0",
+  "transformers>=4.40.0",
+  "datasets>=2.14.0",
+  "peft>=0.8.0",
+  "trl>=0.8.0",
+]
+dev = [
+  "pytest>=7.0.0",
+  "pytest-cov>=4.0.0",
+  "hypothesis>=6.0.0",
+  "black>=23.0.0",
+  "isort>=5.0.0",
+  "mypy>=1.0.0",
+  "ruff>=0.1.0",
+]
+all = ["treepo[sklearn,torch,sketches,reports,llm,runtime,manifesto,train,dev]"]
+
+[project.scripts]
+treepo-bench = "treepo.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["treepo*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

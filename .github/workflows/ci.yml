@@ -1,0 +1,135 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-base:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install core
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+      - name: Tests (core surface)
+        run: |
+          pytest -q \
+            tests/test_hll_api.py \
+            tests/test_package_layers.py \
+            tests/test_examples.py \
+            tests/test_release_gates.py \
+            tests/suites/test_suite_grids.py
+
+  test-sketches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install sketches
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[sketches]" pytest
+      - name: Tests (sketch adapters)
+        run: |
+          pytest -q tests/sketches
+
+  test-torch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install torch
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[torch]" pytest
+      - name: Tests (torch simulations)
+        run: |
+          pytest -q \
+            tests/bench/test_cardinality_runner_smoke.py \
+            tests/bench/test_learned_g_experiments.py \
+            tests/bench/test_learned_g_runner_smoke.py
+
+  test-sklearn-torch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install sklearn + torch
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[sklearn,torch]" pytest
+      - name: Tests (LDA/state simulations)
+        run: |
+          pytest -q \
+            tests/bench/test_identifiable_zero_signatures.py \
+            tests/bench/test_segmented_lda_ctreepo.py \
+            tests/bench/test_segment_lda_ops_weight_recovery.py
+
+  test-reports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install reports
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[reports]" pytest
+      - name: Tests (reports)
+        run: |
+          pytest -q tests/reports
+
+  launch-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install launch dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[torch,sketches]" pytest
+      - name: Launch gate
+        run: |
+          treepo-bench check launch --json
+      - name: Paper smoke enumerates
+        run: |
+          treepo-bench suite paper-smoke \
+            --out-root /tmp/treepo_paper_smoke \
+            --jobs 1 \
+            --commands-only
+
+  test-cld:
+    # Tests for the unified treepo.cld dispatcher + canonical-defaults
+    # framework. Imports DSPy + torch + transformers transitively via the
+    # vendored _research/ tree, so this job installs the train extra.
+    # Live-LLM tests are skipped unless TT_RUN_LIVE_TESTS=1.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install train + sketches extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[train,sketches]" pytest
+      - name: Tests (cld unified surface)
+        run: |
+          pytest -q tests/cld

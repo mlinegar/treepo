@@ -1,0 +1,225 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from treepo.audit import (
+    LawKind,
+    LocalLawAuditRow,
+    compute_influence_weighted_overlap,
+    corrected_losses_from_rows,
+)
+from treepo.certificate import (
+    UnifiedLearningComponentEvidence,
+    build_error_certificate,
+)
+from treepo.honesty import (
+    ThreeLayerHonestyConfig,
+    assign_three_layer_roles,
+    role_tuple_for_unit,
+)
+from treepo.manifest import (
+    ArtifactLineage,
+    ArtifactRef,
+    ManifestRow,
+    RunManifestContract,
+    Span,
+    TopLevelUnit,
+)
+from treepo.objective import ObjectiveSpec, normalize_objective_spec
+from treepo.sampling import ObservationUnitKind, SamplingMetadata
+
+
+def _lineage() -> ArtifactLineage:
+    return ArtifactLineage(
+        chunker="chunker:v1",
+        g="g:v1",
+        f="f:v1",
+        oracle_online="oracle:online",
+        oracle_eval="oracle:eval",
+        query_policy="query:v1",
+        proxy="proxy:v1",
+    )
+
+
+def test_manifest_round_trips_and_validates() -> None:
+    manifest = RunManifestContract(
+        run_id="run_1",
+        top_level_units=(TopLevelUnit(unit_id="doc_1", length=100),),
+        artifacts=(
+            ArtifactRef("chunker:v1"),
+            ArtifactRef("g:v1"),
+            ArtifactRef("f:v1"),
+            ArtifactRef("oracle:online"),
+            ArtifactRef("oracle:eval"),
+            ArtifactRef("query:v1"),
+            ArtifactRef("proxy:v1"),
+        ),
+        rows=(
+            ManifestRow(
+                row_id="row_1",
+                top_level_unit_id="doc_1",
+                fold_id="fold_0",
+                split_seed=7,
+                roles=role_tuple_for_unit(
+                    "doc_1",
+                    ThreeLayerHonestyConfig(enabled=True, split_seed=7),
+                ),
+                artifacts=_lineage(),
+                law_kind="c1_leaf",
+                support=Span(0, 50, unit="char"),
+                observed=True,
+                propensity=0.5,
+                truth_source="fixture_oracle",
+                approx_source="fixture_proxy",
+            ),
+        ),
+    )
+
+    report = manifest.validate()
+    assert report.ok, report.to_dict()
+    restored = RunManifestContract.from_dict(json.loads(json.dumps(manifest.to_dict())))
+    assert restored == manifest
+    assert len(restored.digest) == 64
+
+
+def test_manifest_rejects_missing_parent_and_invalid_observed_propensity() -> None:
+    with pytest.raises(ValueError, match="positive propensity"):
+        ManifestRow(
+            row_id="bad",
+            top_level_unit_id="doc_1",
+            support=Span(0, 1),
+            observed=True,
+            propensity=0.0,
+        )
+
+    manifest = RunManifestContract(
+        run_id="run_1",
+        top_level_units=(TopLevelUnit(unit_id="doc_1", length=10),),
+        rows=(
+            ManifestRow(
+                row_id="row_1",
+                top_level_unit_id="missing",
+                support=Span(0, 1),
+                observed=False,
+                propensity=0.0,
+            ),
+        ),
+    )
+    report = manifest.validate(require_artifacts=False)
+    assert not report.ok
+    assert "missing top-level unit" in report.errors[0]
+
+
+def test_objective_rejects_additive_oracle_gap_terms() -> None:
+    spec = ObjectiveSpec(
+        objective_family="root_plus_laws",
+        local_law_component_weights={"c1": 0.2, "c3": 0.3},
+    )
+    payload = spec.to_dict()
+    assert set(payload["terms"]) == {"root", "local_law_corrected"}
+    assert payload["local_law_component_weights"]["leaf_preservation"] == pytest.approx(0.2)
+    assert payload["local_law_weight"] == pytest.approx(0.5)
+
+    with pytest.raises(ValueError, match="oracle_gap"):
+        normalize_objective_spec({"terms": {"oracle_gap": {"weight": 1.0}}})
+    with pytest.raises(ValueError, match="legacy public objective fields"):
+        normalize_objective_spec({"gap_weight": 1.0})
+
+
+def test_audit_rows_compute_corrected_losses_and_overlap() -> None:
+    rows = [
+        LocalLawAuditRow(
+            row_id="r0",
+            law_kind=LawKind.C1_LEAF,
+            proxy_loss=0.4,
+            observed=False,
+            propensity=0.0,
+            node_weight=1.0,
+        ),
+        LocalLawAuditRow(
+            row_id="r1",
+            law_kind="c3",
+            proxy_loss=0.4,
+            oracle_loss=0.1,
+            observed=True,
+            propensity=0.5,
+            node_weight=2.0,
+        ),
+    ]
+    assert corrected_losses_from_rows(rows) == pytest.approx([0.4, -0.2])
+    overlap = compute_influence_weighted_overlap(rows)
+    assert overlap.D_lambda == pytest.approx(1.0 / 1e-12 + 4.0 / 0.5)
+    assert overlap.W_lambda == pytest.approx(1.0 / 1e-12)
+    assert overlap.effective_sample_size > 0.0
+
+
+def test_certificate_keeps_component_radii_separate() -> None:
+    cert = build_error_certificate(
+        reported_estimate=0.2,
+        component_evidence=[
+            UnifiedLearningComponentEvidence(component="local_law", radius=0.1),
+            UnifiedLearningComponentEvidence(component="calibration", radius=0.2),
+            UnifiedLearningComponentEvidence(component="estimation", radius=0.3),
+            UnifiedLearningComponentEvidence(component="clipping", radius=0.4),
+        ],
+    )
+    assert cert.radius_sum == pytest.approx(1.0)
+    assert cert.total_bound == pytest.approx(1.2)
+    assert cert.local_law_radius == pytest.approx(0.1)
+
+
+def test_sampling_and_honesty_are_deterministic() -> None:
+    sampling = SamplingMetadata(
+        document_propensity=0.5,
+        unit_propensity=0.25,
+        label_propensity=1.0,
+        unit_kind=ObservationUnitKind.LEAF,
+    )
+    assert sampling.effective_joint_propensity() == pytest.approx(0.125)
+    assert sampling.ipw_weight() == pytest.approx(8.0)
+
+    cfg = ThreeLayerHonestyConfig(enabled=True, split_seed=11)
+    assert assign_three_layer_roles("doc_1", cfg) == assign_three_layer_roles("doc_1", cfg)
+
+
+def test_fit_runtime_uses_existing_runtime_pattern(tmp_path: Path) -> None:
+    from treepo import fit
+
+    dataset = tmp_path / "tiny.jsonl"
+    dataset.write_text(
+        json.dumps(
+            {
+                "_id": "lbv2-1",
+                "domain": "law",
+                "sub_domain": "contracts",
+                "difficulty": "easy",
+                "length": "short",
+                "question": "Which option is supported?",
+                "choice_A": "No evidence",
+                "choice_B": "The contract was signed.",
+                "choice_C": "The contract expired.",
+                "choice_D": "The contract was void.",
+                "answer": "B",
+                "context": "The contract was signed.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = fit(
+        {
+            "experiment_id": "fit_runtime_smoke",
+            "benchmark": {"family": "longbench_v2", "dataset": str(dataset), "split": "fixture"},
+            "methods": ["full_context"],
+            "scorer": {"kind": "mock", "model": "deterministic-overlap"},
+            "oracle": {"kind": "benchmark_labels"},
+            "runtime_defaults": {"mock": True, "max_output_tokens": 4},
+        },
+        output_dir=tmp_path / "fit",
+    )
+    assert result.status == "ok"
+    assert result.metrics["n"] == pytest.approx(1.0)
+    assert Path(result.artifacts["json_out"]).exists()

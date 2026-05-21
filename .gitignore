@@ -1,0 +1,27 @@
+# Caches
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+*.so
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Generated outputs (runtime caches, test outputs, dspy caches, etc.)
+outputs/
+*.log
+*.db
+*.lock
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Virtualenvs
+venv/
+.venv/
+env/
