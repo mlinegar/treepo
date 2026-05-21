@@ -49,6 +49,7 @@ import aiohttp
 import yaml
 
 from treepo._research.core.vllm_runtime import resolve_vllm_runtime_flags
+from treepo.paths import sglang_venv_path, vllm_venv_path
 
 logger = logging.getLogger(__name__)
 
@@ -506,9 +507,9 @@ class OrchestratorConfig:
     ))
     embedding: Optional[ServerConfig] = None
 
-    # Paths
-    venv_path: str = "~/vllm-env"
-    sglang_venv_path: str = "~/sglang-env"
+    # Paths — resolved via treepo.paths so TREEPO_VLLM_VENV / TREEPO_SGLANG_VENV env vars flow through.
+    venv_path: str = field(default_factory=vllm_venv_path)
+    sglang_venv_path: str = field(default_factory=sglang_venv_path)
     config_path: Optional[Path] = None
 
     # Timeouts
@@ -688,9 +689,9 @@ class OrchestratorConfig:
             venv_path=(
                 backend_cfg.get("vllm_venv_path")
                 or orch_cfg.get("venv_path")
-                or "~/vllm-env"
+                or vllm_venv_path()
             ),
-            sglang_venv_path=str(backend_cfg.get("sglang_venv_path") or "~/sglang-env"),
+            sglang_venv_path=str(backend_cfg.get("sglang_venv_path") or sglang_venv_path()),
             config_path=config_path,
             sleep_timeout=orch_cfg.get("sleep_timeout", 30.0),
             wake_timeout=orch_cfg.get("wake_timeout", 60.0),
@@ -1322,8 +1323,8 @@ class GPUOrchestrator:
         def _server_venv_path(server_cfg: ServerConfig) -> str:
             backend = str(getattr(server_cfg, "backend", "vllm") or "vllm").strip().lower()
             if backend == "sglang":
-                return str(getattr(config, "sglang_venv_path", "~/sglang-env"))
-            return str(getattr(config, "venv_path", "~/vllm-env"))
+                return str(getattr(config, "sglang_venv_path", sglang_venv_path()))
+            return str(getattr(config, "venv_path", vllm_venv_path()))
 
         # Create managed servers
         self._task_primary = ManagedServer(

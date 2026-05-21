@@ -207,7 +207,17 @@ class EngineRegistry:
 
     @staticmethod
     def _repo_root() -> Path:
-        return Path(__file__).resolve().parents[2]
+        """Walk up the tree until we find pyproject.toml (the project root).
+
+        Falls back to four levels above this file (``src/treepo/_research/core/
+        engines.py`` → project root) if no pyproject.toml is found, which
+        matches the standalone-treepo layout.
+        """
+        here = Path(__file__).resolve()
+        for candidate in (here.parent, *here.parents):
+            if (candidate / "pyproject.toml").exists():
+                return candidate
+        return here.parents[4]
 
     @classmethod
     def _base_specs(cls) -> dict[EngineType, EngineSpec]:

@@ -1,0 +1,65 @@
+# treepo: example settings.yaml — copy to settings.yaml and edit for your setup.
+#
+# This file demonstrates the schema the launch scripts (scripts/start_vllm.sh,
+# scripts/start_sglang.sh) expect. The full upstream template carries many more
+# model profiles and tunable sections; this minimal example shows the
+# structural shape so you can extend as needed.
+#
+# Paths under each model's `path:` should point at a local snapshot. Set the
+# TREEPO_MODEL_DIR env var to control the parent directory if you'd rather
+# refer to models by name rather than absolute path (handled by Python code,
+# not by the YAML loader directly).
+
+# ----------------------------------------------------------------------------
+# vLLM
+# ----------------------------------------------------------------------------
+vllm:
+  default: gemma-2b  # which model profile to launch when no profile arg is given
+
+  models:
+    # Minimal example. Add as many profiles as you want — the launch script
+    # selects between them via `./scripts/start_vllm.sh <profile-name>`.
+    gemma-2b:
+      path: "/path/to/your/gemma-2b"
+      tensor_parallel: 1
+      max_model_len: 8192
+      gpu_memory_utilization: 0.85
+
+    # A larger profile shown for shape:
+    # qwen-30b:
+    #   path: "/path/to/Qwen3-30B-NVFP4"
+    #   tensor_parallel: 4
+    #   max_model_len: 32768
+    #   gpu_memory_utilization: 0.92
+
+  # Optional speculative-decoding presets:
+  presets:
+    # training:
+    #   target: qwen-30b
+    #   draft: gemma-2b
+    #   spec_tokens: 5
+    inference: {}  # placeholder
+
+# ----------------------------------------------------------------------------
+# SGLang
+# ----------------------------------------------------------------------------
+sglang:
+  default: gemma-2b
+  models:
+    gemma-2b:
+      path: "/path/to/your/gemma-2b"
+      tensor_parallel: 1
+      max_model_len: 8192
+      gpu_memory_utilization: 0.85
+  default_port: 30000
+
+# ----------------------------------------------------------------------------
+# Inference-stack settings (consumed by orchestrator + clients)
+# ----------------------------------------------------------------------------
+inference:
+  task_backend: vllm        # vllm | sglang
+  genrm_backend: vllm
+  fallback_backend: vllm
+  routing_policy: affinity_load_aware
+  # vllm_venv_path / sglang_venv_path are read from
+  # TREEPO_VLLM_VENV / TREEPO_SGLANG_VENV env vars when omitted here.

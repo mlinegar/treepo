@@ -32,6 +32,63 @@ treepo/
 
 The `_research/` subpackage retains its `from treepo._research.X` import shape. It is listed in `release.MIGRATION_TIER_PREFIXES` so the hygiene gate doesn't flag its hardcoded local paths or heavy imports (those live with the research code, not the canonical package surface). Promoting individual modules out of `_research/` and into the canonical layout is the planned migration path.
 
+## Backends: vLLM and SGLang
+
+Both [vLLM](https://github.com/vllm-project/vllm) and [SGLang](https://github.com/sgl-project/sglang) are first-class local-chat backends. Treepo treats them symmetrically via the [`EngineRegistry`](src/treepo/_research/core/engines.py) (peer `EngineSpec` entries, both `launchable=True`, both `openai_compatible=True`).
+
+### Configure paths
+
+Three env vars resolve at import time via [`treepo.paths`](src/treepo/paths.py):
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `TREEPO_MODEL_DIR` | `~/models` | Root for local model snapshots (e.g. `$TREEPO_MODEL_DIR/google/embeddinggemma-300m`). |
+| `TREEPO_VLLM_VENV` | `~/vllm-env` | venv where `vllm` is installed (launch scripts activate this). |
+| `TREEPO_SGLANG_VENV` | `~/sglang-env` | venv where `sglang` is installed. |
+
+Setting one of the venv vars flows end-to-end: `OrchestratorConfig.venv_path` reads it as a dataclass field default, so you don't have to thread it through every call site.
+
+### Launching a local server
+
+The [`scripts/`](scripts/) directory ships wrappers for both engines:
+
+```bash
+./scripts/start_vllm.sh                 # default model profile from config/settings.yaml
+./scripts/start_vllm.sh qwen-80b        # explicit profile
+./scripts/start_sglang.sh               # default sglang model profile
+```
+
+Both wrappers delegate to [`scripts/start_engine.py`](scripts/start_engine.py), which looks up the engine in `EngineRegistry`, sets `TT_START_ENGINE_DIRECT=1`, and exec's the chosen `launch_script`. To see the resolved engine spec without launching:
+
+```bash
+./scripts/start_engine.py --engine vllm   --print-spec
+./scripts/start_engine.py --engine sglang --print-spec
+```
+
+The wrappers read `config/settings.yaml` for the model profile table (paths, tensor-parallel size, max context length). Treepo doesn't ship this file — copy from [`config/settings.example.yaml`](config/settings.example.yaml) and edit for your model layout.
+
+### Connecting as a client
+
+Most code in `treepo.cld` is a **client** for whichever engine is running. Point `DSPyFamilyConfig.lm_config` at the OpenAI-compatible base URL and it works the same regardless of backend:
+
+```python
+cfg = DSPyFamilyConfig(
+    lm_config={"model": "openai/your-model",
+               "api_base": "http://localhost:8000/v1",  # vLLM default
+               # or "http://localhost:30000/v1",         # SGLang default
+               "api_key": "EMPTY"},
+)
+```
+
+### Parity guarantee
+
+A parity test ([`tests/test_engine_parity.py`](tests/test_engine_parity.py)) loops over both engines and asserts:
+- `launchable=True`, `openai_compatible=True`, `supports_profiles=True`
+- `launch_script` file exists on disk
+- `treepo.paths` exposes a venv-path helper for the engine
+
+Adding a new local-chat backend means adding to that test's parametrize list.
+
 ## Unified `fit()` / `run()` interface (treepo.cld)
 
 The axis-factored dispatcher and canonical-defaults framework lives at [`treepo.cld`](src/treepo/cld/) and is re-exported at the top level. The new surface:

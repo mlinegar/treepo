@@ -13,9 +13,8 @@ Three categories of paths live here:
    resolve to a filesystem path with ``default_tokenizer_path()``.
 
 Why a module rather than buried defaults in each dataclass: a single
-``export TREEPO_MODEL_DIR=/mnt/data/models`` in your shell now recovers
-the original behavior across every consumer; previously you had to edit
-several files.
+``export TREEPO_MODEL_DIR=/your/model/root`` in your shell now flows to
+every consumer; previously you had to edit several files.
 
 The module is intentionally tiny — just constants + thin helpers — so
 treepo.cld and the vendored ``_research/`` code can both import from it
@@ -40,17 +39,17 @@ def _env_path(name: str, default: Path | str) -> Path:
 
 #: Root for local model snapshots. Override via the ``TREEPO_MODEL_DIR`` env var.
 #:
-#: Example: ``export TREEPO_MODEL_DIR=/mnt/data/models`` will resolve
-#: ``model_path("google", "embeddinggemma-300m")`` to
-#: ``/mnt/data/models/google/embeddinggemma-300m``.
+#: With ``TREEPO_MODEL_DIR`` set to e.g. ``/your/model/root``,
+#: ``model_path("google", "embeddinggemma-300m")`` resolves to
+#: ``/your/model/root/google/embeddinggemma-300m``.
 MODEL_DIR: Path = _env_path("TREEPO_MODEL_DIR", Path.home() / "models")
 
 
 def model_path(*parts: str) -> str:
     """Join ``MODEL_DIR`` with ``parts``, return a string path.
 
-    >>> model_path("google", "embeddinggemma-300m")  # doctest: +SKIP
-    '/home/mlinegar/models/google/embeddinggemma-300m'
+    With ``MODEL_DIR=$HOME/models`` (the default), ``model_path("google",
+    "embeddinggemma-300m")`` resolves to ``$HOME/models/google/embeddinggemma-300m``.
     """
     return str(MODEL_DIR.joinpath(*parts))
 
