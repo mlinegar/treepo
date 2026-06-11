@@ -26,7 +26,7 @@ import numpy as np
 try:
     import torch
 except ImportError:
-    raise ImportError("PyTorch required for CTreePO. Install with: pip install torch>=2.0.0")
+    raise ImportError("PyTorch required for CTreePO. Install with: uv sync --extra torch")
 
 from treepo._research.tree.ctreepo_model import CTreePOModel
 

@@ -14,7 +14,7 @@ try:
 except ImportError as e:  # pragma: no cover
     raise ImportError(
         "PyTorch is required for exact utility transport simulations. "
-        "Install with: pip install torch>=2.0.0"
+        "Install with: uv sync --extra torch"
     ) from e
 
 

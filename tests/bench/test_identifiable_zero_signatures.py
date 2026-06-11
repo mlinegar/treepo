@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from treepo.bench.lda.segmented_lda_ctreepo import (
+from treepo._research.bench.lda.segmented_lda_ctreepo import (
     SegmentedLDACtreePOConfig,
     _counts_to_freq_rows,
     _fit_leaf_theta_mlp,
@@ -14,7 +14,7 @@ from treepo.bench.lda.segmented_lda_ctreepo import (
     _predict_leaf_theta_model,
     run_segmented_lda_ctreepo_simulation,
 )
-from treepo.bench.lda.segment_lda_ops_weight_recovery import estimate_topic_distributions
+from treepo._research.bench.lda.segment_lda_ops_weight_recovery import estimate_topic_distributions
 
 
 def test_ctree_test_set_signature_stable_across_train_docs() -> None:

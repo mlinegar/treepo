@@ -29,7 +29,7 @@ try:
 except ImportError as e:  # pragma: no cover
     raise ImportError(
         "PyTorch is required for Markov changepoint honesty simulations. "
-        "Install with: pip install torch>=2.0.0"
+        "Install with: uv sync --extra torch"
     ) from e
 
 from treepo._research.preprocessing.chunker import (

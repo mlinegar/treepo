@@ -1,45 +1,39 @@
-# `treepo.cld` paper-canonical defaults
+# `treepo.methods` paper-canonical defaults
 
 One pattern across every family. No family has special logic the others don't.
 
 ## The pattern (three lines, every family)
 
 ```python
-from treepo.cld.canonical_defaults import load_dataclass
+from treepo.methods.canonical_defaults import load_dataclass
 from <upstream_or_canonical_module> import <ConfigDataclass>
 
-cfg = load_dataclass("treepo/configs/cld/<family>.toml", <ConfigDataclass>)
-treepo.cld.run("<method>", {"backend_config": {..., "<thing>_config": cfg}, ...})
+cfg = load_dataclass("configs/research/methods/<family>.toml", <ConfigDataclass>)
+treepo.methods.run("<method>", {"backend_config": {..., "<thing>_config": cfg}, ...})
 ```
 
-If a family has an **upstream dataclass** (FNO, DSPy, Markov DGP, LDA
-recovery), the TOML loads directly into it — no mirror, no translator.
-If a family doesn't (HLL, LDA oracle, Markov probe), the canonical
-dataclass lives in `treepo.cld.canonical_defaults` (small, ~5-20 fields).
+If a family has an **upstream dataclass** (FNO, DSPy, Markov DGP),
+the TOML loads directly into it -- no mirror, no translator.
+If a family doesn't have an upstream dataclass, keep that config local to
+the research or bench surface rather than adding another public method axis.
 
 ## Families covered
 
 | Family | Method | Loaded type | TOML | Example |
 |---|---|---|---|---|
-| **DSPy / LLM** | `run("fit", {family="dspy", ...})` | `DSPyFamilyConfig` *(upstream)* + `LmSection` | [`configs/manifesto_fg_compile.toml`](../configs/manifesto_fg_compile.toml) | [`examples/run_manifesto_fg_compile.py`](../examples/run_manifesto_fg_compile.py) |
-| **FNO family** | `run("fit", {family="fno", ...})` | `FNOFamilyConfig` *(upstream)* | [`configs/fno_smoke.toml`](../configs/fno_smoke.toml) | [`examples/run_fno_family.py`](../examples/run_fno_family.py) |
-| **Markov FNO probe** | `run("probe", {...})` | flat dict-of-knobs (validated by `allowed_config_keys("probe")`) | [`configs/markov_probe.toml`](../configs/markov_probe.toml) | [`examples/run_markov_probe.py`](../examples/run_markov_probe.py) |
-| **Markov change-point oracle** | `run("oracle", {oracle_name="markov_changepoint_count", ...})` | `MarkovChangepointConfig` *(upstream)* | [`configs/markov_oracle.toml`](../configs/markov_oracle.toml) | [`examples/run_markov_oracle.py`](../examples/run_markov_oracle.py) |
-| **HLL classical sketch** | `run("sketch", {sketch_kind="hll", ...})` | `HllSketchConfig` | [`configs/hll_sketch.toml`](../configs/hll_sketch.toml) | [`examples/run_hll_sketch.py`](../examples/run_hll_sketch.py) |
-| **LDA leaf-local-mixture oracle** | `run("oracle", {oracle_name="leaf_local_mixture_target", ...})` | `LdaOracleConfig` | [`configs/lda_oracle.toml`](../configs/lda_oracle.toml) | [`examples/run_lda_oracle.py`](../examples/run_lda_oracle.py) |
-| **LDA tree-recovery** | direct `run_lda_tree_recovery_experiment(cfg)` | `LDATreeRecoveryConfig` *(upstream)* | [`configs/lda_recovery_smoke.toml`](../configs/lda_recovery_smoke.toml) | [`examples/run_lda_recovery.py`](../examples/run_lda_recovery.py) |
+| **DSPy / LLM** | `run("fit", {family="dspy", ...})` | `DSPyFamilyConfig` *(upstream)* + `LmSection` | [`configs/research/methods/manifesto_fg_compile.toml`](../configs/research/methods/manifesto_fg_compile.toml) | [`examples/research/methods/run_manifesto_fg_compile.py`](../examples/research/methods/run_manifesto_fg_compile.py) |
+| **FNO family** | `run("fit", {family="fno", ...})` | `FNOFamilyConfig` *(upstream)* | [`configs/research/methods/fno_smoke.toml`](../configs/research/methods/fno_smoke.toml) | [`examples/research/methods/run_fno_family.py`](../examples/research/methods/run_fno_family.py) |
+| **Markov change-point oracle** | `run("oracle", {oracle_name="markov_changepoint_count", ...})` | `MarkovChangepointConfig` *(upstream)* | [`configs/research/methods/markov_oracle.toml`](../configs/research/methods/markov_oracle.toml) | [`examples/research/methods/run_markov_oracle.py`](../examples/research/methods/run_markov_oracle.py) |
 
-*Upstream* = the dataclass already exists in the main repo (`src/...`).
-The TOML loads into it directly. No mirror code in `treepo.cld`.
-For Markov probe specifically, the upstream "truth" is the probe script's
-argparse defaults (`scripts/probe_clean_unified_no.py`); the TOML is a
-flat dict forwarded as `--flag` arguments, with keys validated against
-`allowed_config_keys("probe")` in `methods.py`.
+*Upstream* = the dataclass already exists in the vendored research tree
+(`src/treepo/_research/...`).
+The TOML loads into it directly. No mirror code in `treepo.methods`.
 
 ## Adding a new family
 
-Cost: one TOML + a ~30-line example script. If the family has no upstream
-dataclass, also add a small one to `canonical_defaults.py` (~10 lines).
+Cost: one TOML + a ~30-line example script. Public methods should use an
+upstream dataclass where possible; ad-hoc benchmark configs belong under
+`configs/research/` or `treepo.bench`.
 
 That's the entire surface. No `RunConfig` wrappers, no
 `build_*_config_dict` translators, no per-family drift tests. The
@@ -51,19 +45,17 @@ parametrized drift test grows by one line per family.
 
 | Family | Upstream truth (loaded directly) |
 |---|---|
-| DSPy / LLM family | `src/ctreepo/dspy_family.py::DSPyFamilyConfig` |
-| FNO family | `src/ctreepo/fno_family.py::FNOFamilyConfig` |
-| Markov change-point DGP | `src/tree/markov_changepoint_honesty_simulation.py::MarkovChangepointConfig` |
-| LDA tree-recovery | `src/ctreepo/sim/core/lda_tree_recovery.py::LDATreeRecoveryConfig` |
-
-Cross-family constants (mirrored in `canonical_defaults.py` and pinned
+| DSPy / LLM family | `src/treepo/_research/ctreepo/dspy_family.py::DSPyFamilyConfig` |
+| FNO family | `src/treepo/_research/ctreepo/fno_family.py::FNOFamilyConfig` |
+| Markov change-point DGP | `src/treepo/_research/tree/markov_changepoint_honesty_simulation.py::MarkovChangepointConfig` |
+Cross-family constants (re-exported in `canonical_defaults.py` and pinned
 by drift tests):
 
 | Constant | Upstream |
 |---|---|
-| `GEPA_STRONG_DEFAULTS` | `src/training/config.py::OptimizationConfig` field defaults |
-| `BATCH_DEFAULTS` | `src/core/batch_transport.py` module-level constants |
-| `CONCAT_RATIO`, `DEFAULT_*` | `src/tasks/manifesto/pipeline_config.py` module-level constants |
+| `GEPA_STRONG_DEFAULTS` | `src/treepo/_research/training/gepa_defaults.py::GEPA_STRONG_DEFAULT_KWARGS` |
+| `BATCH_DEFAULTS` | `src/treepo/_research/core/batch_transport.py` module-level constants |
+| `CONCAT_RATIO`, `DEFAULT_*` | `src/treepo/_research/tasks/manifesto/pipeline_config.py` module-level constants |
 
 ---
 
@@ -84,13 +76,13 @@ per-leaf teacher summaries).
 | `lm_context_window_tokens` | `32000` | Matches production Gemma-4-31B-IT-NVFP4 vLLM `--max-model-len 32768`. |
 | `max_completion_tokens` | `1024` | Satisfies the two-leaf concat invariant `≥ 2 × leaf_size_tokens=512`. |
 | `num_threads` | `128` | Saturates 4-GPU vLLM at typical val-pool sizes. |
-| `batch_size` / `batch_max_concurrent` | `64` / `512` | Mirrors `src/core/batch_transport.py`. |
+| `batch_size` / `batch_max_concurrent` | `64` / `512` | Mirrors `src/treepo/_research/core/batch_transport.py`. |
 | `batch_timeout` / `batch_routing_policy` | `0.02` / `"affinity_load_aware"` | Same. |
-| `gepa_kwargs` (field default factory) | `dict(GEPA_STRONG_DEFAULT_KWARGS)` | Sourced from `src/training/optimization/gepa.py::GEPA_STRONG_DEFAULT_KWARGS` — the single upstream source. |
+| `gepa_kwargs` (field default factory) | `dict(GEPA_STRONG_DEFAULT_KWARGS)` | Sourced from `src/treepo/_research/training/gepa_defaults.py::GEPA_STRONG_DEFAULT_KWARGS` — the single lightweight source. |
 
 `DSPyFamily._build_optimizer` reads `self.config.gepa_kwargs` and layers
 per-call kwargs (`metric`, `reflection_lm`, `auto`, `num_threads`) on
-top. `GEPAOptimizer._build_gepa_kwargs` (in `src/training/optimization/gepa.py`)
+top. `GEPAOptimizer._build_gepa_kwargs` (in `src/treepo/_research/training/optimization/gepa.py`)
 seeds from the same constant. **No monkey-patch, no `apply_X()` setup
 call anywhere.**
 
@@ -107,23 +99,6 @@ defaults `state_dim=128, hidden_dim=512` live deeper in
 `CleanUnifiedNO` and are pinned by
 `feedback_head_capacity_was_not_the_bottleneck.md`. Don't widen.
 
-### Markov FNO probe
-
-TOML is a flat dict-of-knobs (no dataclass mirror); the dispatcher
-validates keys against `allowed_config_keys("probe")` in
-`treepo/src/treepo/cld/methods.py` and forwards each as a `--flag`
-to `scripts/probe_clean_unified_no.py`. Anything omitted falls back to
-the probe script's own argparse default. Common knobs:
-`benchmark="recoverable_v5_t2048"`, `leaf_tokens=2048`,
-`train_docs=1024`, `epochs=30`, `batch_size=16`, `channels=64`,
-`g_n_modes=32`, `g_n_layers=2`, `scorer_n_modes=16`,
-`scorer_n_layers=2`, `lr=1e-4`, `optimizer="adamw"`,
-`lr_schedule="cosine"`, `grad_clip=1.0`, `leaf_pool="sum"`,
-`training_objective="root"`. The drift test
-`test_probe_allowed_keys_cover_probe_argparse` ensures
-`allowed_config_keys` stays a superset of the probe's actual argparse
-surface (fails if the probe gains a new `--flag` we haven't listed).
-
 ### Markov change-point oracle
 
 DGP loaded directly from upstream `MarkovChangepointConfig`:
@@ -134,25 +109,27 @@ The dispatcher auto-builds eval trees via
 `_make_oracle_fixture_markov`; callers just pass `oracle_name` and
 optional knob overrides.
 
-### HLL classical sketch
+### Research-only LDA
 
-Loaded into `HllSketchConfig`: `backend="native"`, `precision=14` (min-MAE
-point in the paper grid), `hash_bits=64`, `schedule="balanced"` (HLL is
-schedule-invariant), fixture knobs `n_trees=6`, `leaves_per_tree=4`,
-`leaf_token_count=24`, `vocabulary_size=200`, `seed=0`.
+LDA leaf-local-mixture and tree-recovery experiments are no longer part of
+the public `treepo.methods` examples/configs. Their configs and scripts live
+under `configs/research/`, `examples/research/`, `scripts/research/`, and
+`src/treepo/_research/`.
 
-### LDA leaf-local-mixture oracle
+### Research-only HLL sketch
 
-Loaded into `LdaOracleConfig`: `oracle_name="leaf_local_mixture_target"`,
-`n_trees=8`, `seed=0`, `split="test"`. The LDA oracle has no v1
-auto-fixture; the example builds eval trees via
-`LDATreeRecoveryConfig`.
+The HLL classical-sketch method example is no longer part of
+`treepo.methods`. Its config and helper example live under
+`configs/research/methods/hll_sketch.toml` and
+`examples/research/methods/run_hll_sketch.py`.
 
-### LDA tree-recovery
+### Research-only Markov FNO probe
 
-Loaded directly from upstream `LDATreeRecoveryConfig`: `n_topics=8`,
-`vocab_size=512`, `min/max_tokens=384`, `leaf_tokens=16`, `train_docs=0`,
-`test_docs=1024`, `seed=0`. Smoke TOML overrides for fast tests.
+The standalone `CleanUnifiedNO` Markov probe is no longer part of
+`treepo.methods`. Its script and config live under
+`scripts/research/probe_clean_unified_no.py` and
+`configs/research/methods/markov_probe.toml`, with the helper example at
+`examples/research/methods/run_markov_probe.py`.
 
 ---
 
@@ -184,7 +161,7 @@ Loaded directly from upstream `LDATreeRecoveryConfig`: `n_topics=8`,
    ~426 g records. The doc-length filter only matters for the k=0
    raw_concat baseline eval; don't apply it to the train pool.
 
-### Markov + HLL grids (from `docs/treepo_cld_reproduction.md`)
+### Markov + HLL grids (covered by `tests/methods/reproduction/`)
 
 1. **Markov grid: 12/12 cells MAE=0 bit-for-bit** (3 seeds × 2 n_regimes
    × 2 max_tokens).
@@ -193,11 +170,11 @@ Loaded directly from upstream `LDATreeRecoveryConfig`: `n_topics=8`,
 3. **HLL schedule invariance**: `balanced` / `left_to_right` /
    `right_to_left` bit-for-bit identical.
 
-### FNO + Markov probe (from `docs/treepo_cld_reproduction.md`)
+### FNO + research Markov probe (covered by `tests/methods/integration/`)
 
 1. FNO live training step completes on CUDA in 6.6s on RTX PRO 6000
    Blackwell (tiny config). Per-tree predictions are finite floats.
-2. Markov FNO probe runs the paper script unchanged in 7.8s.
+2. Markov FNO probe runs the research script unchanged in 7.8s.
 3. **Unified-g head capacity** (`state_dim=128, hidden_dim=512`) is
    conservative-and-correct; widening to 2048/2048/4096 broke
    composition cells. See `feedback_head_capacity_was_not_the_bottleneck.md`.
@@ -217,13 +194,12 @@ Strong GEPA kwargs live as field defaults on both
 `OptimizationConfig.gepa_kwargs` (via `_build_gepa_kwargs` seeding) and
 `DSPyFamilyConfig.gepa_kwargs`, both sourced from the same
 `GEPA_STRONG_DEFAULT_KWARGS` constant in
-`src/training/optimization/gepa.py`. No monkey-patch, no
+`src/treepo/_research/training/gepa_defaults.py`. No monkey-patch, no
 `apply_strong_gepa_defaults()` setup call.
 
 The Markov oracle dispatcher auto-builds its corpus via
 `_make_oracle_fixture_markov` from oracle config knobs (same shape as
-HLL and LDA fixtures). The probe accepts a flat dict of knobs validated
-against `allowed_config_keys("probe")`. No mirror dataclasses for either.
+the HLL fixture). No mirror dataclasses are needed.
 
 Every paper-canonical setting is now reachable as either a dataclass
 field default or a registered fixture builder. **There is no remaining

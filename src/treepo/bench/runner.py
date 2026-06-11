@@ -30,52 +30,24 @@ from treepo.bench.io import (
     add_runtime_meta,
     atomic_write_text,
     dump_json,
-    summary_to_csv_row_learned_ops_g,
-    summary_to_csv_row_learned_segmented_theta_g,
-    summary_to_csv_row_segmented,
     summary_to_csv_rows_cardinality_recovery,
     summary_to_csv_rows_classical_sketches,
     summary_to_csv_rows_hll_merge_learning,
-    summary_to_csv_rows_ops,
     write_csv_rows,
 )
-from treepo.bench.lda.learned_segment_lda_ops_g import (
-    LearnedSegmentLDAOpsGConfig,
-    run_learned_segment_lda_ops_g_experiment,
-)
-from treepo.bench.lda.learned_segmented_lda_theta_g import (
-    LearnedSegmentedLDATopicThetaGConfig,
-    run_learned_segmented_lda_theta_g_experiment,
-)
-from treepo.bench.lda.segment_lda_ops_weight_recovery import (
-    SegmentLDAOpsWeightRecoveryConfig,
-    run_segment_lda_ops_weight_recovery_experiment,
-)
-from treepo.bench.lda.segmented_lda_ctreepo import (
-    SegmentedLDACtreePOConfig,
-    run_segmented_lda_ctreepo_simulation,
-)
 from treepo.bench.sweep_spec import SweepSpec, load_sweep_spec
-from treepo.runtime import (
+from treepo.bench.runtime import (
     RUNTIME_CONFIG_KEYS,
     run_runtime_eval,
     runtime_summary_to_csv_rows,
 )
 
 ExperimentName = str
-EXPERIMENT_SEGMENTED = "segmented-lda-ctreepo"
-EXPERIMENT_OPS = "segment-lda-ops-weight-recovery"
-EXPERIMENT_LEARNED_OPS_G = "learned-segment-lda-ops-g"
-EXPERIMENT_LEARNED_SEGMENTED_THETA_G = "learned-segmented-lda-theta-g"
 EXPERIMENT_CARDINALITY_RECOVERY = "cardinality-recovery"
 EXPERIMENT_HLL_MERGE_LEARNING = "hll-merge-learning"
 EXPERIMENT_CLASSICAL_SKETCHES = "classical-sketches"
 EXPERIMENT_LONGBENCH_RUNTIME = "longbench-runtime"
 VALID_EXPERIMENTS: Tuple[ExperimentName, ...] = (
-    EXPERIMENT_SEGMENTED,
-    EXPERIMENT_OPS,
-    EXPERIMENT_LEARNED_OPS_G,
-    EXPERIMENT_LEARNED_SEGMENTED_THETA_G,
     EXPERIMENT_CARDINALITY_RECOVERY,
     EXPERIMENT_HLL_MERGE_LEARNING,
     EXPERIMENT_CLASSICAL_SKETCHES,
@@ -86,14 +58,6 @@ VALID_EXPERIMENTS: Tuple[ExperimentName, ...] = (
 def allowed_config_keys(experiment: ExperimentName) -> set[str]:
     from dataclasses import fields
 
-    if experiment == EXPERIMENT_SEGMENTED:
-        return {f.name for f in fields(SegmentedLDACtreePOConfig)}
-    if experiment == EXPERIMENT_OPS:
-        return {f.name for f in fields(SegmentLDAOpsWeightRecoveryConfig)}
-    if experiment == EXPERIMENT_LEARNED_OPS_G:
-        return {f.name for f in fields(LearnedSegmentLDAOpsGConfig)}
-    if experiment == EXPERIMENT_LEARNED_SEGMENTED_THETA_G:
-        return {f.name for f in fields(LearnedSegmentedLDATopicThetaGConfig)}
     if experiment == EXPERIMENT_CARDINALITY_RECOVERY:
         return {f.name for f in fields(CardinalityRecoveryConfig)}
     if experiment == EXPERIMENT_HLL_MERGE_LEARNING:
@@ -119,11 +83,6 @@ def _normalized_config_json(config: Mapping[str, object]) -> str:
 def _run_id(config: Mapping[str, object]) -> str:
     h = hashlib.sha256(_normalized_config_json(config).encode("utf-8")).hexdigest()
     return h[:12]
-
-
-def _fmt_float(x: float) -> str:
-    s = f"{float(x):.6g}"
-    return s.replace("-", "m").replace(".", "p")
 
 
 def _ensure_unified_g_src_on_path() -> None:
@@ -175,76 +134,8 @@ def _write_config_for_command(path: Path, config: Mapping[str, object]) -> None:
     try:
         import yaml  # type: ignore[import-not-found]
     except Exception as e:  # pragma: no cover
-        raise RuntimeError("pyyaml is required to emit commands; install with: pip install pyyaml>=6.0") from e
+        raise RuntimeError("pyyaml is required to emit commands; install the bench extra") from e
     atomic_write_text(path, yaml.safe_dump(dict(config), sort_keys=True))
-
-
-def _identifiable_zero_paths_segmented(
-    *,
-    output_root: Path,
-    configs: Sequence[Mapping[str, object]],
-) -> List[Tuple[Path, Path, Path]]:
-    """
-    Reproduce `scripts/build_segmented_lda_ctreepo_cmds.py` output layout.
-
-    Returns list aligned with `configs`: (json_path, csv_path, config_path).
-    """
-    proc_values = {str(c.get("topic_process", "segments")).strip().lower() for c in configs}
-    theta_values = {str(c.get("leaf_theta_estimator", "lstsq")).strip().lower() for c in configs}
-    docs_values = {int(c.get("topic_phi_docs", 0) or 0) for c in configs}
-    default_seed_frac = float(SegmentedLDACtreePOConfig().neural_topic_seed_fraction)
-    seed_fracs_global = {
-        float(c.get("neural_topic_seed_fraction", default_seed_frac))
-        for c in configs
-        if str(c.get("topic_phi_estimator", "")).strip().lower().startswith("neural_")
-    }
-    multiple_seed_fracs = len(seed_fracs_global) > 1
-
-    out: List[Tuple[Path, Path, Path]] = []
-    for c in configs:
-        proc = str(c.get("topic_process", "segments")).strip().lower()
-        theta = str(c.get("leaf_theta_estimator", "lstsq")).strip().lower()
-        est = str(c.get("topic_phi_estimator", "")).strip()
-        est_norm = str(est).strip().lower()
-        is_neural = bool(est_norm.startswith("neural_"))
-
-        phi_docs = int(c.get("topic_phi_docs", 0) or 0)
-        td = int(c.get("n_books_train"))
-        fixed_leaf_tokens = int(c.get("fixed_leaf_tokens"))
-        cal = float(c.get("calibration_leaf_query_rate"))
-        el = float(c.get("eval_leaf_query_rate"))
-        ei = float(c.get("eval_internal_query_rate"))
-        seed = int(c.get("seed"))
-
-        proc_prefix = ""
-        if len(proc_values) > 1 or proc != "segments":
-            proc_prefix = f"tp_{proc}/"
-
-        theta_prefix = ""
-        if len(theta_values) > 1 or theta != "lstsq":
-            theta_prefix = f"theta_{theta}/"
-
-        docs_component = ""
-        if len(docs_values) > 1 or phi_docs != 0:
-            docs_component = f"/docs_{phi_docs}"
-
-        seed_component = ""
-        if is_neural:
-            seed_frac = float(c.get("neural_topic_seed_fraction", default_seed_frac))
-            if multiple_seed_fracs or seed_frac != default_seed_frac:
-                seed_component = f"/seedfrac_{_fmt_float(seed_frac)}"
-
-        sub = (
-            f"{proc_prefix}{theta_prefix}phi_{est}{docs_component}{seed_component}"
-            f"/train_{td}/lt_{fixed_leaf_tokens}"
-            f"/cal_{_fmt_float(cal)}/leaf_{_fmt_float(el)}/int_{_fmt_float(ei)}"
-        )
-        base = Path(output_root) / sub / f"seed_{seed}"
-        json_out = base.with_suffix(".json")
-        csv_out = base.with_suffix(".csv")
-        cfg_out = base.with_suffix(".config.yaml")
-        out.append((json_out, csv_out, cfg_out))
-    return out
 
 
 def _hash_paths(
@@ -285,12 +176,7 @@ def build_runs_from_sweep_spec(
 
     runs: List[RunSpec] = []
     if spec.output.layout == "identifiable_zero":
-        if experiment != EXPERIMENT_SEGMENTED:
-            raise ValueError("output.layout='identifiable_zero' is only supported for segmented-lda-ctreepo sweeps")
-        paths = _identifiable_zero_paths_segmented(output_root=Path(out_root), configs=configs)
-        for c, (json_out, csv_out, cfg_out) in zip(configs, paths):
-            runs.append(RunSpec(experiment=experiment, config=c, json_out=json_out, csv_out=csv_out, config_out=cfg_out))
-        return runs
+        raise ValueError("output.layout='identifiable_zero' is research-only; use treepo._research")
 
     for c in configs:
         json_out, csv_out, cfg_out = _hash_paths(out_root=Path(out_root), experiment=experiment, config=c)
@@ -322,35 +208,7 @@ def _run_one(spec: RunSpec, *, skip_existing: bool) -> Dict[str, object]:
         return {"status": "skipped", "json_out": str(json_out), "csv_out": str(csv_out)}
 
     try:
-        if spec.experiment == EXPERIMENT_SEGMENTED:
-            cfg = SegmentedLDACtreePOConfig(**dict(spec.config))
-            summary = run_segmented_lda_ctreepo_simulation(cfg)
-            payload = add_runtime_meta(json.loads(summary.to_json()))
-            atomic_write_text(json_out, dump_json(payload))
-            row = summary_to_csv_row_segmented(summary)
-            write_csv_rows(csv_out, [row])
-        elif spec.experiment == EXPERIMENT_OPS:
-            cfg = SegmentLDAOpsWeightRecoveryConfig(**dict(spec.config))
-            summary = run_segment_lda_ops_weight_recovery_experiment(cfg)
-            payload = add_runtime_meta(json.loads(summary.to_json()))
-            atomic_write_text(json_out, dump_json(payload))
-            rows = summary_to_csv_rows_ops(summary)
-            write_csv_rows(csv_out, rows)
-        elif spec.experiment == EXPERIMENT_LEARNED_OPS_G:
-            cfg = LearnedSegmentLDAOpsGConfig(**dict(spec.config))
-            summary = run_learned_segment_lda_ops_g_experiment(cfg)
-            payload = add_runtime_meta(json.loads(summary.to_json()))
-            atomic_write_text(json_out, dump_json(payload))
-            row = summary_to_csv_row_learned_ops_g(summary)
-            write_csv_rows(csv_out, [row])
-        elif spec.experiment == EXPERIMENT_LEARNED_SEGMENTED_THETA_G:
-            cfg = LearnedSegmentedLDATopicThetaGConfig(**dict(spec.config))
-            summary = run_learned_segmented_lda_theta_g_experiment(cfg)
-            payload = add_runtime_meta(json.loads(summary.to_json()))
-            atomic_write_text(json_out, dump_json(payload))
-            row = summary_to_csv_row_learned_segmented_theta_g(summary)
-            write_csv_rows(csv_out, [row])
-        elif spec.experiment == EXPERIMENT_CARDINALITY_RECOVERY:
+        if spec.experiment == EXPERIMENT_CARDINALITY_RECOVERY:
             cfg = CardinalityRecoveryConfig(**dict(spec.config))
             summary = run_cardinality_recovery_experiment(cfg)
             payload = add_runtime_meta(json.loads(summary.to_json()))

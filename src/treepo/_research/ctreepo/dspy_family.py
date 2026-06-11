@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from treepo._research.training.optimization.gepa import GEPA_STRONG_DEFAULT_KWARGS
+from treepo._research.training.gepa_defaults import GEPA_STRONG_DEFAULT_KWARGS
 from treepo._research.core.batch_transport import (
     DEFAULT_BATCH_MAX_CONCURRENT,
     DEFAULT_BATCH_REQUEST_TIMEOUT_SECONDS,
@@ -372,7 +372,8 @@ class DSPyFamilyConfig:
     #: so this stops mattering. ``None`` = no pre-filter.
     max_input_chars: Optional[int] = None
     #: Extra kwargs forwarded to ``dspy.GEPA(**kwargs)`` when ``optimizer="gepa"``.
-    #: Sourced from ``src/training/optimization/gepa.py::GEPA_STRONG_DEFAULT_KWARGS``
+    #: Sourced from
+    #: ``treepo._research.training.gepa_defaults.GEPA_STRONG_DEFAULT_KWARGS``
     #: so this dataclass and ``OptimizationConfig`` cannot drift apart.
     #: Per-call kwargs (metric, reflection_lm, auto, num_threads) are layered
     #: on top in ``DSPyFamily._build_optimizer`` and take precedence.

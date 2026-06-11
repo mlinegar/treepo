@@ -8,6 +8,15 @@ where `right_count` and `left_count` are counts of quasi-sentences coded
 with specific CMP 3-digit categories, and `total_quasi_sentences` includes
 ALL quasi-sentences (including neutral/uncoded), giving RILE in (-100, 100).
 
+NOTE on the denominator: the repo standard (decided by the Step 0
+reconstruction gate, 2026-06-09) is `total_non_header` — every coded
+quasi-sentence except `H` headers — because it matches the published MPDS
+`rile` ~3x better (Pearson 0.9975 / MAE 0.49 vs 0.9944 / 1.35). `span_rile`
+therefore defaults to `denominator="non_header"` and routes through
+`span_targets.targets_from_counts` so leaf, internal, and root targets share
+one code path; pass `denominator="all"` for the literal Laver & Budge
+convention.
+
 This module:
 
 * Defines the canonical left and right CMP-code sets.
@@ -25,9 +34,12 @@ full grid of span queries over the same manifesto is cheap.
 from __future__ import annotations
 
 import os
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
+
+from .span_targets import normalize_cmp_code, targets_from_counts
 
 
 # ---------------------------------------------------------------------------
@@ -117,15 +129,65 @@ class ManifestoCodings:
     def total_quasi_sentences(self) -> int:
         return len(self.spans)
 
-    def span_rile(self, start_char: int, end_char: int) -> float | None:
+    @property
+    def normalized_codes(self) -> tuple[str | None, ...]:
+        """Per-span canonical CMP codes, computed once and cached."""
+        cached = self.__dict__.get("_normalized_codes_cache")
+        if cached is None or len(cached) != len(self.spans):
+            cached = tuple(normalize_cmp_code(span.code) for span in self.spans)
+            self.__dict__["_normalized_codes_cache"] = cached
+        return cached
+
+    def span_counts(self, start_char: int, end_char: int) -> Counter[str] | None:
+        """Normalized CMP-code counts for spans starting in [start, end).
+
+        Returns None if no quasi-sentences start in the window. Spans whose
+        code does not normalize (e.g. NaN placeholders) are present in the
+        window but contribute no count, matching the labeled-grid builder.
+        """
+        if end_char <= start_char or not self.spans:
+            return None
+        norm_codes = self.normalized_codes
+        counter: Counter[str] = Counter()
+        total_spans = 0
+        for idx, span in enumerate(self.spans):
+            if span.start_char >= end_char:
+                break
+            if span.start_char < start_char:
+                continue
+            total_spans += 1
+            code = norm_codes[idx]
+            if code is not None:
+                counter[code] += 1
+        if total_spans == 0:
+            return None
+        return counter
+
+    def span_rile(
+        self, start_char: int, end_char: int, *, denominator: str = "non_header"
+    ) -> float | None:
         """RILE score for quasi-sentences whose start lies in [start, end).
 
         Returns None if no quasi-sentences fall in the window (prevents
-        divide-by-zero). The numerator is (right - left) of codes whose
-        start_char is inside the window; the denominator is the count of
-        such quasi-sentences (standard RILE normalization applied
-        locally).
+        divide-by-zero). ``denominator="non_header"`` (the repo standard,
+        decided by the Step 0 gate 2026-06-09) computes the score through
+        `span_targets.targets_from_counts` so window targets share one code
+        path with the labeled-grid builder and `merge_count_payloads`.
+        ``denominator="all"`` keeps the legacy all-quasi-sentence
+        convention (counts every span in the window, including headers and
+        unnormalizable codes) for comparisons.
         """
+        if denominator == "non_header":
+            counts = self.span_counts(start_char, end_char)
+            if counts is None:
+                return None
+            return float(
+                targets_from_counts(counts, denominator="non_header")["rile_raw"]
+            )
+        if denominator != "all":
+            raise ValueError(
+                f"denominator must be 'non_header' or 'all', got {denominator!r}"
+            )
         if end_char <= start_char or not self.spans:
             return None
         right = 0

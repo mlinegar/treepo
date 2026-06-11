@@ -193,7 +193,9 @@ class FNOFamily(FamilyRuntime):
         )
         self._model: Optional[EmbeddingCoordinateFNOTreeRegressor] = None
         self._embedding_dim: Optional[int] = None
-        self._prepared_cache: Dict[int, List[_PreparedTree]] = {}
+        self._prepared_cache: Dict[
+            Tuple[int, ...], Tuple[List[_PreparedTree], int]
+        ] = {}
         self._last_full_tree_traces: List[StateTree[Any, Any]] = []
 
     # ------------------------------------------------------------------
@@ -331,9 +333,16 @@ class FNOFamily(FamilyRuntime):
             self._model.load_state_dict(state)
 
     def _prepare(self, trees: Sequence[LabeledTree]) -> Tuple[List[_PreparedTree], int]:
-        key = id(trees)
-        if key in self._prepared_cache and self._embedding_dim is not None:
-            return self._prepared_cache[key], self._embedding_dim
+        # Key by the identity of each tree, not the wrapping list: callers
+        # (e.g. evaluate_iteration's `list(trees)`) pass fresh list objects per
+        # call, and a dead list's id() can be recycled, so an id(trees) key
+        # both misses the cache on every evaluation (re-embedding the whole
+        # split) and risks serving prepared tensors for the wrong trees. The
+        # per-tree ids stay valid because each cached _PreparedTree holds a
+        # reference to its tree.
+        key = tuple(id(tree) for tree in trees)
+        if key in self._prepared_cache:
+            return self._prepared_cache[key]
         prepared, embedding_dim = _prepare_trees(
             list(trees),
             embedding_client=self.embedding_client,
@@ -348,8 +357,8 @@ class FNOFamily(FamilyRuntime):
         # every tree forward pass.
         for item in prepared:
             item.leaf_embeddings = item.leaf_embeddings.to(self.device)
-        self._prepared_cache[key] = prepared
-        return prepared, embedding_dim
+        self._prepared_cache[key] = (prepared, int(embedding_dim))
+        return prepared, int(embedding_dim)
 
     # ------------------------------------------------------------------
     # Training loops

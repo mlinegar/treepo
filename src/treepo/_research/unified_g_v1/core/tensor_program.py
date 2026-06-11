@@ -8,7 +8,7 @@ try:
 except ImportError:
     raise ImportError(
         "PyTorch is required for tensor Unified-G programs. "
-        "Install with: pip install torch>=2.0.0"
+        "Install with: uv sync --extra torch"
     )
 
 from treepo._research.unified_g_v1.core.program import UnifiedFGProgram, UnifiedGContract, UnifiedGSurface

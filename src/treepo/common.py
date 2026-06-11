@@ -17,6 +17,13 @@ VALID_AUDIT_POLICIES: Tuple[AuditPolicyName, ...] = (
 )
 
 
+def finite_float(value: float, *, name: str) -> float:
+    out = float(value)
+    if not math.isfinite(out):
+        raise ValueError(f"{name} must be finite, got {value!r}")
+    return out
+
+
 def audit_sample_count(
     internal_nodes: int,
     *,
@@ -53,4 +60,5 @@ __all__ = [
     "VALID_AUDIT_POLICIES",
     "VALID_SCHEDULES",
     "audit_sample_count",
+    "finite_float",
 ]

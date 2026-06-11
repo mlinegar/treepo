@@ -82,7 +82,7 @@ def _eval_rf_root_baseline(
     except Exception as e:  # pragma: no cover
         raise ImportError(
             "scikit-learn is required for include_rf_root_baseline. "
-            "Install with: pip install scikit-learn>=1.4.2"
+            "Install with: uv sync --extra sklearn"
         ) from e
 
     if not train_docs or not test_docs:
@@ -1128,7 +1128,7 @@ def _fit_leaf_knn_tree_baseline(
     except Exception as e:  # pragma: no cover
         raise ImportError(
             "scikit-learn is required for include_leaf_knn_tree_baseline. "
-            "Install with: pip install scikit-learn>=1.4.2"
+            "Install with: uv sync --extra sklearn"
         ) from e
 
     rows = dense_scalar_rows(train_supervision)
@@ -1365,7 +1365,7 @@ def _fit_leaf_dt_tree_baseline(
     except Exception as e:  # pragma: no cover
         raise ImportError(
             "scikit-learn is required for include_leaf_dt_tree_baseline. "
-            "Install with: pip install scikit-learn>=1.4.2"
+            "Install with: uv sync --extra sklearn"
         ) from e
 
     if not train_docs:
@@ -1502,7 +1502,7 @@ def _fit_leaf_rf_tree_baseline(
     except Exception as e:  # pragma: no cover
         raise ImportError(
             "scikit-learn is required for include_leaf_rf_tree_baseline. "
-            "Install with: pip install scikit-learn>=1.4.2"
+            "Install with: uv sync --extra sklearn"
         ) from e
 
     if not train_docs:
@@ -1630,7 +1630,7 @@ def _fit_sampled_leaf_pool_rf_baseline(
     except Exception as e:  # pragma: no cover
         raise ImportError(
             "scikit-learn is required for include_sampled_leaf_pool_rf_baseline. "
-            "Install with: pip install scikit-learn>=1.4.2"
+            "Install with: uv sync --extra sklearn"
         ) from e
 
     if not train_docs:

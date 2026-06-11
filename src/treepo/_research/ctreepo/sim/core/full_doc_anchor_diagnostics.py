@@ -7303,7 +7303,7 @@ def _fit_tree_neural_baseline_with_predictions(
     if not HAS_NEURAL_OPERATOR:
         raise ImportError(
             "tree_neural baseline requires neuraloperator; install with: "
-            "pip install neuraloperator"
+            "uv add neuraloperator"
         )
     if not train_docs:
         zero = _eval_root_predictions([], [], tau=float(config.violation_tau))

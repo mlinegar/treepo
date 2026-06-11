@@ -28,7 +28,7 @@ try:
 except ImportError:
     raise ImportError(
         "PyTorch is required for learned sketch experiments. "
-        "Install with: pip install torch>=2.0.0"
+        "Install with: uv sync --extra torch"
     )
 
 # Import directly from module file to avoid triggering src/tree/__init__.py

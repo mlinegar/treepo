@@ -52,7 +52,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from treepo.sketches import (
+from treepo.bench.sketches import (
     make_count_min_adapter,
     make_cpc_adapter,
     make_frequent_strings_adapter,
@@ -65,7 +65,7 @@ from treepo.sketches import (
     make_tuple_accumulator_adapter,
     make_varopt_strings_adapter,
 )
-from treepo.sketches.adapters.datasketches_cardinality import (
+from treepo.bench.sketches.adapters.datasketches_cardinality import (
     theta_a_not_b_estimate,
     theta_intersection_estimate,
     theta_union_estimate,

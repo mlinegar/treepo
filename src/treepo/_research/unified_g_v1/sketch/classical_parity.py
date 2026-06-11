@@ -21,7 +21,7 @@ import random
 import time
 from typing import Any, Callable, Iterable, Literal, Mapping, Sequence
 
-from treepo.sketches import make_hll_adapter, treepo_reduce
+from treepo.bench.sketches import make_hll_adapter, treepo_reduce
 
 from treepo._research.unified_g_v1.training.tree_task import TreeExample, TrainerConfig
 

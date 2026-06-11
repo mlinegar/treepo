@@ -17,7 +17,7 @@ Why a module rather than buried defaults in each dataclass: a single
 every consumer; previously you had to edit several files.
 
 The module is intentionally tiny — just constants + thin helpers — so
-treepo.cld and the vendored ``_research/`` code can both import from it
+treepo.methods and the vendored ``_research/`` code can both import from it
 without any additional dependency cost.
 """
 

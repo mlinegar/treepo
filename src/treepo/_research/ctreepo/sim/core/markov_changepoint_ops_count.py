@@ -33,7 +33,7 @@ try:
 except ImportError as e:  # pragma: no cover
     raise ImportError(
         "PyTorch is required for markov_changepoint_ops_count_simulation. "
-        "Install with: pip install torch>=2.0.0"
+        "Install with: uv sync --extra torch"
     ) from e
 
 from treepo._research.core.logged_supervision import (
@@ -7919,7 +7919,7 @@ def run_markov_changepoint_ops_count_experiment(
         if not HAS_NEURAL_OPERATOR:
             raise ImportError(
                 f"model_family={config.model_family!r} requires the neuraloperator package. "
-                "Install with: pip install neuraloperator>=2.0.0  "
+                "Install with: uv add neuraloperator  "
                 "(or use model_family='additive' to avoid this dependency)"
             )
     doc_sequence_view_train = None

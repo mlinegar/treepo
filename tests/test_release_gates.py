@@ -36,7 +36,14 @@ def test_launch_gate_passes() -> None:
     report = audit_launch_gate()
     assert report["ok"], report
     names = {str(check["name"]) for check in report["checks"]}
-    assert {"inventory", "hygiene", "public_imports", "examples", "paper_suites"} <= names
+    assert {
+        "inventory",
+        "hygiene",
+        "public_imports",
+        "lazy_exports",
+        "examples",
+        "paper_suites",
+    } <= names
 
 
 def test_cli_check_launch_json(capsys) -> None:
@@ -84,7 +91,7 @@ def test_cli_paper_smoke_commands_only(tmp_path: Path, capsys) -> None:
     )
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "commands_only"
-    assert payload["n_runs"] >= 5
+    assert payload["n_runs"] >= 4
 
 
 def test_cli_paper_grids_commands_only_with_filters(tmp_path: Path, capsys) -> None:
@@ -107,8 +114,6 @@ def test_cli_paper_grids_commands_only_with_filters(tmp_path: Path, capsys) -> N
                 "small",
                 "--leaf-counts",
                 "1",
-                "--topic-phi-estimators",
-                "tensor_lda",
             ]
         )
         == 0

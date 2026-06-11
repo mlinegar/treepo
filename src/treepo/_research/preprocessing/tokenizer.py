@@ -25,7 +25,7 @@ def _get_tiktoken():
         except ImportError:
             raise ImportError(
                 "tiktoken is required for token counting. "
-                "Install with: pip install tiktoken"
+                "Install with: uv sync"
             )
     return _tiktoken
 

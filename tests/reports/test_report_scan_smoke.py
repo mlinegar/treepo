@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from treepo.bench.reports import lda_leafnoise, learned_g_overnight, publication_progress
+from treepo._research.bench.reports import lda_leafnoise, learned_g_overnight, publication_progress
 
 
 def _write_json(path: Path, payload: dict) -> None:

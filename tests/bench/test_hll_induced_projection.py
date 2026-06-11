@@ -47,7 +47,7 @@ def test_rollout_depths_match_carried_balanced_tree() -> None:
     assert depths.tolist() == [2, 2, 1, 1, 0]
 
 
-def test_hll_merge_learning_induced_projection_reports_adjusted_loss_fields() -> None:
+def test_hll_merge_learning_induced_projection_reports_scalar_loss_fields() -> None:
     _torch_or_skip()
     from treepo.bench.hll_merge_learning import (
         HLLMergeLearningConfig,
@@ -77,9 +77,10 @@ def test_hll_merge_learning_induced_projection_reports_adjusted_loss_fields() ->
     assert row["model_kind"] == "induced_projection"
     assert row["objective_mode"] == "corrected_local_law"
     assert row["proxy_mode"] == "frozen_rollout"
-    assert "proxy + R / pi" in row["lean_adjusted_loss"]
-    assert "g_theta(a+b)" in row["lean_merge_adapter"]
-    assert "f*(x+y)" in row["lean_projection_target"]
+    assert "proxy + R / pi" in row["scalar_adjusted_loss"]
+    assert "g_theta(a+b)" in row["scalar_merge_adapter"]
+    assert "f*(x+y)" in row["scalar_projection_target"]
+    assert "not Lean state-level register laws" in row["scalar_law_caveat"]
     assert row["observed_rows_mean"] > 0
     assert math.isfinite(row["corrected_local_law_loss_mean"])
 

@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from treepo._research.ctreepo.alternating import FamilyRuntime
 from treepo._research.ctreepo.fg_arity import check_two_child_lm_budget
@@ -92,6 +92,9 @@ class TRLFamilyConfig:
     distill_script: str = "scripts/distill_ctreepo_students.py"
     #: Optional shared subprocess env.
     subprocess_env: Dict[str, str] = field(default_factory=dict)
+    #: Extra CLI args appended to every distill-script invocation (e.g.
+    #: ("--no-4bit",) for small-model smokes without bitsandbytes).
+    distill_extra_args: Tuple[str, ...] = ()
 
 
 class TRLFamily(FamilyRuntime):
@@ -226,6 +229,7 @@ class TRLFamily(FamilyRuntime):
             "--target-min", str(self.config.target_min),
             "--target-max", str(self.config.target_max),
         ]
+        cmd.extend(str(arg) for arg in self.config.distill_extra_args)
         LOGGER.info("TRL train_f iter=%d cmd=%s", iteration, " ".join(cmd))
         env = {**dict(self.config.subprocess_env)} if self.config.subprocess_env else None
         result = subprocess.run(cmd, capture_output=True, text=True, env=env)
@@ -235,9 +239,13 @@ class TRLFamily(FamilyRuntime):
                 f"{result.stderr[-800:] if result.stderr else '(no stderr)'}"
             )
         # The TRL trainer writes the fine-tuned model into ``output_dir`` under
-        # a subdir; default layout is <output_dir>/trl_scalar_reward_head.
-        candidate = Path(output_dir) / "trl_scalar_reward_head"
-        return str(candidate if candidate.exists() else output_dir)
+        # a subdir: historically <output_dir>/trl_scalar_reward_head, current
+        # trl_training layout <output_dir>/final.
+        for name in ("trl_scalar_reward_head", "final"):
+            candidate = Path(output_dir) / name
+            if candidate.exists():
+                return str(candidate)
+        return str(output_dir)
 
     def train_g(
         self,
@@ -282,6 +290,7 @@ class TRLFamily(FamilyRuntime):
             "--target-min", str(self.config.target_min),
             "--target-max", str(self.config.target_max),
         ]
+        cmd.extend(str(arg) for arg in self.config.distill_extra_args)
         LOGGER.info("TRL train_g iter=%d cmd=%s", iteration, " ".join(cmd))
         env = {**dict(self.config.subprocess_env)} if self.config.subprocess_env else None
         result = subprocess.run(cmd, capture_output=True, text=True, env=env)
@@ -290,8 +299,13 @@ class TRLFamily(FamilyRuntime):
                 f"TRL train_g subprocess failed (exit {result.returncode}): "
                 f"{result.stderr[-800:] if result.stderr else '(no stderr)'}"
             )
-        candidate = Path(output_dir) / "trl_sft_g"
-        return str(candidate if candidate.exists() else output_dir)
+        # Historical layout <output_dir>/trl_sft_g; current trl_training
+        # layout <output_dir>/final.
+        for name in ("trl_sft_g", "final"):
+            candidate = Path(output_dir) / name
+            if candidate.exists():
+                return str(candidate)
+        return str(output_dir)
 
     def score_roots_with_f(
         self,

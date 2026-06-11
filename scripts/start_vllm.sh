@@ -325,7 +325,7 @@ PY
         curand_include="${site_packages}/nvidia/curand/include"
     fi
 
-    # Prefer the pip-installed CUDA toolchain if system nvcc is unavailable.
+    # Prefer the uv-managed CUDA toolchain if system nvcc is unavailable.
     if ! command -v nvcc >/dev/null 2>&1; then
         if [[ -z "${CUDA_HOME:-}" && -x "${cu13_root}/bin/nvcc" ]]; then
             export CUDA_HOME="${cu13_root}"
@@ -377,7 +377,7 @@ PY
     if (( ${#missing[@]} > 0 )); then
         echo "WARNING: NVFP4 prerequisites missing: ${missing[*]}"
         echo "Install in ${TREEPO_VLLM_VENV:-$HOME/vllm-env}:"
-        echo "  pip install flashinfer-cubin==0.5.3 nvidia-cuda-nvcc==13.1.115 nvidia-cuda-cccl==13.1.115 nvidia-cublas==13.1.0.3 nvidia-cuda-nvrtc==13.1.115"
+        echo "  uv pip install --python ${TREEPO_VLLM_VENV:-$HOME/vllm-env}/bin/python flashinfer-cubin==0.5.3 nvidia-cuda-nvcc==13.1.115 nvidia-cuda-cccl==13.1.115 nvidia-cublas==13.1.0.3 nvidia-cuda-nvrtc==13.1.115"
     fi
 
     if [[ -z "${FLASHINFER_WORKSPACE_BASE:-}" ]]; then

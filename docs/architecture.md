@@ -5,9 +5,8 @@
 ## Layers
 
 - `treepo.core`: small dependency-free experiment primitives: refs, roles, sampling plans, and canonical sidecars.
-- `treepo.sketches`: sketch protocols and adapters. Optional third-party sketch backends should fail lazily with an extra hint.
-- `treepo.bench`: reproducible simulations, suite builders, result IO, and reports.
-- `treepo.runtime`: benchmark adapters and runtime task helpers for LongBench/RULER-style evaluation.
+- `treepo.bench.sketches`: sketch protocols and adapters. Optional third-party sketch backends should fail lazily with an extra hint.
+- `treepo.bench`: benchmark-only simulations, suite builders, result IO, reports, and LongBench/RULER-style runtime fixtures.
 - `treepo.llm`: OpenAI-compatible chat/embedding helpers and future batching clients behind `treepo[llm]`.
 - `treepo.training`: experiment methods with `train`, `evaluate`, and `predict` wrappers around native PyTorch/DSPy/sklearn code.
 - `treepo.tasks`: minimal task-specific assets, starting with Manifesto/RILE constants and examples.

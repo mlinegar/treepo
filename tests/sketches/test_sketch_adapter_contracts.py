@@ -16,8 +16,8 @@ import random
 
 import pytest
 
-from treepo.sketches import make_hll_adapter, treepo_reduce
-from treepo.sketches.tree_reducer import fold_states
+from treepo.bench.sketches import make_hll_adapter, treepo_reduce
+from treepo.bench.sketches.tree_reducer import fold_states
 
 BACKENDS = ["native"]
 try:

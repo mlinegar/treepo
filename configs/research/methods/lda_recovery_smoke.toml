@@ -1,0 +1,16 @@
+# LDA tree-recovery experiment — flat TOML over
+# `src.ctreepo.sim.core.lda_tree_recovery.LDATreeRecoveryConfig` fields.
+# Loads via `load_dataclass(path, LDATreeRecoveryConfig)`. Smoke values
+# override the paper defaults (8/512/16/0/1024) so this runs in seconds.
+
+n_topics    = 4
+vocab_size  = 64
+# the dataclass default (20) violates `K * anchors < vocab_size` at this
+# vocab; the reproduction tests use 4.
+anchor_words_per_topic = 4
+min_tokens  = 384
+max_tokens  = 384
+leaf_tokens = 16
+train_docs  = 4
+test_docs   = 16
+seed        = 0

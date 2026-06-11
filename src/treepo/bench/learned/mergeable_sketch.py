@@ -90,7 +90,10 @@ def _merge_schedule(
     try:
         import torch
     except Exception as e:  # pragma: no cover
-        raise ImportError("PyTorch is required for learned-g experiments. Install with: pip install 'treepo[torch]'") from e
+        raise ImportError(
+            "PyTorch is required for learned-g experiments. "
+            "Install with: uv sync --extra torch"
+        ) from e
 
     if len(leaf_states) == 0:
         raise ValueError("need at least one leaf state")
@@ -263,7 +266,10 @@ class TorchMergeableSketch:  # pragma: no cover - exercised by torch-dependent t
             import torch
             import torch.nn as nn
         except Exception as e:  # pragma: no cover
-            raise ImportError("PyTorch is required for learned-g experiments. Install with: pip install 'treepo[torch]'") from e
+            raise ImportError(
+                "PyTorch is required for learned-g experiments. "
+                "Install with: uv sync --extra torch"
+            ) from e
 
         self.torch = torch
         self.nn = nn
@@ -433,7 +439,10 @@ def _loss_tensor(pred: "torch.Tensor", target: "torch.Tensor", *, mode: OutputMo
     try:
         import torch
     except Exception as e:  # pragma: no cover
-        raise ImportError("PyTorch is required for learned-g experiments. Install with: pip install 'treepo[torch]'") from e
+        raise ImportError(
+            "PyTorch is required for learned-g experiments. "
+            "Install with: uv sync --extra torch"
+        ) from e
 
     if str(mode) == "regression":
         return torch.mean((pred - target) ** 2)
@@ -459,7 +468,10 @@ def train_torch_mergeable_sketch(
     try:
         import torch
     except Exception as e:  # pragma: no cover
-        raise ImportError("PyTorch is required for learned-g experiments. Install with: pip install 'treepo[torch]'") from e
+        raise ImportError(
+            "PyTorch is required for learned-g experiments. "
+            "Install with: uv sync --extra torch"
+        ) from e
 
     if len(docs_train) == 0:
         raise ValueError("need at least one training doc")
@@ -635,7 +647,10 @@ def eval_torch_mergeable_sketch(
     try:
         import torch
     except Exception as e:  # pragma: no cover
-        raise ImportError("PyTorch is required for learned-g experiments. Install with: pip install 'treepo[torch]'") from e
+        raise ImportError(
+            "PyTorch is required for learned-g experiments. "
+            "Install with: uv sync --extra torch"
+        ) from e
 
     tau = float(violation_tau)
     root_abs: List[float] = []

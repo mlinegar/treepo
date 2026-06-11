@@ -1,0 +1,29 @@
+experiment_id: lbv2_fno_state_model_smoke
+benchmark:
+  family: longbench_v2
+  dataset: examples/research/runtime/longbench_v2_tiny.yaml
+  split: fixture
+methods:
+  - neural_operator
+scorer:
+  kind: openai_compatible
+  endpoint: http://localhost:8000/v1
+  model: local-chat-model
+  api_key: EMPTY
+state_model:
+  kind: native_fno
+  model: ctreepo_fno_selector
+  checkpoint: checkpoints/state_model.pt
+  operations:
+    - encode_leaf
+    - merge_state
+    - select_evidence
+    - render_state
+oracle:
+  kind: benchmark_labels
+runtime_defaults:
+  mock: true
+  chunk_chars: 2000
+  top_k: 6
+  temperature: 0.0
+  max_output_tokens: 4

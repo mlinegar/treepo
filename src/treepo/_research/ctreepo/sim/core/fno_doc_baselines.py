@@ -140,7 +140,7 @@ except ImportError:
 
 _INSTALL_MSG = (
     "The neuraloperator package is required for FNO/DeepONet baselines. "
-    "Install it with: pip install neuraloperator"
+    "Install it with: uv add neuraloperator"
 )
 _CUDA_FAST_MATH_CONFIGURED = False
 FNO_TREE_C2_METRIC_KIND = "count_drift"

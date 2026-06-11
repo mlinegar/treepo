@@ -85,7 +85,7 @@ def _require_torch() -> None:
     if torch is None or F is None:
         raise ImportError(
             "PyTorch is required for HLL merge-learning simulations. "
-            "Install with: pip install 'treepo[torch]'"
+            "Install with: uv sync --extra torch"
         )
 
 
@@ -637,9 +637,13 @@ class HLLMergeLearningRun:
     model_kind: str = "induced_projection"
     objective_mode: str = LOCAL_LAW_OBJECTIVE_CORRECTED
     proxy_mode: str = "frozen_rollout"
-    lean_adjusted_loss: str = "proxy + R / pi * (oracle - proxy)"
-    lean_merge_adapter: str = "merge(a,b)=g_theta(a+b); encode_leaf(x)=g_theta(x)"
-    lean_projection_target: str = "f*(x+y)=f*(g*(g*(x)+g*(y)))"
+    scalar_adjusted_loss: str = "proxy + R / pi * (oracle - proxy)"
+    scalar_merge_adapter: str = "merge(a,b)=g_theta(a+b); encode_leaf(x)=g_theta(x)"
+    scalar_projection_target: str = "f*(x+y)=f*(g*(g*(x)+g*(y)))"
+    scalar_law_caveat: str = (
+        "Scalar HLL readout diagnostics are not Lean state-level register laws; "
+        "see ClassicalSketchLocalLaws.lean for the register-max C3 distinction."
+    )
 
 
 @dataclass(frozen=True)
@@ -1038,7 +1042,7 @@ def _node_row_observation_tensors(
         for idx in range(int(n_internal)):
             selected = audit_indices is None or idx in audit_indices
             observed.append(bool(selected))
-            propensity.append(float(internal_pi if selected else 0.0))
+            propensity.append(float(internal_pi))
     return (
         torch.tensor(observed, dtype=torch.bool, device=device),
         torch.tensor(propensity, dtype=torch.float32, device=device),
@@ -1552,9 +1556,10 @@ def experiment_rows(results: Sequence[HLLMergeLearningRun]) -> List[dict]:
             "model_kind": str(r.model_kind),
             "objective_mode": str(r.objective_mode),
             "proxy_mode": str(r.proxy_mode),
-            "lean_adjusted_loss": str(r.lean_adjusted_loss),
-            "lean_merge_adapter": str(r.lean_merge_adapter),
-            "lean_projection_target": str(r.lean_projection_target),
+            "scalar_adjusted_loss": str(r.scalar_adjusted_loss),
+            "scalar_merge_adapter": str(r.scalar_merge_adapter),
+            "scalar_projection_target": str(r.scalar_projection_target),
+            "scalar_law_caveat": str(r.scalar_law_caveat),
             "precision": int(r.precision),
             "registers": int(r.registers),
             "memory_bits": int(r.memory_bits),

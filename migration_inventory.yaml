@@ -18,9 +18,9 @@ required_families:
     package: treepo.bench.classical_sketches
     notes: Classical sketch comparison suite and reports.
   - id: lda_identifiable_zero
-    status: migrated_refactor_needed
-    package: treepo.bench.lda
-    notes: Present in package; large modules should be split by config/data/estimator/eval.
+    status: research_only
+    package: treepo._research.bench.lda
+    notes: Quarantined outside the public v0.1 API; split before promoting.
   - id: mergeable_ablations
     status: planned
     source_glob: scripts/run_mergeable_*.py
@@ -35,7 +35,7 @@ required_families:
     notes: Migrate as deterministic simulation modules plus suite commands.
   - id: runtime_longbench_ruler
     status: longbench_fixture_runnable
-    package: treepo.runtime
+    package: treepo.bench.runtime
     notes: LongBench fixture runtime runs all v1 methods; RULER and live embedding/operator clients remain.
   - id: llm_stack
     status: scaffolded
@@ -56,11 +56,11 @@ entries:
     class: package_module
     reason: Existing package simulation/report implementation.
   - source: treepo/src/treepo/sketches
-    target: treepo.sketches
+    target: treepo.bench.sketches
     class: package_module
     reason: Existing package sketch protocols and adapters.
   - source: scripts/run_runtime_eval.py
-    target: treepo.runtime
+    target: treepo.bench.runtime
     class: package_module
     reason: Migrate benchmark adapters/callstream/methods; do not copy CLI wholesale.
   - source: scripts/run_longbench_batched_example.py

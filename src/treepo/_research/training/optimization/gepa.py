@@ -10,6 +10,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 import dspy
 
+from treepo._research.training.gepa_defaults import GEPA_STRONG_DEFAULT_KWARGS
+
 from treepo._research.training.supervision.timing import (
     ACQUISITION_SYNCHRONOUS_OPTIMIZER_METRIC,
     ACTIVATION_IMMEDIATE,
@@ -34,21 +36,12 @@ except Exception:  # pragma: no cover
 # These are the kwargs the paper relies on for every GEPA optimization run.
 # Both ``OptimizationConfig.gepa_kwargs`` and
 # ``DSPyFamilyConfig.gepa_kwargs`` use this dict as their field-default
-# factory, so the two configs cannot drift apart. ``treepo_cld``'s drift
+# factory, so the two configs cannot drift apart. The methods drift
 # test pins ``canonical_defaults.GEPA_STRONG_DEFAULTS`` against this dict.
 #
 # Kwargs that change per-run (metric, reflection_lm, auto/max_metric_calls,
 # num_threads) are layered on top imperatively by the optimizer builder.
 # ---------------------------------------------------------------------------
-GEPA_STRONG_DEFAULT_KWARGS: Dict[str, Any] = {
-    "use_merge": True,
-    "max_merge_invocations": 5,
-    "track_stats": True,
-    "add_format_failure_as_feedback": True,
-    "reflection_minibatch_size": 8,
-    "use_wandb": False,
-    "use_mlflow": False,
-}
 
 
 @register_optimizer("gepa")

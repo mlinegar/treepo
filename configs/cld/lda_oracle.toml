@@ -1,8 +1,0 @@
-# LDA leaf-local-mixture oracle — flat TOML over `LdaOracleConfig`.
-# The LDA oracle has no v1 auto-fixture, so the example builds eval trees
-# from a synthetic LDA world (see examples/run_lda_oracle.py).
-
-oracle_name = "leaf_local_mixture_target"
-n_trees     = 8
-seed        = 0
-split       = "test"

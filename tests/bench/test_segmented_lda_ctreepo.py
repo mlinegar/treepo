@@ -1,6 +1,6 @@
 import numpy as np
 
-from treepo.bench.lda.segmented_lda_ctreepo import (
+from treepo._research.bench.lda.segmented_lda_ctreepo import (
     SegmentedLDACtreePOConfig,
     run_segmented_lda_ctreepo_simulation,
 )

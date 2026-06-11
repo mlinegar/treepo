@@ -10,16 +10,10 @@ from treepo.bench.runner import (
     EXPERIMENT_CLASSICAL_SKETCHES,
     EXPERIMENT_HLL_MERGE_LEARNING,
     EXPERIMENT_LONGBENCH_RUNTIME,
-    EXPERIMENT_SEGMENTED,
     RunSpec,
 )
 from treepo.bench.suites.cardinality import build_cardinality_paper_suite
 from treepo.bench.suites.classical_sketches import build_classical_sketches_suite
-from treepo.bench.suites.identifiable_zero import (
-    build_identifiable_zero_dtm_lda,
-    build_identifiable_zero_lda_leafnoise,
-    build_identifiable_zero_publication_ctreepo,
-)
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[4]
@@ -31,27 +25,22 @@ def build_paper_smoke_suite(*, out_root: Path, skip_existing: bool) -> List[RunS
         [
             _example_spec(
                 experiment=EXPERIMENT_CARDINALITY_RECOVERY,
-                example="cardinality_recovery.yaml",
+                example="research/bench/cardinality_recovery.yaml",
                 run_dir=root / "cardinality_recovery",
             ),
             _example_spec(
                 experiment=EXPERIMENT_HLL_MERGE_LEARNING,
-                example="hll_merge_learning.yaml",
+                example="research/bench/hll_merge_learning.yaml",
                 run_dir=root / "hll_merge_learning",
             ),
             _example_spec(
                 experiment=EXPERIMENT_CLASSICAL_SKETCHES,
-                example="classical_sketches.yaml",
+                example="research/bench/classical_sketches.yaml",
                 run_dir=root / "classical_sketches",
             ),
             _example_spec(
-                experiment=EXPERIMENT_SEGMENTED,
-                example="lda_embedding_spectral.yaml",
-                run_dir=root / "lda_embedding_spectral",
-            ),
-            _example_spec(
                 experiment=EXPERIMENT_LONGBENCH_RUNTIME,
-                example="runtime_all_methods.yaml",
+                example="research/runtime/runtime_all_methods.yaml",
                 run_dir=root / "longbench_runtime",
             ),
         ],
@@ -64,7 +53,6 @@ def build_paper_grids_suite(
     out_root: Path,
     skip_existing: bool,
     seeds: Optional[str] = None,
-    topic_phi_estimators: Optional[str] = None,
     leaf_counts: Optional[str] = None,
     leaf_sizes: Optional[str] = None,
     capacities: Optional[str] = None,
@@ -97,23 +85,13 @@ def build_paper_grids_suite(
             learned_n_val=learned_n_val,
         )
     )
-    specs.extend(
-        build_identifiable_zero_dtm_lda(
-            out_root=root,
-            skip_existing=skip_existing,
-            seeds=seeds,
-            topic_phi_estimators=topic_phi_estimators,
-        )
-    )
-    specs.extend(build_identifiable_zero_lda_leafnoise(out_root=root, skip_existing=skip_existing, seeds=seeds))
-    specs.extend(build_identifiable_zero_publication_ctreepo(out_root=root, skip_existing=skip_existing, seeds=seeds))
     if include_runtime:
         specs.extend(
             _filter_existing(
                 [
                     _example_spec(
                         experiment=EXPERIMENT_LONGBENCH_RUNTIME,
-                        example="runtime_all_methods.yaml",
+                        example="research/runtime/runtime_all_methods.yaml",
                         run_dir=root / "longbench_runtime",
                     )
                 ],

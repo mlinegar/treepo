@@ -258,8 +258,8 @@ def _configure_nvfp4_runtime_env(env: Dict[str, str], venv_path: str, profile: s
     Configure the environment so NVFP4/FlashInfer JIT kernels can load.
 
     When vLLM is launched programmatically (vs. `scripts/start_vllm.sh`), we
-    won't necessarily have CUDA_HOME/LD_LIBRARY_PATH pointing at the pip-
-    installed CUDA toolchain inside `venv_path`. FlashInfer's TVM-loaded shared
+    won't necessarily have CUDA_HOME/LD_LIBRARY_PATH pointing at the uv-managed
+    CUDA toolchain inside `venv_path`. FlashInfer's TVM-loaded shared
     objects depend on e.g. `libcudart.so.13`, so we must add those directories
     to the dynamic linker path.
     """

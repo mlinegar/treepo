@@ -1,6 +1,6 @@
-# treepo Examples
+# treepo Research Examples
 
-These examples are intentionally small. They show the public shape for each option without copying workspace-scale scripts into the package.
+Runnable examples are intentionally kept under `examples/research/` rather than the minimal package surface. They are small fixtures for bench, runtime, and method workflows without copying workspace-scale scripts into the release boundary.
 
 ## Runnable Today
 
@@ -22,7 +22,7 @@ treepo-bench suite paper-grids \
   --emit-commands outputs/paper_grids/commands.sh
 ```
 
-`paper-grids` composes the cardinality, classical-sketch, identifiable-zero, publication C-TreePO, and LongBench runtime smoke grids under one output root. Use filters such as `--seeds`, `--capacities`, `--leaf-counts`, and `--topic-phi-estimators` to shrink the grid.
+`paper-grids` composes the cardinality, classical-sketch, and LongBench runtime smoke grids under one output root. Use filters such as `--seeds`, `--capacities`, and `--leaf-counts` to shrink the grid.
 
 ### Core HLL/Cardinality
 
@@ -30,7 +30,7 @@ Uses the learned-sketch/cardinality recovery benchmark with a tiny CPU config:
 
 ```bash
 treepo-bench run cardinality-recovery \
-  --config examples/cardinality_recovery.yaml \
+  --config examples/research/bench/cardinality_recovery.yaml \
   --json-out outputs/cardinality.json \
   --csv-out outputs/cardinality.csv
 ```
@@ -41,7 +41,7 @@ Uses a tiny PyTorch HLL merge-learning config:
 
 ```bash
 treepo-bench run hll-merge-learning \
-  --config examples/hll_merge_learning.yaml \
+  --config examples/research/bench/hll_merge_learning.yaml \
   --json-out outputs/hll_merge_learning.json \
   --csv-out outputs/hll_merge_learning.csv
 ```
@@ -52,20 +52,9 @@ Uses the broad mergeable-sketch comparison surface:
 
 ```bash
 treepo-bench run classical-sketches \
-  --config examples/classical_sketches.yaml \
+  --config examples/research/bench/classical_sketches.yaml \
   --json-out outputs/classical_sketches.json \
   --csv-out outputs/classical_sketches.csv
-```
-
-### Local Embedding-Spectral Estimator
-
-This is the package-local, no-LLM embedding option for the LDA simulation. It builds shifted-PPMI word embeddings, applies SVD/k-means, and uses the resulting estimator as the composable state source:
-
-```bash
-treepo-bench run segmented-lda-ctreepo \
-  --config examples/lda_embedding_spectral.yaml \
-  --json-out outputs/lda_embedding_spectral.json \
-  --csv-out outputs/lda_embedding_spectral.csv
 ```
 
 ## Runtime Examples
@@ -78,7 +67,7 @@ These fixtures run through the package-native `longbench-runtime` experiment. Th
 
 ```bash
 treepo-bench run longbench-runtime \
-  --config examples/runtime_llm_full_context.yaml \
+  --config examples/research/runtime/runtime_llm_full_context.yaml \
   --json-out outputs/runtime_llm_full_context.json \
   --csv-out outputs/runtime_llm_full_context.csv
 ```
@@ -89,7 +78,7 @@ treepo-bench run longbench-runtime \
 
 ```bash
 treepo-bench run longbench-runtime \
-  --config examples/runtime_embedding_retrieval.yaml \
+  --config examples/research/runtime/runtime_embedding_retrieval.yaml \
   --json-out outputs/runtime_embedding_retrieval.json \
   --csv-out outputs/runtime_embedding_retrieval.csv
 ```
@@ -100,7 +89,7 @@ treepo-bench run longbench-runtime \
 
 ```bash
 treepo-bench run longbench-runtime \
-  --config examples/runtime_summary_tree.yaml \
+  --config examples/research/runtime/runtime_summary_tree.yaml \
   --json-out outputs/runtime_summary_tree.json \
   --csv-out outputs/runtime_summary_tree.csv
 ```
@@ -111,7 +100,7 @@ treepo-bench run longbench-runtime \
 
 ```bash
 treepo-bench run longbench-runtime \
-  --config examples/runtime_fno_state_model.yaml \
+  --config examples/research/runtime/runtime_fno_state_model.yaml \
   --json-out outputs/runtime_fno_state_model.json \
   --csv-out outputs/runtime_fno_state_model.csv
 ```
@@ -122,11 +111,11 @@ treepo-bench run longbench-runtime \
 
 ```bash
 treepo-bench run longbench-runtime \
-  --config examples/runtime_all_methods.yaml \
+  --config examples/research/runtime/runtime_all_methods.yaml \
   --json-out outputs/runtime_all_methods.json \
   --csv-out outputs/runtime_all_methods.csv
 ```
 
 ## Tiny Data Fixtures
 
-`longbench_v2_tiny.yaml` is a one-row LongBench v2-shaped fixture for documentation and parser tests.
+`examples/research/runtime/longbench_v2_tiny.yaml` is a one-row LongBench v2-shaped fixture for documentation and parser tests.

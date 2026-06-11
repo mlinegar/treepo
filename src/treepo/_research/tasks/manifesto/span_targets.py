@@ -98,21 +98,43 @@ def cmp_domain(code: Any) -> Optional[str]:
     return None
 
 
-def aggregate_cmp_codes(codes: Iterable[Any]) -> dict[str, Any]:
+def aggregate_cmp_codes(
+    codes: Iterable[Any], *, denominator: str = "non_header"
+) -> dict[str, Any]:
     """Aggregate normalized CMP codes into additive counts and compact targets."""
     counter: Counter[str] = Counter()
     for raw in codes:
         code = normalize_cmp_code(raw)
         if code is not None:
             counter[code] += 1
-    return targets_from_counts(counter)
+    return targets_from_counts(counter, denominator=denominator)
 
 
-def targets_from_counts(counts: Mapping[str, int]) -> dict[str, Any]:
+def targets_from_counts(
+    counts: Mapping[str, int], *, denominator: str = "non_header"
+) -> dict[str, Any]:
+    """Build additive RILE/domain targets from CMP-code counts.
+
+    ``denominator`` selects the RILE normalization convention:
+
+    * ``"non_header"`` (default, the repo standard): all coded quasi-sentences
+      except ``H`` headers. Matches the published MPDS ``rile`` best
+      (Step 0 gate 2026-06-09: Pearson 0.9975 / MAE 0.49 vs 0.9944 / 1.35).
+    * ``"all"``: every counted quasi-sentence including headers (the literal
+      Laver & Budge denominator). Kept for comparisons only.
+    """
     counter = Counter({str(k): int(v) for k, v in dict(counts).items() if int(v) > 0})
     total_items = int(sum(counter.values()))
     total_non_header = int(sum(v for k, v in counter.items() if k != "H"))
-    denominator = max(1, total_non_header)
+    if denominator == "non_header":
+        denominator_count = total_non_header
+    elif denominator == "all":
+        denominator_count = total_items
+    else:
+        raise ValueError(
+            f"denominator must be 'non_header' or 'all', got {denominator!r}"
+        )
+    denominator = max(1, denominator_count)
     left = int(sum(counter.get(code, 0) for code in RILE_LEFT_CODES))
     right = int(sum(counter.get(code, 0) for code in RILE_RIGHT_CODES))
     rile_raw = 100.0 * float(right - left) / float(denominator)
@@ -140,12 +162,14 @@ def targets_from_counts(counts: Mapping[str, int]) -> dict[str, Any]:
     }
 
 
-def merge_count_payloads(payloads: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def merge_count_payloads(
+    payloads: Sequence[Mapping[str, Any]], *, denominator: str = "non_header"
+) -> dict[str, Any]:
     counter: Counter[str] = Counter()
     for payload in payloads:
         for code, count in dict(payload.get("counts") or {}).items():
             counter[str(code)] += int(count)
-    return targets_from_counts(counter)
+    return targets_from_counts(counter, denominator=denominator)
 
 
 def render_policy_state(target: Mapping[str, Any], *, max_top_codes: int = 8) -> str:

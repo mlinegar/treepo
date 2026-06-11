@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from treepo.bench.lda.segment_lda_ops_weight_recovery import (
+from treepo._research.bench.lda.segment_lda_ops_weight_recovery import (
     SegmentLDADoc,
     SegmentLDAOpsWeightRecoveryConfig,
     _eval_sketch_family,

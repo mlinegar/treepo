@@ -17,7 +17,7 @@ PyTorch probe.
 
 The heavy JAX stack is lazy-imported.  Install it with:
 
-    pip install -e ".[contextual_sbi]"
+    uv add sbijax jax jaxlib
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ HLL_REGISTER_SKETCH_LAW_SET_ID = "hll_register_sketch"
 
 CONTEXTUAL_SBI_INSTALL_MSG = (
     "The contextual sbijax lane requires the optional JAX/SBI dependencies. "
-    'Install with: pip install -e ".[contextual_sbi]"'
+    'Install with: uv add sbijax jax jaxlib'
 )
 
 

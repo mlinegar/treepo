@@ -15,7 +15,7 @@ def _torch_or_skip() -> None:
 
 def test_learned_segment_lda_ops_g_runs_small_cpu() -> None:
     _torch_or_skip()
-    from treepo.bench.lda.learned_segment_lda_ops_g import (
+    from treepo._research.bench.lda.learned_segment_lda_ops_g import (
         LearnedSegmentLDAOpsGConfig,
         run_learned_segment_lda_ops_g_experiment,
     )
@@ -57,7 +57,7 @@ def test_learned_segment_lda_ops_g_runs_small_cpu() -> None:
 
 def test_learned_segmented_lda_theta_g_runs_small_cpu() -> None:
     _torch_or_skip()
-    from treepo.bench.lda.learned_segmented_lda_theta_g import (
+    from treepo._research.bench.lda.learned_segmented_lda_theta_g import (
         LearnedSegmentedLDATopicThetaGConfig,
         run_learned_segmented_lda_theta_g_experiment,
     )

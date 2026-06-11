@@ -3,21 +3,14 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-
-MIN_PROPENSITY = 1e-12
-LOCAL_LAW_OBJECTIVE_CORRECTED = "corrected_local_law"
-LOCAL_LAW_OBJECTIVE_SAMPLED_IPW = "sampled_ipw"
-LOCAL_LAW_OBJECTIVE_MODES = (
+from treepo.local_law import (
     LOCAL_LAW_OBJECTIVE_CORRECTED,
+    LOCAL_LAW_OBJECTIVE_MODES,
     LOCAL_LAW_OBJECTIVE_SAMPLED_IPW,
+    MIN_PROPENSITY,
+    corrected_local_law_loss,
+    normalize_local_law_objective_mode,
 )
-
-
-def _finite_float(value: float, *, name: str) -> float:
-    out = float(value)
-    if not math.isfinite(out):
-        raise ValueError(f"{name} must be finite, got {value!r}")
-    return out
 
 
 try:
@@ -26,57 +19,11 @@ except ImportError:  # pragma: no cover
     torch = None  # type: ignore[assignment]
 
 
-def normalize_local_law_objective_mode(mode: str) -> str:
-    normalized = str(mode or LOCAL_LAW_OBJECTIVE_CORRECTED).strip().lower()
-    aliases = {
-        "corrected": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "aipw": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "adjusted": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "adjusted_local_law": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "dr": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "doubly_robust": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "ipw": LOCAL_LAW_OBJECTIVE_SAMPLED_IPW,
-        "sampled": LOCAL_LAW_OBJECTIVE_SAMPLED_IPW,
-        "hajek": LOCAL_LAW_OBJECTIVE_SAMPLED_IPW,
-        "sampled_hajek": LOCAL_LAW_OBJECTIVE_SAMPLED_IPW,
-    }
-    normalized = aliases.get(normalized, normalized)
-    if normalized not in LOCAL_LAW_OBJECTIVE_MODES:
-        raise ValueError(
-            f"unknown local-law objective mode {mode!r}; expected one of "
-            f"{LOCAL_LAW_OBJECTIVE_MODES}"
-        )
-    return normalized
-
-
-def corrected_local_law_loss(
-    *,
-    proxy_loss: float,
-    oracle_loss: Optional[float],
-    observed: bool,
-    propensity: float,
-    min_propensity: float = 1e-12,
-) -> float:
-    """Return ``proxy + R / pi * (oracle - proxy)`` for one node loss row."""
-
-    proxy = _finite_float(proxy_loss, name="proxy_loss")
-    if not bool(observed):
-        return proxy
-    if oracle_loss is None:
-        raise ValueError("observed corrected local-law rows require oracle_loss")
-    oracle = _finite_float(oracle_loss, name="oracle_loss")
-    pi = _finite_float(propensity, name="propensity")
-    min_pi = max(_finite_float(min_propensity, name="min_propensity"), MIN_PROPENSITY)
-    if pi <= 0.0 or pi > 1.0:
-        raise ValueError(f"observed local-law propensity must be in (0, 1], got {propensity!r}")
-    return float(proxy + (oracle - proxy) / max(min_pi, pi))
-
-
 def _require_torch() -> None:
     if torch is None:
         raise ImportError(
             "PyTorch is required for torch local-law objectives. "
-            "Install with: pip install 'treepo[torch]'"
+            "Install with: uv sync --extra torch"
         )
 
 
@@ -127,8 +74,8 @@ def _depth_discount_weights(
 ) -> "torch.Tensor":
     _require_torch()
     gamma = float(gamma_depth)
-    if gamma < 0.0:
-        raise ValueError(f"gamma_depth must be non-negative, got {gamma_depth!r}")
+    if gamma < 0.0 or gamma > 1.0:
+        raise ValueError(f"gamma_depth must be in [0, 1], got {gamma_depth!r}")
     depth_values = depths.reshape(-1).to(dtype=torch.float32)
     base = torch.full_like(depth_values, gamma)
     return torch.pow(base, depth_values)

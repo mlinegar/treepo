@@ -37,7 +37,7 @@ try:
 except ImportError:
     raise ImportError(
         "PyTorch is required for tree neural core. "
-        "Install with: pip install torch>=2.0.0"
+        "Install with: uv sync --extra torch"
     )
 
 

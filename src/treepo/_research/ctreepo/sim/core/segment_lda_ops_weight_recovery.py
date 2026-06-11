@@ -967,7 +967,7 @@ def _estimate_topics_sklearn_lda_from_docs(
     except Exception as e:  # pragma: no cover
         raise ImportError(
             "scikit-learn is required for topic_phi_estimator='sklearn_lda'. "
-            "Install with: pip install scikit-learn>=1.4.2"
+            "Install with: uv sync --extra sklearn"
         ) from e
 
     k = int(n_topics)

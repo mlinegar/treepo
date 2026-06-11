@@ -488,7 +488,7 @@ class PDFTextParser:
             from pypdf import PdfReader
         except Exception as exc:  # pragma: no cover - optional dependency path
             raise RuntimeError(
-                "pypdf backend unavailable. Install with: pip install pypdf"
+                "pypdf backend unavailable. Install with: uv add pypdf"
             ) from exc
 
         reader = PdfReader(str(path))
@@ -526,7 +526,7 @@ class PDFTextParser:
             import fitz
         except Exception as exc:  # pragma: no cover - optional dependency path
             raise RuntimeError(
-                "pymupdf backend unavailable. Install with: pip install pymupdf"
+                "pymupdf backend unavailable. Install with: uv add pymupdf"
             ) from exc
 
         pages: List[str] = []

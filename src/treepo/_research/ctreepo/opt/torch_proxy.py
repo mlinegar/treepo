@@ -34,7 +34,7 @@ class TorchMSEProxyOracle:
         sample_weight: Optional[Sequence[float]] = None,
     ) -> "TorchMSEProxyOracle":  # pragma: no cover
         if torch is None or nn is None:
-            raise ImportError("torch is required for TorchMSEProxyOracle. Install with: pip install torch")
+            raise ImportError("torch is required for TorchMSEProxyOracle. Install with: uv sync --extra torch")
 
         device = torch.device(self.device) if self.device else torch.device("cpu")
         model = self.model.to(device)
@@ -69,7 +69,7 @@ class TorchMSEProxyOracle:
 
     def predict(self, inputs: Sequence[Any]) -> Any:  # pragma: no cover
         if torch is None:
-            raise ImportError("torch is required for TorchMSEProxyOracle. Install with: pip install torch")
+            raise ImportError("torch is required for TorchMSEProxyOracle. Install with: uv sync --extra torch")
         device = torch.device(self.device) if self.device else torch.device("cpu")
         model = self.model.to(device)
         model.eval()

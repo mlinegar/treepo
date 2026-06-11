@@ -1,165 +1,83 @@
+"""Lazy Manifesto/RILE research namespace.
+
+Importing a small constants module such as `pipeline_config` should not load
+DSPy signatures, training metrics, or tree builders. Resolve the historical
+top-level names only on demand.
 """
-Manifesto RILE Scoring - Example Components.
 
-This module provides RILE-specific components (data loader, scorer, rubrics)
-that can be used with the generic ScoringTask.
+from __future__ import annotations
 
-RILE scores range from -100 (far left) to +100 (far right).
+from importlib import import_module
+from typing import Any
 
-Usage:
-    from treepo._research.tasks.base import ScoringTask, ScaleDefinition
-    from treepo._research.tasks.manifesto import (
-        RILE_SCALE,
-        RILE_PRESERVATION_RUBRIC,
-        ManifestoDataset,
-        RILEScorer,
-    )
 
-    # Create task with RILE configuration
-    task = ScoringTask(
+_ATTR_MODULES = {
+    "RILE_RANGE": "treepo._research.tasks.manifesto.constants",
+    "RILE_MIN": "treepo._research.tasks.manifesto.constants",
+    "RILE_MAX": "treepo._research.tasks.manifesto.constants",
+    "RILE_PRESERVATION_RUBRIC": "treepo._research.tasks.manifesto.rubrics",
+    "RILE_TASK_CONTEXT": "treepo._research.tasks.manifesto.rubrics",
+    "create_rile_oracle": "treepo._research.tasks.manifesto.oracle",
+    "ManifestoDataset": "treepo._research.tasks.manifesto.data_loader",
+    "ManifestoSample": "treepo._research.tasks.manifesto.data_loader",
+    "create_pilot_dataset": "treepo._research.tasks.manifesto.data_loader",
+    "LeafSummarizer": "treepo._research.tasks.manifesto.summarizer",
+    "MergeSummarizer": "treepo._research.tasks.manifesto.summarizer",
+    "GenericSummarizer": "treepo._research.tasks.manifesto.summarizer",
+    "RILEScore": "treepo._research.tasks.manifesto.dspy_signatures",
+    "RILEScorer": "treepo._research.tasks.manifesto.dspy_signatures",
+    "RILEComparison": "treepo._research.tasks.manifesto.dspy_signatures",
+    "RILEComparator": "treepo._research.tasks.manifesto.dspy_signatures",
+    "SimpleScore": "treepo._research.tasks.manifesto.dspy_signatures",
+    "PairwiseSummaryComparison": "treepo._research.tasks.manifesto.dspy_signatures",
+    "RILESummarize": "treepo._research.tasks.manifesto.pipeline",
+    "RILEMerge": "treepo._research.tasks.manifesto.pipeline",
+    "RILEScoreSignature": "treepo._research.tasks.manifesto.pipeline",
+    "UnifiedManifestoG": "treepo._research.tasks.manifesto.pipeline",
+    "ManifestoSummarizer": "treepo._research.tasks.manifesto.pipeline",
+    "ManifestoMerger": "treepo._research.tasks.manifesto.pipeline",
+    "ManifestoScorer": "treepo._research.tasks.manifesto.pipeline",
+    "StrategyCompatibleSummarizer": "treepo._research.tasks.manifesto.pipeline",
+    "StrategyCompatibleMerger": "treepo._research.tasks.manifesto.pipeline",
+    "ManifestoPipeline": "treepo._research.tasks.manifesto.pipeline",
+    "ManifestoPipelineWithStrategy": "treepo._research.tasks.manifesto.pipeline",
+    "create_training_examples": "treepo._research.tasks.manifesto.training_data",
+    "rile_metric": "treepo._research.tasks.manifesto.metrics",
+    "is_placeholder": "treepo._research.tasks.manifesto.metrics",
+    "create_rile_summarization_metric": "treepo._research.tasks.manifesto.metrics",
+    "create_rile_merge_metric": "treepo._research.tasks.manifesto.metrics",
+}
+
+
+def _build_rile_scale() -> Any:
+    from treepo._research.tasks.base import ScaleDefinition
+
+    return ScaleDefinition(
         name="rile",
-        scale=RILE_SCALE,
-        rubric=RILE_PRESERVATION_RUBRIC,
-        data_loader_factory=lambda: ManifestoDataset(),
-        predictor_factory=lambda: RILEScorer(),
+        min_value=-100.0,
+        max_value=100.0,
+        description="Right-Left ideological scale. -100 = far left, +100 = far right",
+        higher_is_better=True,
+        neutral_value=0.0,
     )
-"""
-
-from treepo._research.tasks.base import ScaleDefinition
-
-from .constants import (
-    RILE_RANGE,
-    RILE_MIN,
-    RILE_MAX,
-)
-from .rubrics import (
-    RILE_PRESERVATION_RUBRIC,
-    RILE_TASK_CONTEXT,
-)
-
-# Oracle
-from .oracle import create_rile_oracle
-
-# Data loading
-from .data_loader import (
-    ManifestoDataset,
-    ManifestoSample,
-    create_pilot_dataset,
-)
-
-# Summarizer
-from .summarizer import (
-    LeafSummarizer,
-    MergeSummarizer,
-    GenericSummarizer,
-)
-
-# DSPy signatures
-from .dspy_signatures import (
-    RILEScore,
-    RILEScorer,
-    RILEComparison,
-    RILEComparator,
-    SimpleScore,
-    PairwiseSummaryComparison,
-)
-
-# Pipeline
-from .pipeline import (
-    # Signatures
-    RILESummarize,
-    RILEMerge,
-    RILEScoreSignature,
-    # Modules
-    UnifiedManifestoG,
-    ManifestoSummarizer,
-    ManifestoMerger,
-    ManifestoScorer,
-    StrategyCompatibleSummarizer,
-    StrategyCompatibleMerger,
-    # Pipelines
-    ManifestoPipeline,
-    ManifestoPipelineWithStrategy,
-    # Training helpers
-    create_training_examples,
-    rile_metric,
-    is_placeholder,
-)
-from .metrics import (
-    create_rile_summarization_metric,
-    create_rile_merge_metric,
-)
 
 
-# =============================================================================
-# RILE Scale Definition
-# =============================================================================
+def __getattr__(name: str) -> Any:
+    if name == "RILE_SCALE":
+        value = _build_rile_scale()
+        globals()[name] = value
+        return value
+    module_name = _ATTR_MODULES.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(module_name)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
 
-RILE_SCALE = ScaleDefinition(
-    name="rile",
-    min_value=-100.0,
-    max_value=100.0,
-    description="Right-Left ideological scale. -100 = far left, +100 = far right",
-    higher_is_better=True,
-    neutral_value=0.0,
-)
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()).union(__all__))
 
 
-__all__ = [
-    # Scale
-    "RILE_SCALE",
-
-    # Constants
-    "RILE_RANGE",
-    "RILE_MIN",
-    "RILE_MAX",
-
-    # Rubrics
-    "RILE_PRESERVATION_RUBRIC",
-    "RILE_TASK_CONTEXT",
-
-    # Oracle
-    "create_rile_oracle",
-
-    # Data loading
-    "ManifestoDataset",
-    "ManifestoSample",
-    "create_pilot_dataset",
-
-    # Summarizers
-    "LeafSummarizer",
-    "MergeSummarizer",
-    "GenericSummarizer",
-
-    # DSPy signatures and modules
-    "RILEScore",
-    "RILEScorer",
-    "RILEComparison",
-    "RILEComparator",
-    "SimpleScore",
-    "PairwiseSummaryComparison",
-
-    # Pipeline signatures
-    "RILESummarize",
-    "RILEMerge",
-    "RILEScoreSignature",
-
-    # Pipeline modules
-    "UnifiedManifestoG",
-    "ManifestoSummarizer",
-    "ManifestoMerger",
-    "ManifestoScorer",
-    "StrategyCompatibleSummarizer",
-    "StrategyCompatibleMerger",
-
-    # Full pipelines
-    "ManifestoPipeline",
-    "ManifestoPipelineWithStrategy",
-
-    # Training helpers
-    "create_training_examples",
-    "rile_metric",
-    "is_placeholder",
-    "create_rile_summarization_metric",
-    "create_rile_merge_metric",
-]
+__all__ = ["RILE_SCALE", *_ATTR_MODULES]

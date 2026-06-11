@@ -272,7 +272,7 @@ class LLMClient:
             try:
                 from openai import OpenAI
             except ImportError:
-                raise ImportError("openai package required. Install with: pip install openai")
+                raise ImportError("openai package required. Install with: uv sync --extra llm")
 
             try:
                 self._client = OpenAI(

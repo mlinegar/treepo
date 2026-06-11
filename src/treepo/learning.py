@@ -139,7 +139,7 @@ def fit(
 
     - ``{"experiment": ..., "config": ...}`` routes through ``treepo-bench``.
     - LongBench/runtime configs with ``methods`` and ``benchmark`` route through
-      ``treepo.runtime``.
+      ``treepo.bench.runtime``.
     - f/g ladder specs with ``family`` and ``schedule`` route through the
       existing ``src.ctreepo.learning.fit`` implementation when the monorepo is
       available.
@@ -188,7 +188,7 @@ def _fit_paper_experiment(cfg: FitConfig, *, task: str | None, mode: str) -> Fit
 
 
 def _fit_runtime(cfg: FitConfig, *, mode: str) -> FitResult:
-    runtime = importlib.import_module("treepo.runtime")
+    runtime = importlib.import_module("treepo.bench.runtime")
     run_config = dict(cfg.config or cfg.spec or {})
     output_root = Path(cfg.output_dir)
     output_root.mkdir(parents=True, exist_ok=True)

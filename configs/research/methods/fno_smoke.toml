@@ -1,0 +1,16 @@
+# FNO family — flat TOML over `src.ctreepo.fno_family.FNOFamilyConfig` fields.
+# Loads via `load_dataclass(path, FNOFamilyConfig)`. Smoke values override
+# the paper defaults (32/64/2/8) so this runs in seconds.
+
+hidden_channels             = 8
+effective_embedding_dim     = 64   # must match the example's hashing-client dim
+n_modes                     = 4
+n_layers                    = 1
+head_hidden_dim             = 16
+leaf_size_tokens            = 64
+epochs_per_iteration        = 1
+batch_size                  = 2
+learning_rate               = 1e-3
+weight_decay                = 1e-4
+identity_init               = true
+seed                        = 42

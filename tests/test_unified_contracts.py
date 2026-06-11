@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from treepo.audit import (
+from treepo.local_law import (
     LawKind,
     LocalLawAuditRow,
     compute_influence_weighted_overlap,
@@ -85,13 +85,13 @@ def test_manifest_round_trips_and_validates() -> None:
     assert len(restored.digest) == 64
 
 
-def test_manifest_rejects_missing_parent_and_invalid_observed_propensity() -> None:
-    with pytest.raises(ValueError, match="positive propensity"):
+def test_manifest_rejects_missing_parent_and_invalid_row_propensity() -> None:
+    with pytest.raises(ValueError, match="propensity"):
         ManifestRow(
             row_id="bad",
             top_level_unit_id="doc_1",
             support=Span(0, 1),
-            observed=True,
+            observed=False,
             propensity=0.0,
         )
 
@@ -104,7 +104,7 @@ def test_manifest_rejects_missing_parent_and_invalid_observed_propensity() -> No
                 top_level_unit_id="missing",
                 support=Span(0, 1),
                 observed=False,
-                propensity=0.0,
+                propensity=1.0,
             ),
         ),
     )
@@ -116,6 +116,8 @@ def test_manifest_rejects_missing_parent_and_invalid_observed_propensity() -> No
 def test_objective_rejects_additive_oracle_gap_terms() -> None:
     spec = ObjectiveSpec(
         objective_family="root_plus_laws",
+        root_share=0.5,
+        local_law_estimator="corrected",
         local_law_component_weights={"c1": 0.2, "c3": 0.3},
     )
     payload = spec.to_dict()
@@ -129,6 +131,32 @@ def test_objective_rejects_additive_oracle_gap_terms() -> None:
         normalize_objective_spec({"gap_weight": 1.0})
 
 
+def test_objective_enforces_local_law_and_convex_weight_invariants() -> None:
+    with pytest.raises(ValueError, match="positive law component"):
+        ObjectiveSpec(
+            root_share=1.0,
+            local_law_estimator="corrected",
+            local_law_component_weights={},
+        )
+
+    with pytest.raises(ValueError, match="convex combination"):
+        ObjectiveSpec(
+            root_share=0.8,
+            local_law_estimator="corrected",
+            local_law_weight=2.0,
+            local_law_component_weights={"c1": 2.0},
+        )
+
+    spec = ObjectiveSpec(
+        root_share=0.8,
+        local_law_estimator="corrected",
+        local_law_weight=2.0,
+        local_law_component_weights={"c1": 2.0},
+        allow_nonconvex_objective=True,
+    )
+    assert spec.to_dict()["allow_nonconvex_objective"] is True
+
+
 def test_audit_rows_compute_corrected_losses_and_overlap() -> None:
     rows = [
         LocalLawAuditRow(
@@ -136,7 +164,7 @@ def test_audit_rows_compute_corrected_losses_and_overlap() -> None:
             law_kind=LawKind.C1_LEAF,
             proxy_loss=0.4,
             observed=False,
-            propensity=0.0,
+            propensity=0.25,
             node_weight=1.0,
         ),
         LocalLawAuditRow(
@@ -151,8 +179,8 @@ def test_audit_rows_compute_corrected_losses_and_overlap() -> None:
     ]
     assert corrected_losses_from_rows(rows) == pytest.approx([0.4, -0.2])
     overlap = compute_influence_weighted_overlap(rows)
-    assert overlap.D_lambda == pytest.approx(1.0 / 1e-12 + 4.0 / 0.5)
-    assert overlap.W_lambda == pytest.approx(1.0 / 1e-12)
+    assert overlap.D_lambda == pytest.approx(1.0 / 0.25 + 4.0 / 0.5)
+    assert overlap.W_lambda == pytest.approx(4.0)
     assert overlap.effective_sample_size > 0.0
 
 

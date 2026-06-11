@@ -67,7 +67,7 @@ def _require_torch() -> None:
     if torch is None or F is None:
         raise ImportError(
             "PyTorch is required for TreePO cardinality recovery experiments. "
-            "Install with: pip install 'treepo[torch]'"
+            "Install with: uv sync --extra torch"
         )
 
 

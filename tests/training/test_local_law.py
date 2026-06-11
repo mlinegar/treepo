@@ -72,6 +72,20 @@ def test_local_law_objective_target_mse_uses_proxy_plus_ipw_correction() -> None
     assert float(objective) == pytest.approx((0.25 + 0.5 * -0.5) / 1.5)
 
 
+def test_local_law_objective_rejects_gamma_above_one() -> None:
+    torch = _torch_or_skip()
+    with pytest.raises(ValueError, match="gamma_depth"):
+        local_law_objective_target_mse(
+            predictions=torch.tensor([1.0]),
+            proxy_targets=torch.tensor([1.0]),
+            oracle_targets=torch.tensor([1.0]),
+            observed=torch.tensor([True]),
+            propensity=torch.tensor([1.0]),
+            depths=torch.tensor([0]),
+            gamma_depth=1.5,
+        )
+
+
 def test_sampled_uniform_node_ipw_mean_loss_full_rate_uses_node_weights() -> None:
     torch = _torch_or_skip()
     objective = sampled_uniform_node_ipw_mean_loss(
@@ -104,8 +118,8 @@ def test_observed_uniform_node_ipw_mean_loss_allows_empty_sample() -> None:
 def test_persistent_uniform_node_mask_has_no_doc_minimum() -> None:
     torch = _torch_or_skip()
     np = pytest.importorskip("numpy")
-    sampled = pytest.importorskip("unified_g_v1.sketch.sampled_supervision")
-    tree_task = pytest.importorskip("unified_g_v1.training.tree_task")
+    sampled = pytest.importorskip("treepo._research.unified_g_v1.sketch.sampled_supervision")
+    tree_task = pytest.importorskip("treepo._research.unified_g_v1.training.tree_task")
 
     example = tree_task.TreeExample(
         leaves=[(1,)],

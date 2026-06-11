@@ -30,7 +30,7 @@ try:
 except ImportError:
     raise ImportError(
         "PyTorch is required for CTreePO model. "
-        "Install with: pip install torch>=2.0.0"
+        "Install with: uv sync --extra torch"
     )
 
 from treepo._research.core.ops_checks import (

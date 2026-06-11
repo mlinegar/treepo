@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import math
 from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping, Sequence
+
+from treepo.common import finite_float
 
 
 COMPONENT_LOCAL_LAW = "local_law"
@@ -15,13 +16,11 @@ CERTIFICATE_COMPONENTS = (
     COMPONENT_ESTIMATION,
     COMPONENT_CLIPPING,
 )
-
-
-def _finite_float(value: float, *, name: str) -> float:
-    out = float(value)
-    if not math.isfinite(out):
-        raise ValueError(f"{name} must be finite, got {value!r}")
-    return out
+CERTIFICATE_LIMITATION = (
+    "v0.1 certificates are component-radius ledgers. They do not separately "
+    "instantiate the Lean Lipschitz-readout or measurement-error terms; include "
+    "those constants in the supplied component radius when they are needed."
+)
 
 
 @dataclass(frozen=True)
@@ -38,11 +37,11 @@ class UnifiedLearningComponentEvidence:
         component = str(self.component or "").strip().lower()
         if component not in CERTIFICATE_COMPONENTS:
             raise ValueError(f"unknown certificate component: {self.component!r}")
-        radius = _finite_float(self.radius, name="radius")
+        radius = finite_float(self.radius, name="radius")
         if radius < 0.0:
             raise ValueError("component radius must be non-negative")
         if self.delta is not None:
-            delta = _finite_float(self.delta, name="delta")
+            delta = finite_float(self.delta, name="delta")
             if delta < 0.0 or delta > 1.0:
                 raise ValueError("delta must be in [0, 1]")
             object.__setattr__(self, "delta", delta)
@@ -74,12 +73,12 @@ class UnifiedLearningErrorCertificate:
             "estimation_radius",
             "clipping_radius",
         ):
-            value = _finite_float(getattr(self, name), name=name)
+            value = finite_float(getattr(self, name), name=name)
             if name.endswith("_radius") and value < 0.0:
                 raise ValueError(f"{name} must be non-negative")
             object.__setattr__(self, name, value)
         if self.confidence_delta is not None:
-            delta = _finite_float(self.confidence_delta, name="confidence_delta")
+            delta = finite_float(self.confidence_delta, name="confidence_delta")
             if delta < 0.0 or delta > 1.0:
                 raise ValueError("confidence_delta must be in [0, 1]")
             object.__setattr__(self, "confidence_delta", delta)
@@ -146,6 +145,7 @@ def build_error_certificate(
 
 __all__ = [
     "CERTIFICATE_COMPONENTS",
+    "CERTIFICATE_LIMITATION",
     "COMPONENT_CALIBRATION",
     "COMPONENT_CLIPPING",
     "COMPONENT_ESTIMATION",

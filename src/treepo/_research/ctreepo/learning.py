@@ -29,11 +29,16 @@ from treepo._research.ctreepo.ladder import continue_ladder as continue_componen
 
 
 def _ensure_treepo_on_path() -> None:
+    # The nearest checkout wins. Stop at the first existing candidate even if
+    # it is already on sys.path — falling through here used to prepend an
+    # unrelated outer checkout ahead of the real package.
     for parent in Path(__file__).resolve().parents:
         candidate = parent / "treepo" / "src"
-        if candidate.exists() and str(candidate) not in sys.path:
+        if not candidate.exists():
+            continue
+        if str(candidate) not in sys.path:
             sys.path.insert(0, str(candidate))
-            return
+        return
 
 
 def schedule_from_max_iterations(

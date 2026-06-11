@@ -17,7 +17,7 @@ from treepo.core import (
     role_ref,
     roles_metadata,
 )
-from treepo.runtime.longbench import (
+from treepo.bench.runtime.longbench import (
     load_longbench_jsonl,
     parse_choice,
     render_longbench_prompt,
@@ -51,6 +51,25 @@ print(json.dumps({name: name in sys.modules for name in heavy}, sort_keys=True))
         "transformers": False,
         "vllm": False,
     }
+
+
+def test_top_level_normalized_output_export() -> None:
+    from treepo import NormalizedOutput
+
+    out = NormalizedOutput(metrics={"x": 1.0})
+    assert out.metrics["x"] == 1.0
+
+
+def test_benchmarks_are_not_top_level_exports() -> None:
+    import importlib
+    import treepo
+
+    assert not hasattr(treepo, "CardinalityRecoveryConfig")
+    assert not hasattr(treepo, "HLLMergeLearningConfig")
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("treepo.runtime")
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("treepo.sketches")
 
 
 def test_experiment_context_records_sampling_roles_and_results(tmp_path: Path) -> None:

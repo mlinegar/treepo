@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from treepo.bench.suites.cardinality import build_cardinality_paper_suite
-from treepo.bench.suites.identifiable_zero import (
+from treepo._research.bench.lda.suites import (
     build_identifiable_zero_dtm_lda,
     build_identifiable_zero_lda_leafnoise,
     build_identifiable_zero_publication_ctreepo,

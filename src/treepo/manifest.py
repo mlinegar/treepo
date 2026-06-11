@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
 from typing import Any, Mapping, Sequence
+
+from treepo.common import finite_float
 
 
 MANIFEST_SCHEMA_VERSION = "treepo.run_manifest.v1"
@@ -29,13 +30,6 @@ def _jsonable(value: Any) -> Any:
 def stable_digest(payload: Mapping[str, Any]) -> str:
     rendered = json.dumps(_jsonable(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
-
-
-def _finite_float(value: float, *, name: str) -> float:
-    out = float(value)
-    if not math.isfinite(out):
-        raise ValueError(f"{name} must be finite, got {value!r}")
-    return out
 
 
 @dataclass(frozen=True)
@@ -207,7 +201,7 @@ class ManifestRow:
     node_id: str = ""
     pair_id: str = ""
     observed: bool = False
-    propensity: float = 0.0
+    propensity: float = 1.0
     effective_propensity: float | None = None
     influence_weight: float | None = None
     truth_source: str = ""
@@ -226,22 +220,20 @@ class ManifestRow:
             if self.artifacts is None or isinstance(self.artifacts, ArtifactLineage)
             else ArtifactLineage.from_dict(self.artifacts)
         )
-        propensity = _finite_float(self.propensity, name="propensity")
-        if propensity < 0.0 or propensity > 1.0:
-            raise ValueError(f"propensity must be in [0, 1], got {self.propensity!r}")
-        if bool(self.observed) and propensity <= 0.0:
-            raise ValueError("observed manifest rows require positive propensity")
+        propensity = finite_float(self.propensity, name="propensity")
+        if propensity <= 0.0 or propensity > 1.0:
+            raise ValueError(f"propensity must be in (0, 1], got {self.propensity!r}")
         effective = (
             max(float(propensity), MIN_PROPENSITY)
             if self.effective_propensity is None
-            else _finite_float(self.effective_propensity, name="effective_propensity")
+            else finite_float(self.effective_propensity, name="effective_propensity")
         )
         if effective <= 0.0 or effective > 1.0:
             raise ValueError(f"effective_propensity must be in (0, 1], got {effective!r}")
         influence = (
             1.0 / effective
             if self.influence_weight is None
-            else _finite_float(self.influence_weight, name="influence_weight")
+            else finite_float(self.influence_weight, name="influence_weight")
         )
         object.__setattr__(self, "row_id", str(self.row_id))
         object.__setattr__(self, "top_level_unit_id", str(self.top_level_unit_id))
@@ -286,7 +278,7 @@ class ManifestRow:
             node_id=str(data.get("node_id") or data.get("nodeId") or ""),
             pair_id=str(data.get("pair_id") or data.get("pairId") or ""),
             observed=bool(data.get("observed", False)),
-            propensity=float(data.get("propensity", 0.0) or 0.0),
+            propensity=float(data.get("propensity", 1.0) if data.get("propensity") is not None else 1.0),
             effective_propensity=(
                 None
                 if data.get("effective_propensity", data.get("effectivePropensity")) is None

@@ -2,8 +2,7 @@
 
 These dataclasses are intentionally small and dependency-light.  Backend
 families can keep their native configs and artifact formats internally, while
-the public `src.ctreepo.learning` and `src.ctreepo.runtime` surfaces exchange
-these records.
+the research C-TreePO learning/runtime surfaces exchange these records.
 """
 
 from __future__ import annotations

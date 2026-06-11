@@ -4,7 +4,27 @@
 
 First public version. There's no prior release to compare against.
 
-See [`README.md`](README.md) for the layout and [`docs/training_defaults.md`](docs/training_defaults.md)
-for the canonical-defaults reference behind the `treepo.cld` unified `fit()` / `run()` surface.
+Shipped public surface:
 
-Future releases will note breaking changes here.
+- Core experiment references, roles, manifests, honesty helpers, HLL sketches,
+  local-law audit rows, objective metadata, and component-radius certificates.
+- `treepo.methods` unified `run()` / `fit()` dispatcher for fit, oracle, and
+  audit axes.
+- `treepo-bench` suite/report/check CLI, with examples and canonical default
+  TOMLs kept under `examples/research/` and `configs/research/methods/`.
+
+Known v0.1 limitations:
+
+- `treepo.certificate` is a component-radius ledger. Lipschitz readout and
+  measurement-error theorem terms are not first-class components yet; callers
+  must include them in supplied radii when needed.
+- HLL merge-learning `scalar_*` diagnostics are scalar readout checks, not
+  state-level register-max Lean law certificates.
+- `src/treepo/_research/` remains a quarantined migration tier for large paper
+  scaffolding and heavyweight dependencies.
+- LDA identifiable-zero code, reports, configs, examples, and runner scripts
+  are intentionally research-only under `_research` / `research/` paths, not
+  part of the public v0.1 API.
+
+See [`README.md`](README.md) for the layout and
+[`docs/training_defaults.md`](docs/training_defaults.md) for canonical defaults.

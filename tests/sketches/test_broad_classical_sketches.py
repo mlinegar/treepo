@@ -21,7 +21,7 @@ from treepo.bench.reports.classical_sketches import (  # noqa: E402
     _plot_leafsize_hll,
 )
 from treepo.bench.suites.classical_sketches import build_classical_sketches_suite  # noqa: E402
-from treepo.sketches import (  # noqa: E402
+from treepo.bench.sketches import (  # noqa: E402
     make_count_min_adapter,
     make_cpc_adapter,
     make_frequent_strings_adapter,
@@ -33,7 +33,7 @@ from treepo.sketches import (  # noqa: E402
     make_tuple_accumulator_adapter,
     make_varopt_strings_adapter,
 )
-from treepo.sketches.tree_reducer import fold_states  # noqa: E402
+from treepo.bench.sketches.tree_reducer import fold_states  # noqa: E402
 
 
 def test_cardinality_adapters_update_merge_query_and_size() -> None:

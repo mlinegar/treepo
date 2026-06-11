@@ -175,7 +175,7 @@ def fit_dense_simplex_forest_regressor(
     except Exception as e:  # pragma: no cover
         raise ImportError(
             "scikit-learn is required for dense simplex random-forest training. "
-            "Install with: pip install scikit-learn>=1.4.2"
+            "Install with: uv sync --extra sklearn"
         ) from e
 
     cfg = config or DenseSimplexForestTrainingConfig()

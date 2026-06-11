@@ -6,7 +6,7 @@ trainers for DPO, GRPO, pairwise reward, and scalar reward model training. It br
 collection system with TRL's training infrastructure.
 
 Dependencies:
-    pip install trl>=0.7.0 transformers>=4.40.0 peft>=0.8.0
+    uv sync --extra train
 
 Architecture:
     SupervisionDataset → Optimizer Projection → HuggingFace Dataset → TRL Trainer
@@ -493,7 +493,7 @@ def _preference_to_hf_dpo(
     try:
         from datasets import Dataset
     except ImportError:
-        raise ImportError("datasets library required. Install with: pip install datasets")
+        raise ImportError("datasets library required. Install with: uv sync --extra train")
 
     # Filter out ties (no chosen/rejected for ties)
     filtered = [
@@ -546,7 +546,7 @@ def _preference_to_hf_reward(
     try:
         from datasets import Dataset
     except ImportError:
-        raise ImportError("datasets library required. Install with: pip install datasets")
+        raise ImportError("datasets library required. Install with: uv sync --extra train")
 
     converted = []
     for pair in reward_pairs:
@@ -583,7 +583,7 @@ def _scalar_reward_to_hf_dataset(
     try:
         from datasets import Dataset
     except ImportError:
-        raise ImportError("datasets library required. Install with: pip install datasets")
+        raise ImportError("datasets library required. Install with: uv sync --extra train")
 
     converted: List[Dict[str, Any]] = []
     for record in reward_records:
@@ -625,7 +625,7 @@ def _preference_to_hf_grpo(
     try:
         from datasets import Dataset
     except ImportError:
-        raise ImportError("datasets library required. Install with: pip install datasets")
+        raise ImportError("datasets library required. Install with: uv sync --extra train")
 
     converted = [
         {
@@ -705,7 +705,7 @@ def _load_model_for_training(
         import torch
     except ImportError:
         raise ImportError(
-            "transformers library required. Install with: pip install transformers"
+            "transformers library required. Install with: uv sync --extra train"
         )
 
     # Determine compute dtype
@@ -1347,7 +1347,7 @@ def train_dpo(
     try:
         from trl import DPOConfig, DPOTrainer
     except ImportError:
-        raise ImportError("TRL library required. Install with: pip install trl>=0.7.0")
+        raise ImportError("TRL library required. Install with: uv sync --extra train")
 
     config = config or TRLTrainingConfig()
     output_dir = Path(output_dir)
@@ -1547,7 +1547,7 @@ def train_grpo(
     except ImportError:
         raise ImportError(
             "TRL library with GRPO support required. "
-            "Install with: pip install trl>=0.8.0"
+            "Install with: uv sync --extra train"
         )
 
     config = config or TRLTrainingConfig()
@@ -1566,7 +1566,7 @@ def train_grpo(
     try:
         from datasets import Dataset
     except ImportError:
-        raise ImportError("datasets library required. Install with: pip install datasets")
+        raise ImportError("datasets library required. Install with: uv sync --extra train")
 
     prompt_records = _build_grpo_train_records(
         dataset,
@@ -1649,7 +1649,7 @@ def train_reward_model(
     try:
         from trl import RewardConfig, RewardTrainer
     except ImportError:
-        raise ImportError("TRL library required. Install with: pip install trl>=0.7.0")
+        raise ImportError("TRL library required. Install with: uv sync --extra train")
 
     config = config or TRLTrainingConfig()
     output_dir = Path(output_dir)
@@ -1771,7 +1771,7 @@ def train_scalar_reward_model(
         from transformers import Trainer, TrainingArguments
     except ImportError:
         raise ImportError(
-            "transformers library required. Install with: pip install transformers"
+            "transformers library required. Install with: uv sync --extra train"
         )
 
     config = config or TRLTrainingConfig()
@@ -1889,7 +1889,7 @@ def train_scalar_reward_records(
         from transformers import Trainer, TrainingArguments
     except ImportError:
         raise ImportError(
-            "transformers library required. Install with: pip install transformers"
+            "transformers library required. Install with: uv sync --extra train"
         )
 
     config = config or TRLTrainingConfig()
@@ -2017,11 +2017,11 @@ def train_sft(
     try:
         from trl import SFTConfig, SFTTrainer
     except ImportError:
-        raise ImportError("TRL library required. Install with: pip install trl>=0.7.0")
+        raise ImportError("TRL library required. Install with: uv sync --extra train")
     try:
         from datasets import Dataset
     except ImportError:
-        raise ImportError("datasets library required. Install with: pip install datasets")
+        raise ImportError("datasets library required. Install with: uv sync --extra train")
 
     config = config or TRLTrainingConfig()
     output_dir = Path(output_dir)

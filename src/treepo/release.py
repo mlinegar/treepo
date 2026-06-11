@@ -20,22 +20,23 @@ GENERATED_PARTS = (".egg-info", "__pycache__", ".pytest_cache", ".ruff_cache")
 GENERATED_SUFFIXES = (".pyc", ".pyo", ".log")
 FORBIDDEN_IMPORT_ROOTS = ("src",)
 HEAVY_IMPORT_ROOTS = ("dspy", "openai", "vllm", "torch", "transformers", "pandas")
-CORE_LIGHT_PACKAGES = ("treepo", "numpy", "yaml")
+CORE_LIGHT_PACKAGES = ("treepo", "numpy")
 # Subpackages still in migration from the research scaffolding. They are
 # allowed to import from ``src.*`` and may carry local absolute paths in
 # test fixtures (vLLM endpoints, model files) until their dependencies
-# are promoted into the canonical package. See
-# ``treepo/docs/training_defaults.md`` (and ``treepo_cld``, its
-# predecessor) for the migration story.
+# are promoted into the canonical package.
 MIGRATION_TIER_PREFIXES = (
-    "src/treepo/cld/",
-    "src/treepo/_research/",  # vendored research scaffolding consumed by cld
-    "tests/cld/",
-    "configs/cld/",
-    "examples/cld/",
-    "scripts/",  # probe_clean_unified_no.py + run_lda_tree_recovery_simulation.py
+    "src/treepo/_research/",  # vendored research scaffolding consumed by methods
+    "tests/methods/",
+    "configs/research/",
+    "examples/research/",
+    "scripts/",  # release utilities plus research-only scripts
+)
+RELEASE_EXCLUDED_PREFIXES = (
+    "docs/prepush_review/",
 )
 LOCAL_ABSOLUTE_MARKERS = tuple(f"/{name}/" for name in ("home", "mnt", "Users"))
+PIP_INSTALL_MARKERS = ("pip " "install", "python -m " "pip", "pip " "wheel")
 TEXT_SUFFIXES = (".md", ".py", ".toml", ".yaml", ".yml")
 
 
@@ -84,6 +85,8 @@ def audit_package_hygiene(package_root: str | Path = PACKAGE_ROOT) -> dict[str, 
                 failures.append({"path": rel, "reason": "heavy_import_in_core", "import": name})
     for path in candidate_paths:
         rel = str(path.relative_to(root))
+        if any(rel.startswith(prefix) for prefix in RELEASE_EXCLUDED_PREFIXES):
+            continue
         in_migration_tier = any(rel.startswith(prefix) for prefix in MIGRATION_TIER_PREFIXES)
         if _is_generated_path(path) or rel.endswith(GENERATED_SUFFIXES):
             failures.append({"path": rel, "reason": "generated_artifact"})
@@ -92,6 +95,9 @@ def audit_package_hygiene(package_root: str | Path = PACKAGE_ROOT) -> dict[str, 
             marker = next((item for item in LOCAL_ABSOLUTE_MARKERS if item in text), "")
             if marker:
                 failures.append({"path": rel, "reason": "local_absolute_path", "marker": marker})
+            marker = next((item for item in PIP_INSTALL_MARKERS if item in text), "")
+            if marker:
+                failures.append({"path": rel, "reason": "pip_install_command", "marker": marker})
     return {"ok": not failures, "checked_files": len(py_files), "failures": failures}
 
 
@@ -104,6 +110,7 @@ def audit_launch_gate(package_root: str | Path = PACKAGE_ROOT) -> dict[str, Any]
         ("inventory", audit_migration_inventory(root / "migration_inventory.yaml")),
         ("hygiene", audit_package_hygiene(root)),
         ("public_imports", _audit_public_imports(root)),
+        ("lazy_exports", _audit_lazy_exports(root)),
         ("examples", _audit_examples(root)),
         ("paper_suites", _audit_paper_suites(root)),
     ):
@@ -117,7 +124,19 @@ def audit_launch_gate(package_root: str | Path = PACKAGE_ROOT) -> dict[str, Any]
 
 def _is_core_light_path(path: Path) -> bool:
     rel = path.relative_to(SRC_ROOT)
-    return rel.parts[0] in {"__init__.py", "core", "sketches", "hll.py", "common.py"}
+    return rel.parts[0] in {
+        "__init__.py",
+        "certificate.py",
+        "common.py",
+        "core",
+        "hll.py",
+        "honesty.py",
+        "local_law.py",
+        "manifest.py",
+        "objective.py",
+        "paths.py",
+        "sampling.py",
+    }
 
 
 def _import_roots(path: Path) -> Iterable[str]:
@@ -190,22 +209,63 @@ print(json.dumps({name: name in sys.modules for name in heavy}, sort_keys=True))
     return {"ok": not failures, "loaded": loaded, "failures": failures}
 
 
+def _audit_lazy_exports(root: Path) -> dict[str, Any]:
+    code = """
+import json
+import traceback
+import treepo
+failures = []
+for name in sorted(treepo._LAZY_EXPORTS):
+    try:
+        getattr(treepo, name)
+    except Exception as exc:
+        failures.append({
+            "name": name,
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback_tail": traceback.format_exc()[-2000:],
+        })
+print(json.dumps({"checked_exports": len(treepo._LAZY_EXPORTS), "failures": failures}, sort_keys=True))
+"""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(root / "src") + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if proc.returncode != 0:
+        return {
+            "ok": False,
+            "failures": [{"reason": "lazy_export_subprocess_failed", "stderr": proc.stderr.strip()}],
+        }
+    payload = json.loads(proc.stdout)
+    failures = [
+        {"reason": "lazy_export_failed", **dict(item)}
+        for item in list(payload.get("failures") or [])
+    ]
+    return {
+        "ok": not failures,
+        "checked_exports": int(payload.get("checked_exports", 0)),
+        "failures": failures,
+    }
+
+
 def _audit_examples(root: Path) -> dict[str, Any]:
     from treepo.bench.io import load_yaml_or_json
     from treepo.bench.runner import validate_config_dict
-    from treepo.runtime import validate_runtime_config
+    from treepo.bench.runtime import validate_runtime_config
 
     examples = root / "examples"
     experiment_examples = {
-        "cardinality_recovery.yaml": "cardinality-recovery",
-        "hll_merge_learning.yaml": "hll-merge-learning",
-        "classical_sketches.yaml": "classical-sketches",
-        "lda_embedding_spectral.yaml": "segmented-lda-ctreepo",
-        "runtime_llm_full_context.yaml": "longbench-runtime",
-        "runtime_embedding_retrieval.yaml": "longbench-runtime",
-        "runtime_summary_tree.yaml": "longbench-runtime",
-        "runtime_fno_state_model.yaml": "longbench-runtime",
-        "runtime_all_methods.yaml": "longbench-runtime",
+        "research/bench/cardinality_recovery.yaml": "cardinality-recovery",
+        "research/bench/hll_merge_learning.yaml": "hll-merge-learning",
+        "research/bench/classical_sketches.yaml": "classical-sketches",
+        "research/runtime/runtime_llm_full_context.yaml": "longbench-runtime",
+        "research/runtime/runtime_embedding_retrieval.yaml": "longbench-runtime",
+        "research/runtime/runtime_summary_tree.yaml": "longbench-runtime",
+        "research/runtime/runtime_fno_state_model.yaml": "longbench-runtime",
+        "research/runtime/runtime_all_methods.yaml": "longbench-runtime",
     }
     failures: list[dict[str, Any]] = []
     for filename, experiment in experiment_examples.items():
@@ -219,12 +279,13 @@ def _audit_examples(root: Path) -> dict[str, Any]:
         except Exception as exc:
             failures.append({"path": f"examples/{filename}", "reason": "invalid_example", "error": str(exc)})
     try:
-        data = load_yaml_or_json(examples / "longbench_v2_tiny.yaml")
+        fixture = "research/runtime/longbench_v2_tiny.yaml"
+        data = load_yaml_or_json(examples / fixture)
         rows = data.get("rows") if isinstance(data, Mapping) else None
         if not isinstance(rows, list) or not rows:
             raise ValueError("expected non-empty rows list")
     except Exception as exc:
-        failures.append({"path": "examples/longbench_v2_tiny.yaml", "reason": "invalid_fixture", "error": str(exc)})
+        failures.append({"path": "examples/research/runtime/longbench_v2_tiny.yaml", "reason": "invalid_fixture", "error": str(exc)})
     return {"ok": not failures, "checked_examples": len(experiment_examples) + 1, "failures": failures}
 
 
@@ -235,7 +296,7 @@ def _audit_paper_suites(root: Path) -> dict[str, Any]:
     failures: list[dict[str, Any]] = []
     try:
         smoke = build_paper_smoke_suite(out_root=tmp / "treepo_launch_gate_smoke", skip_existing=False)
-        if len(smoke) < 5:
+        if len(smoke) < 4:
             failures.append({"reason": "paper_smoke_too_small", "n_runs": len(smoke)})
     except Exception as exc:
         failures.append({"reason": "paper_smoke_failed", "error": str(exc)})
@@ -247,7 +308,6 @@ def _audit_paper_suites(root: Path) -> dict[str, Any]:
             seeds="0",
             capacities="small",
             leaf_counts="1",
-            topic_phi_estimators="tensor_lda",
         )
         if len(grids) <= len(smoke):
             failures.append({"reason": "paper_grids_too_small", "n_runs": len(grids)})
@@ -268,3 +328,13 @@ __all__ = [
     "audit_package_hygiene",
     "load_migration_inventory",
 ]
+
+
+def main() -> int:
+    report = audit_launch_gate()
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if bool(report.get("ok")) else 1
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

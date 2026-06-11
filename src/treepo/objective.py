@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Mapping
+
+from treepo.common import finite_float
 
 
 OBJECTIVE_SCHEMA_VERSION = "treepo.objective.v1"
+THEOREM_BOUND_LIMITATION = (
+    "v0.1 objective metadata records root/local-law training weights only. "
+    "Lipschitz readout and measurement-error constants must be included by "
+    "callers in supplied certificate radii; first-class components are v0.2 work."
+)
 OBJECTIVE_TERM_ROOT = "root"
 OBJECTIVE_TERM_LOCAL_LAW_CORRECTED = "local_law_corrected"
 LOCAL_LAW_ESTIMATOR_NONE = "none"
@@ -79,6 +86,7 @@ class ObjectiveSpec:
     local_law_component_weights: Mapping[str, float] = field(default_factory=dict)
     terms: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    allow_nonconvex_objective: bool = False
 
     def __post_init__(self) -> None:
         estimator = str(self.local_law_estimator or "").strip().lower()
@@ -89,8 +97,38 @@ class ObjectiveSpec:
         if estimator not in _ALLOWED_LOCAL_LAW_ESTIMATORS:
             raise ValueError(f"unsupported local_law_estimator: {estimator!r}")
         object.__setattr__(self, "local_law_estimator", estimator)
-        if float(self.root_share) < 0.0:
-            raise ValueError("root_share must be non-negative")
+        root_share = finite_float(self.root_share, name="root_share")
+        if root_share < 0.0 or root_share > 1.0:
+            raise ValueError("root_share must be in [0, 1]")
+        weights = canonical_law_component_weights(self.local_law_component_weights or {})
+        for name, value in weights.items():
+            weight = finite_float(value, name=f"local_law_component_weights[{name}]")
+            if weight < 0.0:
+                raise ValueError("local-law component weights must be non-negative")
+        local_weight = (
+            finite_float(self.local_law_weight, name="local_law_weight")
+            if self.local_law_weight is not None
+            else float(sum(weights.values()))
+        )
+        if local_weight < 0.0:
+            raise ValueError("local_law_weight must be non-negative")
+        enabled = estimator != LOCAL_LAW_ESTIMATOR_NONE
+        has_positive_component = any(float(v) > 0.0 for v in weights.values())
+        if enabled and (local_weight <= 0.0 or not has_positive_component):
+            raise ValueError(
+                "local-law estimator enabled requires at least one positive law component"
+            )
+        if not enabled and (local_weight > 0.0 or has_positive_component):
+            raise ValueError("local-law weights require a non-none local_law_estimator")
+        if not bool(self.allow_nonconvex_objective) and not abs(root_share + local_weight - 1.0) <= 1e-9:
+            raise ValueError(
+                "objective weights must form a convex combination; set "
+                "allow_nonconvex_objective=True to opt into non-convex weighting"
+            )
+        object.__setattr__(self, "root_share", root_share)
+        object.__setattr__(self, "local_law_weight", local_weight)
+        object.__setattr__(self, "local_law_component_weights", weights)
+        object.__setattr__(self, "allow_nonconvex_objective", bool(self.allow_nonconvex_objective))
 
     def _normalized_terms(self) -> dict[str, dict[str, Any]]:
         out: dict[str, dict[str, Any]] = {}
@@ -137,6 +175,7 @@ class ObjectiveSpec:
             "local_law_component_weights": weights,
             "terms": _jsonable(self._normalized_terms()),
             "metadata": _jsonable(dict(self.metadata or {})),
+            "allow_nonconvex_objective": bool(self.allow_nonconvex_objective),
         }
 
     @classmethod
@@ -173,6 +212,7 @@ class ObjectiveSpec:
             local_law_component_weights=weights,
             terms=terms,
             metadata=dict(data.get("metadata") or {}),
+            allow_nonconvex_objective=bool(data.get("allow_nonconvex_objective", False)),
         )
 
     @property
@@ -202,6 +242,7 @@ __all__ = [
     "OBJECTIVE_TERM_LOCAL_LAW_CORRECTED",
     "OBJECTIVE_TERM_ROOT",
     "ObjectiveSpec",
+    "THEOREM_BOUND_LIMITATION",
     "canonical_law_component_weights",
     "normalize_objective_spec",
     "objective_metadata",
