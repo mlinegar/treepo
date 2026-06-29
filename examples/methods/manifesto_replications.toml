@@ -1,0 +1,9 @@
+# Central Manifesto/RILE methods example.
+# Root supervision comes from document-level RILE labels; qsentence rows are
+# passed as guidance for the estimator's unified-g prompt/state.
+
+estimator = "dspy"
+model = "local-dspy-program"
+max_iterations = 2
+use_oracle_predictor = true
+prompt_template = ""

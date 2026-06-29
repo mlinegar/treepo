@@ -1,18 +1,16 @@
 """Single, centralized registry of canonical methods.
 
-**Axis-factored, not Cartesian.** Three public methods total — one per
-orthogonal public axis. Adding a new oracle, fixture, or family does *not*
-add a method; the new thing is reachable through the same call site by
-passing its name as config.
+**Axis-factored, not Cartesian.** Public methods are one per orthogonal axis.
+Adding a new oracle, fixture, or family does *not* add a method; the new thing
+is reachable through the same call site by passing its name as config.
 
 | Method | Axis | What's variable | What's fixed |
 |---|---|---|---|
-| ``"fit"``    | spec / spec-kwargs | the full :class:`CTreePOLearningSpec`     | nothing |
-| ``"oracle"`` | ``oracle_name``    | which registered oracle to score with     | family=oracle, eval-only |
+| ``"fit"``    | spec / spec-kwargs | the full :class:`CTreePOLearningSpec` | nothing |
+| ``"oracle"`` | ``oracle_name``    | lightweight built-in oracle scoring   | family=oracle, eval-only |
 | ``"audit"``  | ``rows``           | the local-law audit rows                  | post-hoc; no fit() call |
 
-Adding the Markov oracle? Just pass ``{"oracle_name": "markov_changepoint_count"}``
-and supply ``eval_data`` (no markov auto-fixture in v1).
+Research oracles/families can register themselves from a downstream package.
 
 Mirrors the established :func:`treepo.bench.runner.run_single` pattern
 (flat tuple of method names, ``allowed_config_keys`` discovery, single
@@ -24,12 +22,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping
 
-from treepo._research.ctreepo.contracts import CTreePOFitResult, CTreePOLearningSpec
-from treepo._research.ctreepo.oracles import get_oracle, list_oracles
-from treepo._research.methods.hll_config import HllSketchConfig
+from treepo.methods.contracts import CTreePOFitResult, CTreePOLearningSpec
 from treepo.methods.learning import fit
+from treepo.methods.oracles import list_oracles, oracle_domain
 from treepo.local_law import (
     LocalLawAuditRow,
     compute_influence_weighted_overlap,
@@ -103,8 +100,7 @@ def _lookup(method: str) -> tuple[_Handler, frozenset[str]]:
 
 
 _FIT_KWARGS: tuple[str, ...] = (
-    "space_kind", "family", "schedule", "initial_artifacts",
-    "train_data", "eval_data", "backend_config", "axis",
+    "family", "estimator", "g_estimator", "train_data", "eval_data", "backend_config", "axis",
 )
 
 
@@ -122,20 +118,31 @@ def _method_fit(config: Mapping[str, Any]) -> CTreePOFitResult:
         raise TypeError(
             f"fit config['spec'] must be CTreePOLearningSpec or mapping; got {type(spec).__name__}"
         )
-    if "family" not in config:
+    estimator = config.get("estimator")
+    if estimator is None:
+        estimator = config.get("g_estimator")
+    family = config.get("family")
+    if family is None and estimator is not None:
+        from treepo.methods.estimators import resolve_estimator
+
+        family = resolve_estimator(estimator, dict(config.get("backend_config") or {})).family
+    if family is None:
         raise ValueError(
-            "fit requires either config['spec'] or config['family'] (with optional "
-            f"{list(_FIT_KWARGS)})"
+            "fit requires config['spec'], config['family'], config['estimator'], "
+            "or compatibility config['g_estimator'] "
+            f"(with optional {list(_FIT_KWARGS)})"
         )
     built = CTreePOLearningSpec(
-        space_kind=str(config.get("space_kind", "fit")),
-        family=str(config["family"]),
-        schedule=str(config.get("schedule", "fg")),
-        initial_artifacts=dict(config.get("initial_artifacts") or {"f": None, "g": None}),
+        space_kind="fit",
+        family=str(family),
+        schedule="fg",
+        initial_artifacts={"f": None, "g": None},
         train_data=list(config.get("train_data") or []),
         eval_data=list(config.get("eval_data") or []),
         backend_config=dict(config.get("backend_config") or {}),
         axis=dict(config.get("axis") or {"max_iterations": 0, "axis_value": 0}),
+        estimator=config.get("estimator"),
+        g_estimator=config.get("g_estimator"),
     )
     return fit(built)
 
@@ -148,37 +155,26 @@ def _method_fit(config: Mapping[str, Any]) -> CTreePOFitResult:
 def _make_oracle_fixture_classical_sketch(config: Mapping[str, Any]) -> list:
     from treepo.methods.fixtures import make_hll_token_trees
 
-    defaults = HllSketchConfig()
     return make_hll_token_trees(
-        n_trees=int(config.get("n_trees", defaults.n_trees)),
-        leaves_per_tree=int(config.get("leaves_per_tree", defaults.leaves_per_tree)),
-        leaf_token_count=int(config.get("leaf_token_count", defaults.leaf_token_count)),
-        vocabulary_size=int(config.get("vocabulary_size", defaults.vocabulary_size)),
-        seed=int(config.get("seed", defaults.seed)),
+        n_trees=int(config.get("n_trees", 6)),
+        leaves_per_tree=int(config.get("leaves_per_tree", 4)),
+        leaf_token_count=int(config.get("leaf_token_count", 24)),
+        vocabulary_size=int(config.get("vocabulary_size", 200)),
+        seed=int(config.get("seed", 0)),
+        split=str(config.get("split", "test")),
     )
 
 
 def _make_oracle_fixture_markov(config: Mapping[str, Any]) -> list:
-    """Auto-build a Markov change-point corpus for the ``markov_changepoint_count`` oracle.
-
-    Knobs match the upstream ``MarkovChangepointConfig`` field defaults;
-    callers can override individual values through the oracle config dict.
-    """
     from treepo.methods.fixtures import make_markov_changepoint_trees
 
     return make_markov_changepoint_trees(
-        n_regimes=int(config.get("n_regimes", 4)),
-        vocab_size=int(config.get("vocab_size", 96)),
-        min_tokens=int(config.get("min_tokens", 96)),
-        max_tokens=int(config.get("max_tokens", 96)),
-        min_segments=int(config.get("min_segments", 2)),
-        max_segments=int(config.get("max_segments", 5)),
-        min_seg_len=int(config.get("min_seg_len", 8)),
-        max_seg_len=int(config.get("max_seg_len", 32)),
-        train_docs=int(config.get("train_docs", 120)),
-        test_docs=int(config.get("test_docs", 60)),
-        sinkhorn_iters=int(config.get("sinkhorn_iters", 30)),
-        transition_log_std=float(config.get("transition_log_std", 1.25)),
+        n_trees=int(config.get("n_trees", 8)),
+        n_states=int(config.get("n_states", 4)),
+        doc_tokens=int(config.get("doc_tokens", 128)),
+        leaf_token_count=int(config.get("leaf_token_count", 16)),
+        transition_prob=float(config.get("transition_prob", 0.15)),
+        vocabulary_size=int(config.get("vocabulary_size", 256)),
         seed=int(config.get("seed", 0)),
         split=str(config.get("split", "test")),
     )
@@ -188,18 +184,16 @@ _ORACLE_DOMAIN_FIXTURES: dict[str, Callable[[Mapping[str, Any]], list]] = {
     "classical_sketch": _make_oracle_fixture_classical_sketch,
     "markov": _make_oracle_fixture_markov,
 }
-_RESEARCH_ONLY_ORACLES = {"leaf_local_mixture_target"}
 
 
 def _method_oracle(config: Mapping[str, Any]) -> CTreePOFitResult:
     """Score eval trees against any registered oracle.
 
     - ``oracle_name`` (required) — must be in
-      :func:`src.ctreepo.oracles.list_oracles`. The oracle's ``domain``
+      :func:`list_registered_oracles`. The oracle's ``domain``
       drives auto-fixture selection.
     - ``eval_data`` (optional) — caller-supplied trees override the
-      auto-fixture. Required for domains without a v1 fixture builder
-      (e.g. ``"markov"``).
+      auto-fixture.
     - Domain-specific fixture knobs (``seed``, ``n_trees``, ``split``,
       etc.) — passed through to the auto-fixture builder.
     """
@@ -207,8 +201,7 @@ def _method_oracle(config: Mapping[str, Any]) -> CTreePOFitResult:
     if not name:
         available = ", ".join(list_oracles())
         raise ValueError(f"oracle requires config['oracle_name']; registered: {available}")
-    spec_oracle = get_oracle(str(name))
-    domain = str(spec_oracle.domain)
+    domain = oracle_domain(str(name))
 
     eval_data = config.get("eval_data")
     if eval_data is None:
@@ -304,11 +297,11 @@ def list_oracle_domains_with_fixtures() -> tuple[str, ...]:
 
 
 def list_registered_oracles() -> tuple[str, ...]:
-    return tuple(name for name in list_oracles() if name not in _RESEARCH_ONLY_ORACLES)
+    return list_oracles()
 
 
 # --------------------------------------------------------------------------- #
-# Registry — four lines, four axes.
+# Registry — one entry per public method axis.
 # --------------------------------------------------------------------------- #
 
 
@@ -326,10 +319,8 @@ register_method(
         "seed", "split",
         # HLL/classical_sketch knobs.
         "n_trees", "leaves_per_tree", "leaf_token_count", "vocabulary_size",
-        # Markov change-point fixture knobs.
-        "n_regimes", "vocab_size", "min_tokens", "max_tokens",
-        "min_segments", "max_segments", "min_seg_len", "max_seg_len",
-        "train_docs", "test_docs", "sinkhorn_iters", "transition_log_std",
+        # Markov knobs.
+        "n_states", "doc_tokens", "transition_prob",
     },
 )
 register_method(

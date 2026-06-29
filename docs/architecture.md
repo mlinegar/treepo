@@ -1,15 +1,15 @@
 # treepo v0.1.0 Architecture
 
-`treepo` is organized by intent rather than by the historical script layout.
+`treepo` is organized by package intent.
 
 ## Layers
 
 - `treepo.core`: small dependency-free experiment primitives: refs, roles, sampling plans, and canonical sidecars.
 - `treepo.bench.sketches`: sketch protocols and adapters. Optional third-party sketch backends should fail lazily with an extra hint.
-- `treepo.bench`: benchmark-only simulations, suite builders, result IO, reports, and LongBench/RULER-style runtime fixtures.
+- `treepo.bench`: benchmark runs, result IO, and release checks.
 - `treepo.llm`: OpenAI-compatible chat/embedding helpers and future batching clients behind `treepo[llm]`.
-- `treepo.training`: experiment methods with `train`, `evaluate`, and `predict` wrappers around native PyTorch/DSPy/sklearn code.
-- `treepo.tasks`: minimal task-specific assets, starting with Manifesto/RILE constants and examples.
+- `treepo.training`: lightweight training protocols and torch local-law helpers; richer trainers register from downstream packages.
+- `treepo.tasks`: small task-specific assets, starting with Manifesto/RILE constants and examples.
 
 ## Experiment Contract
 
@@ -33,20 +33,22 @@ Public role metadata follows the paper language:
 - `embedder`: vector evidence mechanism
 - `state_model`: learned or deterministic state realization
 
-Internal runtime surfaces may still be chat, embedding, or operator endpoints; those are implementation details.
+Internal method surfaces may still be chat, embedding, or operator endpoints; those are implementation details.
 
-## Migration Rule
+## Package Inventory
 
-Root workspace scripts are not copied wholesale. Each candidate is classified in `migration_inventory.yaml` before moving into package code:
+`inventory.yaml` records the package boundary:
 
-- `package_module`: importable implementation module
-- `cli_command`: public `treepo-bench` command
-- `compat_shim`: compatibility layer kept intentionally thin
-- `exclude_legacy`: workspace-only or historical utility
+- `package`: importable implementation module
+- `cli`: public `treepo-bench` command
+- `shim`: thin package shim
+- `outside`: code that belongs outside the package
+- `extension`: optional family or backend registered by another package
 
-The release gate is:
+Release checks:
 
 ```bash
 treepo-bench check inventory --json
 treepo-bench check hygiene --json
+treepo-bench check release --json
 ```

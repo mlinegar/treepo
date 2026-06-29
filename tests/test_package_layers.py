@@ -17,12 +17,6 @@ from treepo.core import (
     role_ref,
     roles_metadata,
 )
-from treepo.bench.runtime.longbench import (
-    load_longbench_jsonl,
-    parse_choice,
-    render_longbench_prompt,
-    score_choice_accuracy,
-)
 
 
 def test_treepo_import_keeps_heavy_optional_modules_lazy() -> None:
@@ -31,7 +25,7 @@ def test_treepo_import_keeps_heavy_optional_modules_lazy() -> None:
 import json
 import sys
 import treepo
-heavy = ["dspy", "openai", "pandas", "torch", "transformers", "vllm"]
+heavy = ["dspy", "openai", "pandas", "scipy", "sklearn", "torch", "transformers", "vllm"]
 print(json.dumps({name: name in sys.modules for name in heavy}, sort_keys=True))
 """
     env = dict(os.environ)
@@ -47,9 +41,134 @@ print(json.dumps({name: name in sys.modules for name in heavy}, sort_keys=True))
         "dspy": False,
         "openai": False,
         "pandas": False,
+        "scipy": False,
+        "sklearn": False,
         "torch": False,
         "transformers": False,
         "vllm": False,
+    }
+
+
+def test_treepo_methods_import_keeps_optional_modules_lazy() -> None:
+    src_root = Path(__file__).resolve().parents[1] / "src"
+    code = """
+import json
+import sys
+import treepo.methods
+from treepo.methods import fit, run, list_methods
+heavy = ["dspy", "openai", "pandas", "scipy", "sklearn", "torch", "transformers", "vllm"]
+print(json.dumps({
+    "heavy": {name: name in sys.modules for name in heavy},
+    "fit_module": fit.__module__,
+    "run_module": run.__module__,
+    "methods": list_methods.__module__,
+}, sort_keys=True))
+"""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(src_root) + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    payload = json.loads(proc.stdout)
+    assert payload == {
+        "heavy": {
+            "dspy": False,
+            "openai": False,
+            "pandas": False,
+            "scipy": False,
+            "sklearn": False,
+            "torch": False,
+            "transformers": False,
+            "vllm": False,
+        },
+        "fit_module": "treepo.methods.learning",
+        "run_module": "treepo.methods.dispatch",
+        "methods": "treepo.methods.dispatch",
+    }
+
+
+def test_public_method_adapter_imports_keep_optional_modules_lazy() -> None:
+    src_root = Path(__file__).resolve().parents[1] / "src"
+    code = """
+import json
+import sys
+import treepo.methods.dspy
+import treepo.methods.fno
+import treepo.methods.neural_operator
+import treepo.methods.llm
+import treepo.methods.estimators
+import treepo.methods.g_estimators
+import treepo.methods.diffusion
+import treepo.methods.lda
+import treepo.llm.diffusion
+heavy = ["dspy", "openai", "pandas", "scipy", "sklearn", "torch", "transformers", "vllm"]
+print(json.dumps({
+    "heavy": {name: name in sys.modules for name in heavy},
+}, sort_keys=True))
+"""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(src_root) + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert json.loads(proc.stdout) == {
+        "heavy": {
+            "dspy": False,
+            "openai": False,
+            "pandas": False,
+            "scipy": False,
+            "sklearn": False,
+            "torch": False,
+            "transformers": False,
+            "vllm": False,
+        }
+    }
+
+
+def test_public_defaults_helpers_keep_optional_modules_lazy() -> None:
+    src_root = Path(__file__).resolve().parents[1] / "src"
+    code = """
+import json
+import sys
+from treepo import LmSection, build_lm_config_dict, load_dataclass
+import treepo.methods.canonical_defaults as cd
+_ = cd.LmSection()
+_ = cd.DEFAULT_BATCH_SIZE
+heavy = ["dspy", "openai", "pandas", "scipy", "sklearn", "torch", "transformers", "vllm"]
+print(json.dumps({
+    "heavy": {name: name in sys.modules for name in heavy},
+    "lm_module": LmSection.__module__,
+}, sort_keys=True))
+"""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(src_root) + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert json.loads(proc.stdout) == {
+        "heavy": {
+            "dspy": False,
+            "openai": False,
+            "pandas": False,
+            "scipy": False,
+            "sklearn": False,
+            "torch": False,
+            "transformers": False,
+            "vllm": False,
+        },
+        "lm_module": "treepo.methods.canonical_defaults",
     }
 
 
@@ -64,8 +183,6 @@ def test_benchmarks_are_not_top_level_exports() -> None:
     import importlib
     import treepo
 
-    assert not hasattr(treepo, "CardinalityRecoveryConfig")
-    assert not hasattr(treepo, "HLLMergeLearningConfig")
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("treepo.runtime")
     with pytest.raises(ModuleNotFoundError):
@@ -130,35 +247,3 @@ def test_experiment_context_rejects_raw_module_train_shape(tmp_path: Path) -> No
 
     with pytest.raises(TypeError, match="raw model modules"):
         ctx.train(RawModuleLike(), train_data=[])
-
-
-def test_longbench_fixture_helpers(tmp_path: Path) -> None:
-    path = tmp_path / "longbench.jsonl"
-    path.write_text(
-        json.dumps(
-            {
-                "_id": "lbv2-1",
-                "domain": "law",
-                "sub_domain": "contracts",
-                "difficulty": "easy",
-                "length": "short",
-                "question": "Which option is supported?",
-                "choice_A": "No evidence",
-                "choice_B": "The contract was signed.",
-                "choice_C": "The contract expired.",
-                "choice_D": "The contract was void.",
-                "answer": "B",
-                "context": "The contract was signed on Monday.",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    rows = load_longbench_jsonl(path)
-    assert len(rows) == 1
-    prompt = render_longbench_prompt(rows[0])
-    assert "Context:" in prompt
-    assert "B. The contract was signed." in prompt
-    assert parse_choice("Answer: B") == "B"
-    assert score_choice_accuracy(rows, ["B"]) == 1.0

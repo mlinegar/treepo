@@ -20,13 +20,6 @@ from treepo.core import (
     role_ref,
     roles_metadata,
 )
-from treepo.hll import (
-    HLLConfig,
-    HyperLogLogSketch,
-    hll_relative_standard_error,
-    match_hll_precision_for_bits,
-    reduce_hll_sketches,
-)
 from treepo.local_law import (
     InfluenceWeightedAuditOverlap,
     LawKind,
@@ -49,6 +42,7 @@ _LAZY_EXPORTS = {
     # --- treepo.methods surface (the unified fit() / run() axis-factored API) ---
     "run": ("treepo.methods", "run"),
     "list_methods": ("treepo.methods", "list_methods"),
+    "list_families": ("treepo.methods", "list_families"),
     "method_info": ("treepo.methods", "method_info"),
     "allowed_config_keys": ("treepo.methods", "allowed_config_keys"),
     "register_method": ("treepo.methods", "register_method"),
@@ -79,8 +73,6 @@ __all__ = [
     "ExperimentContext",
     "FitConfig",
     "FitResult",
-    "HLLConfig",
-    "HyperLogLogSketch",
     "MethodRef",
     "NormalizedOutput",
     "ROLE_EMBEDDER",
@@ -91,15 +83,13 @@ __all__ = [
     "ResultRow",
     "RoleRef",
     "SamplingPlan",
-    "hll_relative_standard_error",
-    "match_hll_precision_for_bits",
-    "reduce_hll_sketches",
     "role_ref",
     "roles_metadata",
     "fit",
     # treepo.methods surface
     "run",
     "list_methods",
+    "list_families",
     "method_info",
     "allowed_config_keys",
     "register_method",

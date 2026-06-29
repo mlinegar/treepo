@@ -1,5 +1,5 @@
 #!/bin/bash
-# vLLM Server Launch Script for ThinkingTrees
+# vLLM server launch helper for treepo-compatible OpenAI endpoints.
 # Reads model config from config/settings.yaml
 #
 # Usage:
@@ -376,8 +376,7 @@ PY
     fi
     if (( ${#missing[@]} > 0 )); then
         echo "WARNING: NVFP4 prerequisites missing: ${missing[*]}"
-        echo "Install in ${TREEPO_VLLM_VENV:-$HOME/vllm-env}:"
-        echo "  uv pip install --python ${TREEPO_VLLM_VENV:-$HOME/vllm-env}/bin/python flashinfer-cubin==0.5.3 nvidia-cuda-nvcc==13.1.115 nvidia-cuda-cccl==13.1.115 nvidia-cublas==13.1.0.3 nvidia-cuda-nvrtc==13.1.115"
+        echo "Ensure the vLLM environment has flashinfer-cubin and CUDA 13.1 runtime packages."
     fi
 
     if [[ -z "${FLASHINFER_WORKSPACE_BASE:-}" ]]; then

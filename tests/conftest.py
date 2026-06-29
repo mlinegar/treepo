@@ -1,9 +1,4 @@
-"""Project-wide test path setup.
-
-Inserts ``src/`` at the front of ``sys.path`` so ``from treepo.X import Y``
-always resolves to the in-tree package, not whatever may be installed in
-site-packages. Lets tests run cleanly from a uv-managed checkout.
-"""
+"""Project-wide test path setup."""
 
 from __future__ import annotations
 

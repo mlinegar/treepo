@@ -1,0 +1,20 @@
+# Package FNO example: train the built-in FNO family on the compact Markov
+# changepoint fixture.
+
+n_train = 8
+n_eval = 4
+doc_tokens = 32
+leaf_token_count = 8
+vocabulary_size = 64
+seed = 0
+max_iterations = 3
+
+embedding_dim = 8
+hidden_channels = 4
+n_modes = 2
+n_layers = 1
+head_hidden_dim = 8
+epochs_per_iteration = 1
+batch_size = 4
+learning_rate = 0.01
+device = "cpu"

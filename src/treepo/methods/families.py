@@ -1,31 +1,34 @@
 """Family-name registry for :func:`treepo.methods.fit`.
 
-Maps short family names (``"oracle"`` / ``"fno"`` / ``"dspy"`` / ``"trl"``)
-to :class:`FamilyRuntime` instances built
-from ``spec.backend_config``. Heavy deps (torch, dspy, trl) are imported
-lazily inside the factory bodies; missing-dep failures surface as
-``ImportError`` with an actionable install hint.
-
-There is no inheritance, no plugin system, and no validator layer above
-this dispatch. The registry is a plain dict and exists at a single site.
-Adding a family means adding one factory function and one
-``register_family`` call.
+`treepo` keeps this registry small. Built-ins cover deterministic oracles,
+a simple learnable baseline, classical sketches, generic neural operators,
+and provider-neutral LLM/DSPy wrappers. TRL, diffusion/dgemma, and specialized
+large-training families register from the package that owns their application
+dependencies.
 """
 
 from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 
-from treepo._research.ctreepo.alternating import FamilyRuntime
 
-
+FamilyRuntime = Any
 FamilyFactory = Callable[[Mapping[str, Any]], FamilyRuntime]
 
 _REGISTRY: dict[str, FamilyFactory] = {}
+_EXTENSION_FAMILIES = frozenset(
+    {
+        "trl",
+        "diffusion",
+        "dgemma",
+        "diffusiongemma",
+    }
+)
 
 
 def register_family(name: str, factory: FamilyFactory) -> None:
     """Register ``factory`` under ``name`` (case-insensitive)."""
+
     key = _normalize(name)
     if not key:
         raise ValueError("family name must be non-empty")
@@ -38,9 +41,15 @@ def resolve_family(
     name: str,
     backend_config: Mapping[str, Any] | None = None,
 ) -> FamilyRuntime:
-    """Construct a :class:`FamilyRuntime` for ``name`` from ``backend_config``."""
+    """Construct a family runtime for ``name`` from ``backend_config``."""
+
     key = _normalize(name)
     if key not in _REGISTRY:
+        if key in _EXTENSION_FAMILIES:
+            raise ImportError(
+                f"family {name!r} is optional application code. Register a "
+                "family factory before resolving it."
+            )
         raise KeyError(
             f"family {name!r} not registered; available: {', '.join(sorted(_REGISTRY))}"
         )
@@ -48,7 +57,8 @@ def resolve_family(
 
 
 def list_families() -> tuple[str, ...]:
-    """Return registered family names, sorted."""
+    """Return built-in registered family names, sorted."""
+
     return tuple(sorted(_REGISTRY))
 
 
@@ -56,85 +66,13 @@ def _normalize(name: str) -> str:
     return str(name).strip().lower()
 
 
-# --------------------------------------------------------------------------- #
-# Built-in factories. Each one:
-#   - validates the small backend_config slice it needs
-#   - imports its heavy deps lazily (torch / dspy / trl)
-#   - raises ImportError or ValueError with an install/usage hint
-# --------------------------------------------------------------------------- #
-
-
 def _make_oracle(backend_config: Mapping[str, Any]) -> FamilyRuntime:
     oracle_name = backend_config.get("oracle_name") or backend_config.get("oracle")
     if not oracle_name:
-        raise ValueError(
-            "family='oracle' requires backend_config['oracle_name'] (e.g. "
-            "'hll_exact', 'markov_changepoint_count', 'type_oracle')"
-        )
-    from treepo._research.ctreepo.oracles.runtime import OracleFamilyRuntime
+        raise ValueError("family='oracle' requires backend_config['oracle_name']")
+    from treepo.methods.oracles import OracleFamilyRuntime
 
     return OracleFamilyRuntime(str(oracle_name))
-
-
-def _make_fno(backend_config: Mapping[str, Any]) -> FamilyRuntime:
-    try:
-        from treepo._research.ctreepo.fno_family import FNOFamily, FNOFamilyConfig
-    except ImportError as exc:
-        raise ImportError(
-            "family='fno' requires torch (and the FNO stack): "
-            "install with `uv sync --extra torch` from the package checkout"
-        ) from exc
-    config = backend_config.get("fno_config")
-    if config is None:
-        raise ValueError(
-            "family='fno' requires backend_config['fno_config'] "
-            "(FNOFamilyConfig instance or mapping)"
-        )
-    if not isinstance(config, FNOFamilyConfig):
-        config = FNOFamilyConfig(**dict(config))
-    embedding_client = backend_config.get("embedding_client")
-    if embedding_client is None:
-        raise ValueError("family='fno' requires backend_config['embedding_client']")
-    device = backend_config.get("device")
-    return FNOFamily(config=config, embedding_client=embedding_client, device=device)
-
-
-def _make_dspy(backend_config: Mapping[str, Any]) -> FamilyRuntime:
-    try:
-        from treepo._research.ctreepo.dspy_family import DSPyFamily, DSPyFamilyConfig
-    except ImportError as exc:
-        raise ImportError(
-            "family='dspy' requires dspy: install with `uv sync --extra llm` "
-            "from the package checkout"
-        ) from exc
-    config = backend_config.get("dspy_config")
-    if config is None:
-        raise ValueError(
-            "family='dspy' requires backend_config['dspy_config'] "
-            "(DSPyFamilyConfig instance or mapping)"
-        )
-    if not isinstance(config, DSPyFamilyConfig):
-        config = DSPyFamilyConfig(**dict(config))
-    return DSPyFamily(config=config)
-
-
-def _make_trl(backend_config: Mapping[str, Any]) -> FamilyRuntime:
-    try:
-        from treepo._research.ctreepo.trl_family import TRLFamily, TRLFamilyConfig
-    except ImportError as exc:
-        raise ImportError(
-            "family='trl' requires trl/transformers: install with "
-            "`uv sync --extra train` from the package checkout"
-        ) from exc
-    config = backend_config.get("trl_config")
-    if config is None:
-        raise ValueError(
-            "family='trl' requires backend_config['trl_config'] "
-            "(TRLFamilyConfig instance or mapping)"
-        )
-    if not isinstance(config, TRLFamilyConfig):
-        config = TRLFamilyConfig(**dict(config))
-    return TRLFamily(config=config)
 
 
 def _make_learnable_constant(backend_config: Mapping[str, Any]) -> FamilyRuntime:
@@ -145,16 +83,51 @@ def _make_learnable_constant(backend_config: Mapping[str, Any]) -> FamilyRuntime
     )
 
 
+def _make_classical_sketch(backend_config: Mapping[str, Any]) -> FamilyRuntime:
+    from treepo.methods.sketch import build_classical_sketch_family
+
+    return build_classical_sketch_family(backend_config)
+
+
+def _make_neural_operator(backend_config: Mapping[str, Any]) -> FamilyRuntime:
+    from treepo.methods.fno import build_neural_operator_family
+
+    return build_neural_operator_family(backend_config)
+
+
+def _make_dspy(backend_config: Mapping[str, Any]) -> FamilyRuntime:
+    from treepo.methods.dspy import build_dspy_family
+
+    return build_dspy_family(backend_config)
+
+
+def _make_llm(backend_config: Mapping[str, Any]) -> FamilyRuntime:
+    from treepo.methods.llm import build_llm_family
+
+    return build_llm_family(backend_config)
+
+
+def _make_fno(backend_config: Mapping[str, Any]) -> FamilyRuntime:
+    from treepo.methods.fno import build_fno_family
+
+    return build_fno_family(backend_config)
+
+
 register_family("oracle", _make_oracle)
+register_family("learnable_constant", _make_learnable_constant)
+register_family("classical_sketch", _make_classical_sketch)
+register_family("neural_operator", _make_neural_operator)
 register_family("fno", _make_fno)
 register_family("dspy", _make_dspy)
-register_family("trl", _make_trl)
-# Demonstrative family that exercises the local-law arithmetic as an
-# in-loop training signal (see treepo.methods/learnable.py).
-register_family("learnable_constant", _make_learnable_constant)
+register_family("llm", _make_llm)
+register_family("prompted_llm", _make_llm)
+register_family("llm_prompt", _make_llm)
+register_family("summary_llm", _make_llm)
 
 
 __all__ = [
+    "FamilyFactory",
+    "FamilyRuntime",
     "list_families",
     "register_family",
     "resolve_family",

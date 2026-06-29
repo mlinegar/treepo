@@ -20,6 +20,8 @@ LOCAL_LAW_ESTIMATOR_NONE = "none"
 LOCAL_LAW_ESTIMATOR_CORRECTED = "corrected"
 LOCAL_LAW_ESTIMATOR_PROXY_ONLY = "proxy_only"
 LOCAL_LAW_ESTIMATOR_ORACLE_EXACT = "oracle_exact"
+LOCAL_LAW_ESTIMATOR_ORACLE_STATE = "oracle_state"
+LOCAL_LAW_ESTIMATOR_EXTERNAL_PASSTHROUGH = "external_passthrough"
 CANONICAL_LAW_COMPONENTS = (
     "leaf_preservation",
     "on_range_idempotence",
@@ -30,14 +32,16 @@ _ALLOWED_LOCAL_LAW_ESTIMATORS = {
     LOCAL_LAW_ESTIMATOR_CORRECTED,
     LOCAL_LAW_ESTIMATOR_PROXY_ONLY,
     LOCAL_LAW_ESTIMATOR_ORACLE_EXACT,
+    LOCAL_LAW_ESTIMATOR_ORACLE_STATE,
+    LOCAL_LAW_ESTIMATOR_EXTERNAL_PASSTHROUGH,
 }
-_LEGACY_PUBLIC_FIELDS = {
+_UNSUPPORTED_PUBLIC_FIELDS = {
     "gap_weight",
     "oracle_gap_weight",
     "lambda_eff",
     "reliability",
 }
-_LEGACY_TERM_NAMES = {"oracle_gap", "gap", "f_star_gap"}
+_EVIDENCE_ONLY_TERM_NAMES = {"oracle_gap", "gap", "f_star_gap"}
 
 
 def _jsonable(value: Any) -> Any:
@@ -74,6 +78,114 @@ def canonical_law_component_weights(weights: Mapping[str, float]) -> dict[str, f
             raise ValueError(f"unknown local-law component weight: {raw_name!r}")
         out[name] = float(raw_weight)
     return out
+
+
+def _canonical_law_component_name(value: str) -> str:
+    weights = canonical_law_component_weights({str(value): 1.0})
+    active = [name for name, weight in weights.items() if float(weight) > 0.0]
+    if len(active) != 1:
+        raise ValueError(f"unknown local-law component: {value!r}")
+    return active[0]
+
+
+def _finite_nonnegative(value: object, *, name: str) -> float:
+    out = finite_float(value, name=name)
+    if out < 0.0:
+        raise ValueError(f"{name} must be non-negative")
+    return out
+
+
+def _finite_probability(value: object, *, name: str) -> float:
+    out = finite_float(value, name=name)
+    if out < 0.0 or out > 1.0:
+        raise ValueError(f"{name} must be in [0, 1]")
+    return out
+
+
+@dataclass(frozen=True)
+class ResolvedObjectiveWeights:
+    input_mode: str
+    weighting_scheme: str
+    root_share: float
+    local_law_shares: Mapping[str, float] = field(default_factory=dict)
+
+    @property
+    def local_law_weight(self) -> float:
+        return float(sum(float(v) for v in dict(self.local_law_shares).values()))
+
+    def as_metadata(self) -> dict[str, Any]:
+        return {
+            "objective_input_mode": str(self.input_mode),
+            "weighting_scheme": str(self.weighting_scheme),
+            "root_share": float(self.root_share),
+            "local_law_weight": float(self.local_law_weight),
+            "local_law_shares": {
+                str(k): float(v) for k, v in dict(self.local_law_shares).items()
+            },
+        }
+
+
+def resolve_root_local_objective_weights(
+    *,
+    local_law_weight: float | None,
+    active_laws: tuple[str, ...] | list[str],
+    explicit_root_weight: float | None = None,
+    explicit_law_weights: Mapping[str, float] | None = None,
+    objective_context: str = "objective",
+) -> ResolvedObjectiveWeights:
+    """Resolve root/local-law weights through the canonical objective contract."""
+
+    laws: list[str] = []
+    for law in tuple(active_laws or ()):
+        name = _canonical_law_component_name(str(law))
+        if name not in laws:
+            laws.append(name)
+
+    explicit_weights = dict(explicit_law_weights or {})
+    if local_law_weight is not None:
+        if explicit_root_weight is not None or explicit_weights:
+            raise ValueError(
+                f"{objective_context}: local_law_weight is mutually exclusive "
+                "with explicit root/law weights"
+            )
+        lam = _finite_probability(local_law_weight, name="local_law_weight")
+        if lam > 0.0 and not laws:
+            raise ValueError(
+                f"{objective_context}: local_law_weight > 0 requires at least one active local law"
+            )
+        share = float(lam / float(len(laws))) if laws and lam > 0.0 else 0.0
+        return ResolvedObjectiveWeights(
+            input_mode="lambda",
+            weighting_scheme="normalized_lambda_tradeoff",
+            root_share=float(1.0 - lam),
+            local_law_shares={law: float(share) for law in laws},
+        )
+
+    root_raw = _finite_nonnegative(
+        1.0 if explicit_root_weight is None else explicit_root_weight,
+        name="explicit_root_weight",
+    )
+    law_raw = canonical_law_component_weights(explicit_weights)
+    law_raw = {
+        str(name): _finite_nonnegative(value, name=f"explicit_law_weights[{name}]")
+        for name, value in law_raw.items()
+    }
+    total = float(root_raw + sum(float(v) for v in law_raw.values()))
+    if total <= 0.0:
+        return ResolvedObjectiveWeights(
+            input_mode="explicit_weights",
+            weighting_scheme="normalized_explicit_weights",
+            root_share=1.0,
+            local_law_shares={str(name): 0.0 for name in law_raw.keys()},
+        )
+    return ResolvedObjectiveWeights(
+        input_mode="explicit_weights",
+        weighting_scheme="normalized_explicit_weights",
+        root_share=float(root_raw / total),
+        local_law_shares={
+            str(name): float(value / total) for name, value in law_raw.items()
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -134,7 +246,7 @@ class ObjectiveSpec:
         out: dict[str, dict[str, Any]] = {}
         for raw_name, raw_payload in dict(self.terms or {}).items():
             name = str(raw_name).strip().lower()
-            if name in _LEGACY_TERM_NAMES:
+            if name in _EVIDENCE_ONLY_TERM_NAMES:
                 raise ValueError(
                     f"objective term {raw_name!r} is evidence metadata, not a training term"
                 )
@@ -186,15 +298,15 @@ class ObjectiveSpec:
             merged = dict(data)
             merged.update(dict(nested))
             data = merged
-        legacy_fields = sorted(key for key in _LEGACY_PUBLIC_FIELDS if key in data)
-        if legacy_fields:
+        unsupported_fields = sorted(key for key in _UNSUPPORTED_PUBLIC_FIELDS if key in data)
+        if unsupported_fields:
             raise ValueError(
-                "legacy public objective fields are not supported: "
-                + ", ".join(legacy_fields)
+                "unsupported objective fields: "
+                + ", ".join(unsupported_fields)
             )
         terms = dict(data.get("terms") or {})
         for name in terms:
-            if str(name).strip().lower() in _LEGACY_TERM_NAMES:
+            if str(name).strip().lower() in _EVIDENCE_ONLY_TERM_NAMES:
                 raise ValueError("oracle_gap belongs in evidence metadata, not objective terms")
         weights = canonical_law_component_weights(dict(data.get("local_law_component_weights") or {}))
         estimator = str(
@@ -237,14 +349,18 @@ __all__ = [
     "LOCAL_LAW_ESTIMATOR_CORRECTED",
     "LOCAL_LAW_ESTIMATOR_NONE",
     "LOCAL_LAW_ESTIMATOR_ORACLE_EXACT",
+    "LOCAL_LAW_ESTIMATOR_ORACLE_STATE",
     "LOCAL_LAW_ESTIMATOR_PROXY_ONLY",
+    "LOCAL_LAW_ESTIMATOR_EXTERNAL_PASSTHROUGH",
     "OBJECTIVE_SCHEMA_VERSION",
     "OBJECTIVE_TERM_LOCAL_LAW_CORRECTED",
     "OBJECTIVE_TERM_ROOT",
     "ObjectiveSpec",
+    "ResolvedObjectiveWeights",
     "THEOREM_BOUND_LIMITATION",
     "canonical_law_component_weights",
     "normalize_objective_spec",
     "objective_metadata",
     "objective_spec_digest",
+    "resolve_root_local_objective_weights",
 ]

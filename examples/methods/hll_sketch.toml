@@ -1,0 +1,14 @@
+# DataSketches HLL classical-sketch example. Requires treepo[sketches].
+# HLL is schedule-invariant: balanced, left_to_right, and right_to_left
+# preserve the same cardinality estimate for this mergeable sketch.
+
+backend           = "datasketches"
+precision         = 14
+hash_bits         = 64
+schedule          = "balanced"
+n_trees           = 6
+leaves_per_tree   = 4
+leaf_token_count  = 24
+vocabulary_size   = 200
+seed              = 0
+max_iterations   = 2

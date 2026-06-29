@@ -1,0 +1,28 @@
+# Leaf-size grid for overlapping-topic synthetic LDA. Documents and topics are
+# held fixed; only leaf_token_count changes.
+
+operator_kinds = ["fno", "tfno", "uno", "conv1d"]
+leaf_token_counts = [32, 64, 128]
+n_train = 256
+n_eval = 64
+n_topics = 8
+doc_tokens = 256
+vocabulary_size = 160
+doc_topic_concentration = 0.7
+topic_word_concentration = 0.05
+target_topic = 0
+topic_seed = 0
+seed = 0
+max_iterations = 3
+
+embedding_dim = 16
+hidden_channels = 12
+n_modes = 4
+n_layers = 1
+conv_kernel_size = 3
+head_hidden_dim = 24
+epochs_per_iteration = 3
+batch_size = 16
+learning_rate = 0.01
+device = "cpu"
+sklearn_max_iter = 50

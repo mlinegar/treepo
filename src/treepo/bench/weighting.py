@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 import math
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Sequence, Tuple
 
 import numpy as np
 
@@ -20,41 +20,6 @@ DEFAULT_WEIGHTING_MODES: Tuple[WeightingMode, ...] = (
     WeightingMode.LEAF,
     WeightingMode.TOKEN,
 )
-
-
-def parse_weighting_modes(modes: Optional[Sequence[str]] = None) -> Tuple[WeightingMode, ...]:
-    if modes is None:
-        return DEFAULT_WEIGHTING_MODES
-    out: List[WeightingMode] = []
-    seen: set[str] = set()
-    valid = {m.value for m in WeightingMode}
-    for raw in modes:
-        mode = raw.value if isinstance(raw, WeightingMode) else str(raw).strip().lower()
-        if mode == "":
-            continue
-        if mode not in valid:
-            raise ValueError(f"unsupported weighting mode: {raw!r}")
-        if mode in seen:
-            continue
-        seen.add(mode)
-        out.append(WeightingMode(mode))
-    if len(out) == 0:
-        raise ValueError("weighting modes must be non-empty")
-    return tuple(out)
-
-
-def validate_legacy_weighting_mode(
-    legacy_mode: str,
-    *,
-    weighting_modes: Sequence[WeightingMode],
-) -> WeightingMode:
-    mode = WeightingMode(str(legacy_mode).strip().lower())
-    if mode not in set(weighting_modes):
-        raise ValueError(
-            f"legacy_weighting_mode={legacy_mode!r} must be included in weighting_modes="
-            f"{[m.value for m in weighting_modes]}"
-        )
-    return mode
 
 
 def _safe_mean(xs: Sequence[float]) -> float:
@@ -142,8 +107,6 @@ def weighted_mean_ci95(values: Sequence[float], weights: Sequence[float]) -> Dic
 __all__ = [
     "DEFAULT_WEIGHTING_MODES",
     "WeightingMode",
-    "parse_weighting_modes",
-    "validate_legacy_weighting_mode",
     "weighted_mean",
     "weighted_mean_ci95",
 ]

@@ -1,8 +1,7 @@
 """Sketch-agnostic tree reduction.
 
-`treepo_reduce(items_per_leaf, adapter, schedule)` is the generalization of
-`treepo.hll.reduce_hll_sketches`: encode each leaf's items via the adapter,
-then fold the resulting states according to `schedule`.
+`treepo_reduce(items_per_leaf, adapter, schedule)` encodes each leaf's
+items via the adapter, then folds the resulting states according to `schedule`.
 
 Schedules (matching `treepo.common.VALID_SCHEDULES`):
 - "balanced": pairwise merge, level by level.
@@ -33,7 +32,7 @@ def treepo_reduce(
     """Encode each leaf's items and fold via the adapter's `merge`.
 
     Returns the adapter's state type. Raises `ValueError` on empty leaves or
-    unknown schedule (mirrors `reduce_hll_sketches`).
+    unknown schedule.
     """
     if len(items_per_leaf) == 0:
         raise ValueError("items_per_leaf must be non-empty")

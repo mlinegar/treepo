@@ -1,0 +1,11 @@
+method: oracle
+scorer: markov_changepoint_count
+seed: 0
+split: test
+n_trees: 8
+task_config:
+  n_states: 4
+  doc_tokens: 128
+  leaf_token_count: 16
+  transition_prob: 0.15
+  vocabulary_size: 256

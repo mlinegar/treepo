@@ -1,40 +1,15 @@
-"""Grid-run regression test — mirrors the canonical paper-grid pattern.
-
-The existing paper grid scripts (e.g.
-research-only LDA grid scripts,
-``scripts/run_contextual_sbijax_estimator_grid.py``) all use the same
-shape:
-
-    for cell in product(*axes):
-        cfg = build_config(cell)
-        out = single_fit_call(cfg)
-        rows.append(extract_row(cell, out))
-    write_csv(rows)
-
-This test confirms ``treepo.methods.run(method, config)`` slots into that
-shape with no friction:
-
-- A multi-axis Cartesian product runs ``run("oracle", ...)`` per cell.
-- Each cell produces a ``CTreePOFitResult`` with finite metrics + a
-  per-cell manifest on disk.
-- Resume-if-output-exists works by checking ``manifest_path`` before
-  re-dispatching.
-- Row aggregation into a top-level CSV uses stdlib only.
-
-No ``grid()`` helper is required. The for-loop *is* the grid; the
-helper would just be premature abstraction.
-"""
+"""Regression tests for the small shared method-grid helpers."""
 
 from __future__ import annotations
 
 import csv
 import json
-from itertools import product
 from pathlib import Path
 
 import pytest
 
 import treepo.methods
+from treepo.methods.grid import iter_grid, write_grid_outputs
 
 
 def _run_oracle_grid(
@@ -45,12 +20,19 @@ def _run_oracle_grid(
     n_trees_values,
     skip_existing: bool = False,
 ):
-    """The canonical paper-grid loop, copy-pasteable into any user script."""
+    """The shared grid loop used by source examples and tests."""
     rows = []
     cells_skipped = 0
     cells_run = 0
-    for oracle_name, seed, n_trees in product(oracle_names, seeds, n_trees_values):
-        cell_dir = output_root / f"{oracle_name}_seed{seed}_n{n_trees}"
+    cells = iter_grid(
+        {"oracle_name": oracle_names, "seed": seeds, "n_trees": n_trees_values},
+        output_root=output_root,
+    )
+    for cell in cells:
+        oracle_name = str(cell.values["oracle_name"])
+        seed = int(cell.values["seed"])
+        n_trees = int(cell.values["n_trees"])
+        cell_dir = cell.output_dir
         manifest = cell_dir / "treepo_methods_run_manifest.json"
 
         if skip_existing and manifest.exists():
@@ -114,13 +96,8 @@ def test_grid_run_oracle_across_axes(tmp_path: Path) -> None:
         assert manifest["status"] == "success"
         assert manifest["metrics"]["n"] == float(r["n_trees"])
 
-    # CSV aggregation is stdlib only — no treepo.methods helper needed.
     csv_path = tmp_path / "grid_summary.csv"
-    fieldnames = list(rows[0].keys())
-    with csv_path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+    write_grid_outputs(json_out=tmp_path / "grid_summary.json", csv_out=csv_path, payload={"rows": rows}, rows=rows)
     assert csv_path.exists()
     # Re-read and confirm round-trip.
     with csv_path.open() as f:

@@ -1,0 +1,72 @@
+version: 2
+policy:
+  default: outside
+  classes:
+    - package
+    - cli
+    - shim
+    - outside
+    - extension
+
+areas:
+  - id: sketches
+    status: ready
+    package: treepo.bench.classical_sketches
+    note: Classical sketch comparison and DataSketches-backed HLL example.
+  - id: task_benchmarks
+    status: ready
+    package: treepo.bench.tasks
+    note: Package-native task benchmark contract with a built-in Markov changepoint benchmark.
+  - id: llm
+    status: optional
+    package: treepo.llm
+    note: OpenAI-compatible, embedding, and native Transformers helpers live behind treepo[llm].
+  - id: manifesto_rile
+    status: constants
+    package: treepo.tasks.manifesto
+    note: Manifesto/RILE constants are packaged; training integrations live outside treepo.
+  - id: training
+    status: optional
+    package: treepo.training
+    note: Lifecycle protocols and local-law tensor helpers.
+  - id: neural_operator
+    status: ready
+    package: treepo.methods.neural_operator
+    note: Built-in generic neural-operator family over embedded leaf sequences; FNO and Conv1D are built-in operator kinds.
+  - id: app_families
+    status: extension
+    note: DSPy/TRL/diffusion/dgemma/LDA/application families register from downstream packages.
+
+entries:
+  - path: src/treepo/bench
+    target: treepo.bench
+    class: package
+    note: Benchmark runs and checks.
+  - path: src/treepo/llm
+    target: treepo.llm
+    class: package
+    note: Lightweight LLM and embedding helper contracts.
+  - path: src/treepo/methods
+    target: treepo.methods
+    class: package
+    note: Public method contracts, dispatch, and built-in lightweight families.
+  - path: src/treepo/training
+    target: treepo.training
+    class: package
+    note: Lightweight training protocols and local-law objectives.
+  - path: scripts/start_vllm.sh
+    target: scripts/start_vllm.sh
+    class: shim
+    note: Thin local server helper for source-tree users.
+  - path: scripts/start_sglang.sh
+    target: scripts/start_sglang.sh
+    class: shim
+    note: Thin local server helper for source-tree users.
+  - path: scripts/start_engine.py
+    target: scripts/start_engine.py
+    class: shim
+    note: Small wrapper dispatcher without external registry imports.
+  - path: downstream_packages
+    target: external packages
+    class: extension
+    note: DSPy/TRL/diffusion/dgemma/LDA/application code lives outside treepo.

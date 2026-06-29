@@ -1,5 +1,5 @@
 #!/bin/bash
-# SGLang Server Launch Script for ThinkingTrees
+# SGLang server launch helper for treepo-compatible OpenAI endpoints.
 # Reads model config from config/settings.yaml (reuses vllm.models for model paths)
 #
 # Usage:

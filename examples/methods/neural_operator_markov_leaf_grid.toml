@@ -1,0 +1,26 @@
+# Leaf-size grid for the compact Markov changepoint fixture. Documents and
+# transition targets are held fixed; only leaf_token_count changes.
+
+operator_kinds = ["fno", "tfno", "uno", "conv1d"]
+leaf_token_counts = [32, 64, 128]
+n_train = 512
+n_eval = 128
+n_states = 4
+doc_tokens = 256
+transition_prob = 0.15
+vocabulary_size = 256
+seed = 0
+max_iterations = 4
+
+embedding_dim = 16
+hidden_channels = 12
+n_modes = 4
+n_layers = 1
+conv_kernel_size = 3
+head_hidden_dim = 24
+epochs_per_iteration = 3
+batch_size = 32
+learning_rate = 0.01
+device = "cpu"
+normalize_targets = true
+numeric_transition_state_weight = 0.05

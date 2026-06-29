@@ -1,9 +1,8 @@
 """`CardinalitySketch` adapter wrapping `datasketches.hll_sketch`.
 
-Apache DataSketches is the canonical reference implementation used by Apache
-Druid, Yahoo, and cited across the streaming literature. This adapter wraps
-its `hll_sketch` + `hll_union` so we can run the exact same benchmark against
-both the native (`hll_native.py`) and canonical implementations.
+Apache DataSketches is the reference implementation used by Apache Druid,
+Yahoo, and cited across the streaming literature. This adapter wraps its
+`hll_sketch` + `hll_union` for TreePO sketch examples and benchmarks.
 
 Requires `datasketches` (`uv sync --extra sketches`). The import is gated so
 that the top-level `treepo.bench.sketches` module works without the optional dep.

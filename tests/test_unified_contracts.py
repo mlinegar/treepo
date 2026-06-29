@@ -28,7 +28,11 @@ from treepo.manifest import (
     Span,
     TopLevelUnit,
 )
-from treepo.objective import ObjectiveSpec, normalize_objective_spec
+from treepo.objective import (
+    ObjectiveSpec,
+    normalize_objective_spec,
+    resolve_root_local_objective_weights,
+)
 from treepo.sampling import ObservationUnitKind, SamplingMetadata
 
 
@@ -127,7 +131,7 @@ def test_objective_rejects_additive_oracle_gap_terms() -> None:
 
     with pytest.raises(ValueError, match="oracle_gap"):
         normalize_objective_spec({"terms": {"oracle_gap": {"weight": 1.0}}})
-    with pytest.raises(ValueError, match="legacy public objective fields"):
+    with pytest.raises(ValueError, match="unsupported objective fields"):
         normalize_objective_spec({"gap_weight": 1.0})
 
 
@@ -155,6 +159,45 @@ def test_objective_enforces_local_law_and_convex_weight_invariants() -> None:
         allow_nonconvex_objective=True,
     )
     assert spec.to_dict()["allow_nonconvex_objective"] is True
+
+
+def test_objective_accepts_oracle_state_and_external_passthrough_estimators() -> None:
+    for estimator in ("oracle_state", "external_passthrough"):
+        spec = ObjectiveSpec(
+            objective_family="state_adapter",
+            root_share=0.5,
+            local_law_estimator=estimator,
+            local_law_weight=0.5,
+            local_law_component_weights={"c1": 0.5},
+        )
+
+        assert spec.to_dict()["local_law_estimator"] == estimator
+
+
+def test_root_local_resolver_lambda_and_explicit_modes() -> None:
+    resolved = resolve_root_local_objective_weights(
+        local_law_weight=0.6,
+        active_laws=("c1", "c2", "c3"),
+    )
+    assert resolved.root_share == pytest.approx(0.4)
+    assert resolved.local_law_weight == pytest.approx(0.6)
+    assert resolved.local_law_shares["leaf_preservation"] == pytest.approx(0.2)
+
+    explicit = resolve_root_local_objective_weights(
+        local_law_weight=None,
+        active_laws=("c1", "c2"),
+        explicit_root_weight=2.0,
+        explicit_law_weights={"c1": 1.0, "c2": 1.0},
+    )
+    assert explicit.root_share == pytest.approx(0.5)
+    assert explicit.local_law_weight == pytest.approx(0.5)
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        resolve_root_local_objective_weights(
+            local_law_weight=0.5,
+            active_laws=("c1",),
+            explicit_root_weight=1.0,
+        )
 
 
 def test_audit_rows_compute_corrected_losses_and_overlap() -> None:
@@ -213,41 +256,41 @@ def test_sampling_and_honesty_are_deterministic() -> None:
     assert assign_three_layer_roles("doc_1", cfg) == assign_three_layer_roles("doc_1", cfg)
 
 
-def test_fit_runtime_uses_existing_runtime_pattern(tmp_path: Path) -> None:
+def test_top_level_fit_learning_routes_through_methods_surface(tmp_path: Path) -> None:
     from treepo import fit
 
-    dataset = tmp_path / "tiny.jsonl"
-    dataset.write_text(
-        json.dumps(
-            {
-                "_id": "lbv2-1",
-                "domain": "law",
-                "sub_domain": "contracts",
-                "difficulty": "easy",
-                "length": "short",
-                "question": "Which option is supported?",
-                "choice_A": "No evidence",
-                "choice_B": "The contract was signed.",
-                "choice_C": "The contract expired.",
-                "choice_D": "The contract was void.",
-                "answer": "B",
-                "context": "The contract was signed.",
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    class NoopFamily:
+        name = "noop"
+
+        def train_f(self, *, f_init, g, traces, output_dir, iteration):
+            return f_init
+
+        def train_g(self, *, g_init, f, traces, output_dir, iteration):
+            return g_init
+
+        def score_roots_with_f(self, *, f, g, trees):
+            return [None] * len(trees)
+
+        def validate_artifact(self, *, kind, artifact):
+            return None
+
     result = fit(
         {
-            "experiment_id": "fit_runtime_smoke",
-            "benchmark": {"family": "longbench_v2", "dataset": str(dataset), "split": "fixture"},
-            "methods": ["full_context"],
-            "scorer": {"kind": "mock", "model": "deterministic-overlap"},
-            "oracle": {"kind": "benchmark_labels"},
-            "runtime_defaults": {"mock": True, "max_output_tokens": 4},
+            "spec": {
+                "space_kind": "top_level_fit",
+                "family": "noop",
+                "schedule": "fg",
+                "initial_artifacts": {"f": "f0", "g": "g0"},
+                "train_data": [],
+                "eval_data": [],
+                "backend_config": {"family_runtime": NoopFamily()},
+                "axis": {"max_iterations": 0, "axis_value": 0},
+            },
         },
-        output_dir=tmp_path / "fit",
+        output_dir=tmp_path / "fit_learning",
     )
-    assert result.status == "ok"
-    assert result.metrics["n"] == pytest.approx(1.0)
-    assert Path(result.artifacts["json_out"]).exists()
+
+    assert result.status == "success"
+    assert result.mode == "learning"
+    assert result.summary["family"] == "noop"
+    assert result.artifacts["f"] == "f0"

@@ -10,8 +10,10 @@ Shipped public surface:
   local-law audit rows, objective metadata, and component-radius certificates.
 - `treepo.methods` unified `run()` / `fit()` dispatcher for fit, oracle, and
   audit axes.
-- `treepo-bench` suite/report/check CLI, with examples and canonical default
-  TOMLs kept under `examples/research/` and `configs/research/methods/`.
+- `treepo-bench` suite/report/check CLI, with small source-tree examples kept
+  under `examples/`.
+- `treepo[llm]` includes OpenAI-compatible and native Transformers
+  dependencies for the unified chat/text-generation surface.
 
 Known v0.1 limitations:
 
@@ -20,11 +22,11 @@ Known v0.1 limitations:
   must include them in supplied radii when needed.
 - HLL merge-learning `scalar_*` diagnostics are scalar readout checks, not
   state-level register-max Lean law certificates.
-- `src/treepo/_research/` remains a quarantined migration tier for large paper
-  scaffolding and heavyweight dependencies.
-- LDA identifiable-zero code, reports, configs, examples, and runner scripts
-  are intentionally research-only under `_research` / `research/` paths, not
-  part of the public v0.1 API.
+- Large optional application families are provided by downstream workspaces or
+  packages. DSPy/FNO/TRL/diffusion/LDA integrations must be registered before
+  use.
+- Source-tree examples are checkout fixtures only; they are not part of the
+  public v0.1 API and are not required for wheel installs.
 
 See [`README.md`](README.md) for the layout and
 [`docs/training_defaults.md`](docs/training_defaults.md) for canonical defaults.

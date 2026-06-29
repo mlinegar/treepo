@@ -1,0 +1,27 @@
+# Synthetic Dirichlet LDA example with overlapping topics: compare official
+# sklearn LDA and the built-in neural_operator family on full topic proportions.
+
+operator_kinds = ["fno", "tfno", "uno"]
+n_train = 256
+n_eval = 64
+n_topics = 8
+doc_tokens = 256
+leaf_token_count = 32
+vocabulary_size = 160
+doc_topic_concentration = 0.7
+topic_word_concentration = 0.05
+target_topic = 0
+topic_seed = 0
+seed = 0
+max_iterations = 3
+
+embedding_dim = 16
+hidden_channels = 12
+n_modes = 4
+n_layers = 1
+head_hidden_dim = 24
+epochs_per_iteration = 3
+batch_size = 16
+learning_rate = 0.01
+device = "cpu"
+sklearn_max_iter = 50

@@ -1,15 +1,14 @@
-"""Broad classical mergeable-sketch comparison suite.
+"""Broad classical mergeable-sketch comparison.
 
 This module is intentionally CPU-light. It validates that official Apache
 DataSketches implementations can be routed through the same TreePO
-leaf/merge/query surface as the in-repo HLL control.
+leaf/merge/query surface.
 """
 
 from __future__ import annotations
 
 import json
 import math
-import importlib
 from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Dict, List, Mapping, Sequence, Tuple
@@ -42,34 +41,6 @@ from treepo.bench.sketches.tree_reducer import fold_states
 class ClassicalSketchComparisonConfig:
     seed: int = 0
     capacity_label: str = "single"
-    execution_backend: str = "treepo"
-    include_learned: bool = False
-    allow_classical_only_learned_ignore: bool = False
-    learned_targets: Tuple[str, ...] = ("all",)
-    learned_variants: Tuple[str, ...] = ("fg",)
-    learned_readout_archs: Tuple[str, ...] = ("structured",)
-    learned_n_train: int = 128
-    learned_n_val: int = 48
-    learned_n_epochs: int = 150
-    learned_batch_size: int = 1024
-    learned_target_jobs: int | str = "auto"
-    learned_gpu_ids: str = "auto"
-    learned_batch_reference_leaf_size: int = 128
-    learned_max_batch_size: int = 8192
-    learned_eval_every_n_epochs: int = 25
-    learned_evaluate_train_on_eval: bool = False
-    learned_learning_rate: float = 1e-3
-    learned_root_query_rate: float = 1.0
-    learned_leaf_query_rate: float = 1.0
-    learned_internal_query_rate: float = 1.0
-    learned_supervision_sampling_policy: str = "separate_axes"
-    learned_embedding_dim: int | None = None
-    learned_summary_dim: int | None = None
-    learned_state_dim: int | None = None
-    learned_hidden_dim: int | None = None
-    learned_leaf_feature_mode: str = "count_vector"
-    learned_use_cuda: bool = False
-    learned_cuda_device: int | None = None
     n_docs: int = 32
     min_tokens: int = 128
     max_tokens: int = 512
@@ -176,13 +147,6 @@ def _row_axes(
     return {
         "seed": int(config.seed),
         "capacity_label": str(config.capacity_label),
-        "execution_backend": str(config.execution_backend),
-        "include_learned": bool(config.include_learned),
-        "learned_variants": ",".join(str(x) for x in tuple(config.learned_variants)),
-        "learned_root_query_rate": float(config.learned_root_query_rate),
-        "learned_leaf_query_rate": float(config.learned_leaf_query_rate),
-        "learned_internal_query_rate": float(config.learned_internal_query_rate),
-        "learned_supervision_sampling_policy": str(config.learned_supervision_sampling_policy),
         "n_leaves": int(config.n_leaves) if config.n_leaves is not None else -1,
         "leaf_size": int(config.leaf_size),
         "leaf_axis": "n_leaves" if config.n_leaves is not None else "leaf_size",
@@ -300,14 +264,6 @@ def _attach_tree_bundle_contract(
     state_dim: int | None = None,
 ) -> Dict[str, object]:
     out = dict(row)
-    try:
-        contracts = importlib.import_module("treepo._research.ctreepo.contracts")
-    except Exception:
-        return out
-    fg_lineage_metadata = contracts.fg_lineage_metadata
-    sketch_tree_bundle_metadata = contracts.sketch_tree_bundle_metadata
-    tree_bundle_manifest_digest = contracts.tree_bundle_manifest_digest
-
     leaf_policy = {
         "leaf_axis": "n_leaves" if config.n_leaves is not None else "leaf_size",
         "leaf_size": int(config.leaf_size),
@@ -315,42 +271,16 @@ def _attach_tree_bundle_contract(
         "min_tokens": int(config.min_tokens),
         "max_tokens": int(config.max_tokens),
     }
-    bundle = sketch_tree_bundle_metadata(
-        family=str(out.get("family", "")),
-        query=str(out.get("query", "")),
-        sketch=str(out.get("sketch", "")),
-        source_kind="raw_input",
-        state_contract=str(state_contract),
-        summary_dim=summary_dim,
-        state_dim=state_dim,
-        f_init=str(f_init),
-        g_init=str(g_init),
-        schedule=str(schedule),
-        leaf_policy=leaf_policy,
-        metadata={
-            "capacity_label": str(config.capacity_label),
-            "implementation_status": str(out.get("implementation_status", "")),
-        },
-    )
-    lineage = fg_lineage_metadata(
-        f_init=str(f_init),
-        g_init=str(g_init),
-        schedule=str(schedule),
-        f_lineage=bundle["tree_bundle_manifest"].get("f_lineage", {}),
-        g_lineage=bundle["tree_bundle_manifest"].get("g_lineage", {}),
-        tree_bundle=bundle,
-    )
     out.update(
         {
             "f_init": str(f_init),
             "g_init": str(g_init),
             "fg_schedule": str(schedule),
             "reducer_contract": "bottom_up",
-            "tree_bundle_manifest": bundle["tree_bundle_manifest"],
-            "tree_bundle_manifest_digest": tree_bundle_manifest_digest(
-                bundle["tree_bundle_manifest"]
-            ),
-            "fg_lineage": lineage,
+            "tree_bundle_leaf_policy": leaf_policy,
+            "tree_bundle_state_contract": str(state_contract),
+            "tree_bundle_summary_dim": summary_dim,
+            "tree_bundle_state_dim": state_dim,
         }
     )
     return out
@@ -384,12 +314,6 @@ def _float_docs(config: ClassicalSketchComparisonConfig) -> List[List[float]]:
 def _run_distinct(config: ClassicalSketchComparisonConfig, docs: Sequence[Sequence[int]]) -> List[Dict[str, object]]:
     lg = int(config.distinct_lg_k)
     adapters = [
-        (
-            make_hll_adapter(backend="native", precision=lg),
-            "lean_backed",
-            "lean_backed",
-            1.04 / math.sqrt(float(1 << lg)),
-        ),
         (
             make_hll_adapter(backend="datasketches", precision=lg),
             "official_empirical",

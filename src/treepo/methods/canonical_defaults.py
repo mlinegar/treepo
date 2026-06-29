@@ -1,18 +1,10 @@
-"""Paper-canonical defaults for every `treepo.methods` family.
+"""Lightweight defaults and dataclass loading for :mod:`treepo.methods`.
 
-Pattern (uniform across every family):
+`treepo` keeps only dependency-light defaults. Application families can define
+their richer defaults in their own package and still use the generic loader
+here.
 
-1. **Truth lives upstream.** When the main repo already has a dataclass
-   for a family's knobs (``DSPyFamilyConfig``, ``FNOFamilyConfig``,
-   ``MarkovChangepointConfig``), the TOML
-   loads directly into it. No mirror, no translator, no drift test.
-
-2. **Scenario wrappers stay tiny.** When a family needs knobs the
-   upstream class doesn't carry (LM endpoints, eval-pool filters,
-   output dirs, oracle dispatch knobs), we add a small local dataclass
-   here. Adding a new family at most means adding one such wrapper.
-
-3. **One generic loader.** ``load_dataclass(path, cls, section=...)``
+``load_dataclass(path, cls, section=...)``
    hydrates any dataclass from a TOML, with optional dotted-key
    overrides. Recursive: a dataclass field whose type is another
    dataclass is built from a nested table.
@@ -20,13 +12,9 @@ Pattern (uniform across every family):
 Usage::
 
     from treepo.methods.canonical_defaults import load_dataclass
-    from treepo._research.ctreepo.fno_family import FNOFamilyConfig
+    from your_package import YourFamilyConfig
 
-    cfg = load_dataclass("configs/research/methods/fno_smoke.toml", FNOFamilyConfig)
-    treepo.methods.run("fit", {"family": "fno", "backend_config": {"fno_config": cfg, ...}, ...})
-
-See ``docs/training_defaults.md`` for the full table of
-canonical values per family and the empirical history behind them.
+    cfg = load_dataclass("config.toml", YourFamilyConfig)
 """
 
 from __future__ import annotations
@@ -42,39 +30,37 @@ except ModuleNotFoundError:  # pragma: no cover
     import tomli as _toml_loader  # type: ignore[no-redef]
 
 # ===========================================================================
-# Cross-family canonical constants — re-exported from upstream (no mirrors)
+# Defaults
 # ===========================================================================
-#
-# These constants ARE the upstream values, not copies. Drift becomes
-# structurally impossible: the test reduces to ``is`` identity checks.
 
-from treepo._research.core.batch_transport import (  # noqa: E402
-    DEFAULT_BATCH_MAX_CONCURRENT,
-    DEFAULT_BATCH_REQUEST_TIMEOUT_SECONDS,
-    DEFAULT_BATCH_ROUTING_POLICY,
-    DEFAULT_BATCH_SIZE,
-    DEFAULT_BATCH_TIMEOUT_SECONDS,
-)
-from treepo._research.tasks.manifesto.pipeline_config import (  # noqa: E402
-    CONCAT_RATIO,
-    DEFAULT_MANIFESTO_WORKERS,
-    DEFAULT_PROMPT_OVERHEAD_TOKENS,
-    DEFAULT_SCORER_MAX_TOKENS,
-    DEFAULT_SCORING_WORKERS,
-    DEFAULT_SUMMARY_WORKERS,
-    DEFAULT_TARGET_RATIO,
-)
-from treepo._research.training.gepa_defaults import (  # noqa: E402
-    GEPA_STRONG_DEFAULT_KWARGS as GEPA_STRONG_DEFAULTS,
-)
-
-# Convenience dict for non-DSPy consumers — every value re-exports above.
+DEFAULT_BATCH_MAX_CONCURRENT = 512
+DEFAULT_BATCH_SIZE = 64
+DEFAULT_BATCH_TIMEOUT_SECONDS = 0.02
+DEFAULT_BATCH_REQUEST_TIMEOUT_SECONDS = 300.0
+DEFAULT_BATCH_ROUTING_POLICY = "affinity_load_aware"
 BATCH_DEFAULTS: dict[str, Any] = {
     "batch_size": DEFAULT_BATCH_SIZE,
     "batch_max_concurrent": DEFAULT_BATCH_MAX_CONCURRENT,
     "batch_timeout": DEFAULT_BATCH_TIMEOUT_SECONDS,
     "batch_request_timeout": DEFAULT_BATCH_REQUEST_TIMEOUT_SECONDS,
     "batch_routing_policy": DEFAULT_BATCH_ROUTING_POLICY,
+}
+
+CONCAT_RATIO: float = 2.0
+DEFAULT_TARGET_RATIO: float = 0.15
+DEFAULT_PROMPT_OVERHEAD_TOKENS: int = 1500
+DEFAULT_MANIFESTO_WORKERS: int = 4
+DEFAULT_SUMMARY_WORKERS: int = 4
+DEFAULT_SCORING_WORKERS: int = 4
+DEFAULT_SCORER_MAX_TOKENS: int = 256
+GEPA_STRONG_DEFAULTS: dict[str, Any] = {
+    "use_merge": True,
+    "max_merge_invocations": 5,
+    "track_stats": True,
+    "add_format_failure_as_feedback": True,
+    "reflection_minibatch_size": 8,
+    "use_wandb": False,
+    "use_mlflow": False,
 }
 
 

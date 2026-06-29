@@ -104,25 +104,6 @@ def dump_json(payload: Mapping[str, Any]) -> str:
     return json.dumps(payload, indent=2, sort_keys=True)
 
 
-def summary_to_csv_rows_cardinality_recovery(summary: Any) -> List[Dict[str, object]]:
-    from treepo.bench.cardinality_recovery import experiment_rows
-
-    results = getattr(summary, "results", ())
-    rows = experiment_rows(results)
-    for row in rows:
-        row["experiment"] = "cardinality_recovery"
-    return rows
-
-
-def summary_to_csv_rows_hll_merge_learning(summary: Any) -> List[Dict[str, object]]:
-    from treepo.bench.hll_merge_learning import experiment_rows
-
-    results = getattr(summary, "results", ())
-    rows = experiment_rows(results)
-    for row in rows:
-        row["experiment"] = "hll_merge_learning"
-    return rows
-
 
 def summary_to_csv_rows_classical_sketches(summary: Any) -> List[Dict[str, object]]:
     from treepo.bench.classical_sketches import experiment_rows
@@ -131,3 +112,9 @@ def summary_to_csv_rows_classical_sketches(summary: Any) -> List[Dict[str, objec
     for row in rows:
         row["experiment"] = "classical_sketches"
     return rows
+
+
+def summary_to_csv_rows_task(summary: Any) -> List[Dict[str, object]]:
+    from treepo.bench.tasks import experiment_rows
+
+    return [dict(row) for row in experiment_rows(summary)]

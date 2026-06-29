@@ -5,20 +5,19 @@ Three categories of paths live here:
 1. **Model files** — local snapshots of HuggingFace-style models.
    Override with ``TREEPO_MODEL_DIR`` (default: ``~/models``).
 2. **Runtime venvs** — separate Python environments where ``vllm`` /
-   ``sglang`` are installed (research code launches them as subprocesses).
+   ``sglang`` are installed for optional source-tree server wrappers.
    Override with ``TREEPO_VLLM_VENV`` / ``TREEPO_SGLANG_VENV``
    (defaults: ``~/vllm-env`` and ``~/sglang-env``).
-3. **The tokenizer model name** consumed by several family configs as
+3. **The tokenizer model name** consumed by downstream family configs as
    their default tokenizer path. Constant ``DEFAULT_TOKENIZER_MODEL``;
    resolve to a filesystem path with ``default_tokenizer_path()``.
 
 Why a module rather than buried defaults in each dataclass: a single
 ``export TREEPO_MODEL_DIR=/your/model/root`` in your shell now flows to
-every consumer; previously you had to edit several files.
+every consumer.
 
-The module is intentionally tiny — just constants + thin helpers — so
-treepo.methods and the vendored ``_research/`` code can both import from it
-without any additional dependency cost.
+The module is intentionally tiny — just constants + thin helpers — so public
+treepo modules can import from it without any additional dependency cost.
 """
 
 from __future__ import annotations
@@ -37,12 +36,26 @@ def _env_path(name: str, default: Path | str) -> Path:
 # Model directory
 # ---------------------------------------------------------------------------
 
+def _default_model_dir() -> Path:
+    """Resolve the local model-snapshot root.
+
+    Priority: explicit ``TREEPO_MODEL_DIR`` env var, else ``~/models``. Release
+    builds intentionally avoid host-specific absolute paths; set the env var in
+    local run scripts when model snapshots live elsewhere.
+    """
+    raw = os.environ.get("TREEPO_MODEL_DIR")
+    if raw:
+        return Path(raw).expanduser()
+    return Path.home() / "models"
+
+
 #: Root for local model snapshots. Override via the ``TREEPO_MODEL_DIR`` env var.
 #:
 #: With ``TREEPO_MODEL_DIR`` set to e.g. ``/your/model/root``,
 #: ``model_path("google", "embeddinggemma-300m")`` resolves to
-#: ``/your/model/root/google/embeddinggemma-300m``.
-MODEL_DIR: Path = _env_path("TREEPO_MODEL_DIR", Path.home() / "models")
+#: ``/your/model/root/google/embeddinggemma-300m``. When the env var is unset,
+#: ``~/models`` is used.
+MODEL_DIR: Path = _default_model_dir()
 
 
 def model_path(*parts: str) -> str:
@@ -54,9 +67,8 @@ def model_path(*parts: str) -> str:
     return str(MODEL_DIR.joinpath(*parts))
 
 
-#: HuggingFace-style name of the default tokenizer model used by
-#: :class:`DSPyFamilyConfig`, :class:`FNOFamilyConfig`, and
-#: :class:`TRLFamilyConfig` for budget calculations.
+#: HuggingFace-style name of the default tokenizer model used by downstream
+#: family configs for budget calculations.
 DEFAULT_TOKENIZER_MODEL: str = "google/embeddinggemma-300m"
 
 

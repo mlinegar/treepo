@@ -12,23 +12,17 @@ from treepo.bench.sketches.protocol import CardinalitySketch
 
 def make_hll_adapter(
     *,
-    backend: Literal["native", "datasketches"],
+    backend: Literal["datasketches"] = "datasketches",
     precision: int,
     hash_bits: int = 64,
 ) -> CardinalitySketch:
-    """Return an HLL `CardinalitySketch` adapter.
-
-    - `backend="native"` wraps `treepo.hll.HyperLogLogSketch` (no extra deps).
-    - `backend="datasketches"` wraps `datasketches.hll_sketch`. Requires
-      `uv sync --extra sketches`; raises a clear `ImportError` otherwise.
-    """
-    if backend == "native":
-        from treepo.bench.sketches.adapters.hll_native import HLLNativeAdapter
-        return HLLNativeAdapter(precision=int(precision), hash_bits=int(hash_bits))
+    """Return a DataSketches-backed HLL `CardinalitySketch` adapter."""
+    del hash_bits
     if backend == "datasketches":
         from treepo.bench.sketches.adapters.hll_datasketches import HLLDatasketchesAdapter
+
         return HLLDatasketchesAdapter(precision=int(precision))
-    raise ValueError(f"unknown HLL backend: {backend!r}; expected 'native' or 'datasketches'")
+    raise ValueError("HLL uses backend='datasketches'; install with: uv sync --extra sketches")
 
 
 def make_cpc_adapter(*, lg_k: int = 10) -> CardinalitySketch:

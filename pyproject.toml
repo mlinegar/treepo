@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "treepo"
 version = "0.1.0"
-description = "TreePO/C-TreePO core methods, local-law certificates, and research harness"
+description = "TreePO/C-TreePO core methods and local-law certificates"
 readme = "README.md"
 # LicenseRef- prefix (PEP 639) for custom non-SPDX licenses like PolyForm-NC.
 license = "LicenseRef-PolyForm-Noncommercial-2.0.0-pre.2"
@@ -27,62 +27,47 @@ classifiers = [
 ]
 dependencies = [
   "numpy>=1.24",
+  "torch>=2.0.0",
+  "neuraloperator>=2.0.0",
+  "scikit-learn>=1.4",
 ]
 
 [project.optional-dependencies]
 bench = [
   "pyyaml>=6.0",
 ]
-reports = [
-  "matplotlib>=3.8.0",
-  "pandas>=2.0.0",
-]
 sketches = [
   "datasketches>=5.2.0",
 ]
-sklearn = [
-  "scikit-learn>=1.4.2",
-]
 torch = [
   "torch>=2.0.0",
+]
+neural = [
+  "torch>=2.0.0",
   "neuraloperator>=2.0.0",
+]
+# Full dependency set for a downstream FNO family (e.g. ThinkingTrees'
+# FNOFamily registered via register_family("fno", ...)): the neural operator
+# stack plus the tokenizer used for leaf chunking.
+fno = [
+  "torch>=2.0.0",
+  "neuraloperator>=2.0.0",
+  "scikit-learn>=1.4",
+  "transformers>=4.40.0",
+  "numpy>=1.23",
 ]
 llm = [
   "langextract>=1.1.1",
   "tiktoken>=0.12.0",
   "openai>=1.0.0",
-  "dspy>=3.0.0",
-]
-runtime = [
-  "pyyaml>=6.0",
-  "langextract>=1.1.1",
-  "tiktoken>=0.12.0",
-  "openai>=1.0.0",
-  "datasets>=2.14.0",
-]
-research = [
-  "pyyaml>=6.0",
-  "langextract>=1.1.1",
-  "tiktoken>=0.12.0",
-  "pandas>=2.0.0",
-  "scikit-learn>=1.4.2",
+  "requests>=2.31.0",
+  "transformers>=4.40.0",
 ]
 train = [
   "torch>=2.0.0",
-  "neuraloperator>=2.0.0",
-  "langextract>=1.1.1",
-  "tiktoken>=0.12.0",
-  "openai>=1.0.0",
-  "dspy>=3.0.0",
-  "transformers>=4.40.0",
-  "datasets>=2.14.0",
-  "peft>=0.8.0",
-  "trl>=0.8.0",
-  "scikit-learn>=1.4.2",
 ]
 dev = [
   "pytest>=7.0.0",
-  "pypdf>=4.0.0",
   "pytest-cov>=4.0.0",
   "black>=23.0.0",
   "isort>=5.0.0",
@@ -93,23 +78,18 @@ all = [
   "pyyaml>=6.0",
   "langextract>=1.1.1",
   "tiktoken>=0.12.0",
-  "matplotlib>=3.8.0",
-  "pandas>=2.0.0",
   "datasketches>=5.2.0",
-  "scikit-learn>=1.4.2",
   "torch>=2.0.0",
   "neuraloperator>=2.0.0",
+  "scikit-learn>=1.4",
   "openai>=1.0.0",
-  "dspy>=3.0.0",
+  "requests>=2.31.0",
   "transformers>=4.40.0",
-  "datasets>=2.14.0",
-  "peft>=0.8.0",
-  "trl>=0.8.0",
 ]
 
 [dependency-groups]
 # Dev-only deps (PEP 735). Auto-installed by `uv sync`; skip with
-# `uv sync --no-dev` for the slim runtime surface. Optional extras above
+# `uv sync --no-dev` for the slim package surface. Optional extras above
 # are installed with `uv sync --extra NAME` for workflow-specific stacks.
 dev = [
   # Test + lint + type tooling
@@ -119,24 +99,20 @@ dev = [
   "isort>=5.0.0",
   "mypy>=1.0.0",
   "ruff>=0.1.0",
-  # Research-tier deps directly imported by treepo._research / treepo.methods /
-  # the test suite. Several lightweight packages (more-itertools, tqdm)
-  # arrive transitively via transformers / datasets / dspy — they don't
-  # need to be listed here. If you run into a missing-import error, add it.
+  # Dev/test deps for optional examples and package integration checks.
+  # Several lightweight packages arrive transitively via transformers.
+  # They do not need to be listed here. If you run into a missing-import
+  # error, add the missing dependency explicitly.
   "pyyaml>=6.0",
   "langextract>=1.1.1",
   "tiktoken>=0.12.0",
-  "scikit-learn>=1.4.2",
   "torch>=2.0.0",
+  "neuraloperator>=2.0.0",
+  "scikit-learn>=1.4",
   "transformers>=4.40.0",
-  "dspy>=3.0.0",
-  "datasets>=2.14.0",
-  "peft>=0.8.0",
-  "trl>=0.8.0",
-  "matplotlib>=3.8.0",
   "datasketches>=5.2.0",
-  "pandas>=2.0.0",
   "openai>=1.0.0",
+  "requests>=2.31.0",
 ]
 
 [project.scripts]

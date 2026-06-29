@@ -13,13 +13,9 @@ problem where IPW correction matters: with confounded propensities
 (high-value trees sampled more often), the naive observed mean is
 biased; the IPW estimate is unbiased. Tests demonstrate both behaviors.
 
-Real backends (FNO, learned merges) plug in the same way — their
-``train_f`` would build per-node rows from a forward pass and call the
-same objective. The math is identical; only the rows differ. v1 does
-not yet ship a learned FNO that uses this surface (that wiring lives in
-``treepo._research.ctreepo.fno_family`` today, not in ``treepo.methods``), but the
-demonstrative family + this module's signature show what the contract
-looks like.
+Real backends (FNO, learned merges) plug in the same way from downstream
+packages: their ``train_f`` would build per-node rows from a forward pass and
+call the same objective. The math is identical; only the rows differ.
 """
 
 from __future__ import annotations

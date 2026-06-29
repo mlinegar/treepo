@@ -6,8 +6,8 @@ from typing import Optional, Sequence
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Public `treepo-bench` entrypoint.
 
-    The implementation remains in `treepo.bench.cli` for CLI compatibility while
-    the package is reorganized around `treepo.cli` as the public command module.
+    The implementation lives in `treepo.bench.cli`; this module is the public
+    command entry point.
     """
 
     from treepo.bench.cli import main as bench_main

@@ -3,12 +3,17 @@ from __future__ import annotations
 import pytest
 
 from treepo.training.local_law import (
+    LocalLawTrainingRow,
+    aggregate_local_law_training_rows,
     corrected_local_law_loss,
     corrected_local_law_loss_tensor,
+    local_law_objective_from_losses,
     local_law_objective_target_mse,
+    local_law_training_objective_mean,
     observed_uniform_node_ipw_mean_loss,
     sampled_uniform_node_ipw_mean_loss,
 )
+from treepo.local_law import LocalLawAuditRow
 
 
 def _torch_or_skip():
@@ -43,6 +48,24 @@ def test_corrected_local_law_loss_rejects_invalid_observed_propensity() -> None:
             proxy_loss=0.4,
             oracle_loss=0.1,
             observed=True,
+            propensity=0.0,
+        )
+
+
+def test_training_rows_allow_unobserved_zero_propensity() -> None:
+    row = LocalLawTrainingRow(proxy_loss=0.4, observed=False, propensity=0.0)
+
+    assert row.corrected_loss() == pytest.approx(0.4)
+    assert row.propensity == pytest.approx(0.0)
+
+
+def test_audit_rows_reject_zero_propensity() -> None:
+    with pytest.raises(ValueError, match="propensity"):
+        LocalLawAuditRow(
+            row_id="audit-0",
+            law_kind="c1",
+            proxy_loss=0.4,
+            observed=False,
             propensity=0.0,
         )
 
@@ -86,6 +109,49 @@ def test_local_law_objective_rejects_gamma_above_one() -> None:
         )
 
 
+def test_scalar_training_rows_match_tensor_objective() -> None:
+    torch = _torch_or_skip()
+    rows = [
+        LocalLawTrainingRow(proxy_loss=0.25, observed=False, propensity=0.0, depth=0),
+        LocalLawTrainingRow(
+            proxy_loss=1.0,
+            oracle_loss=0.25,
+            observed=True,
+            propensity=0.5,
+            depth=1,
+            node_weight=2.0,
+        ),
+    ]
+    scalar = local_law_training_objective_mean(rows, gamma_depth=0.5)
+    tensor = local_law_objective_from_losses(
+        proxy_loss=torch.tensor([0.25, 1.0]),
+        oracle_loss=torch.tensor([0.0, 0.25]),
+        observed=torch.tensor([False, True]),
+        propensity=torch.tensor([0.0, 0.5]),
+        depths=torch.tensor([0, 1]),
+        node_weights=torch.tensor([1.0, 2.0]),
+        gamma_depth=0.5,
+    )
+
+    assert scalar == pytest.approx(float(tensor))
+
+
+def test_scalar_training_objective_rejects_gamma_above_one() -> None:
+    with pytest.raises(ValueError, match="gamma_depth"):
+        local_law_training_objective_mean(
+            [LocalLawTrainingRow(proxy_loss=0.0, observed=False, propensity=0.0)],
+            gamma_depth=1.5,
+        )
+
+
+def test_training_aggregate_rejects_invalid_local_law_weight() -> None:
+    with pytest.raises(ValueError, match="local_law_weight"):
+        aggregate_local_law_training_rows(
+            [LocalLawTrainingRow(proxy_loss=0.0, observed=False, propensity=0.0)],
+            local_law_weight=1.5,
+        )
+
+
 def test_sampled_uniform_node_ipw_mean_loss_full_rate_uses_node_weights() -> None:
     torch = _torch_or_skip()
     objective = sampled_uniform_node_ipw_mean_loss(
@@ -113,28 +179,3 @@ def test_observed_uniform_node_ipw_mean_loss_allows_empty_sample() -> None:
         propensity=0.1,
     )
     assert float(objective) == pytest.approx(0.0)
-
-
-def test_persistent_uniform_node_mask_has_no_doc_minimum() -> None:
-    torch = _torch_or_skip()
-    np = pytest.importorskip("numpy")
-    sampled = pytest.importorskip("treepo._research.unified_g_v1.sketch.sampled_supervision")
-    tree_task = pytest.importorskip("treepo._research.unified_g_v1.training.tree_task")
-
-    example = tree_task.TreeExample(
-        leaves=[(1,)],
-        target=0.0,
-        extra={
-            sampled.PERSISTENT_UNIFORM_NODE_SCORES_KEY: np.asarray(
-                [0.9, 0.95],
-                dtype=np.float32,
-            ),
-        },
-    )
-    mask = sampled.persistent_uniform_node_mask(
-        [example],
-        width=2,
-        rate=0.1,
-        device=torch.device("cpu"),
-    )
-    assert mask.tolist() == [[False, False]]

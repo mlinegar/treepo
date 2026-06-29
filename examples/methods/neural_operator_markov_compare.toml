@@ -1,0 +1,25 @@
+# Compare official dense neuralop backends on the compact Markov changepoint fixture.
+
+operator_kinds = ["fno", "tfno", "uno"]
+n_train = 8
+n_eval = 5
+n_states = 4
+doc_tokens = 32
+leaf_token_count = 8
+transition_prob = 0.15
+vocabulary_size = 64
+seed = 0
+max_iterations = 3
+
+embedding_dim = 8
+hidden_channels = 4
+n_modes = 2
+n_layers = 1
+conv_kernel_size = 3
+head_hidden_dim = 8
+epochs_per_iteration = 1
+batch_size = 4
+learning_rate = 0.01
+device = "cpu"
+normalize_targets = true
+numeric_transition_state_weight = 0.05

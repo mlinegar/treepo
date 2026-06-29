@@ -19,14 +19,9 @@ import pytest
 from treepo.bench.sketches import make_hll_adapter, treepo_reduce
 from treepo.bench.sketches.tree_reducer import fold_states
 
-BACKENDS = ["native"]
-try:
-    import datasketches  # noqa: F401
-    BACKENDS.append("datasketches")
-except ImportError:
-    pass
+pytest.importorskip("datasketches")
 
-
+BACKENDS = ["datasketches"]
 SCHEDULES = ("balanced", "left_to_right", "right_to_left")
 
 
@@ -96,25 +91,6 @@ def test_s4_reference_agreement(backend: str, n_leaves: int) -> None:
     if adapter.is_byte_deterministic:
         assert adapter.serialize(tree_state) == adapter.serialize(flat_state)
 
-
-def test_native_vs_datasketches_regression() -> None:
-    pytest.importorskip("datasketches")
-
-    native = make_hll_adapter(backend="native", precision=12)
-    reference = make_hll_adapter(backend="datasketches", precision=12)
-
-    rel_deltas = []
-    for seed in range(5):
-        items = _seeded_tokens(5_000, universe=100_000, seed=100 + seed)
-        native_est = native.query(native.encode(items))
-        reference_est = reference.query(reference.encode(items))
-        truth = float(len(set(items)))
-        # Compare the estimates against each other (both should be within HLL noise
-        # of truth; we want to catch silent drift of the native implementation).
-        rel_deltas.append(abs(native_est - reference_est) / max(1.0, truth))
-
-    mean_rel_delta = sum(rel_deltas) / len(rel_deltas)
-    assert mean_rel_delta < 0.05, f"native vs datasketches drift too large: {mean_rel_delta:.4f}"
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

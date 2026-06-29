@@ -5,7 +5,7 @@ reduction with a uniform `update / encode / merge / query / state_equal /
 serialize / serialized_size_bytes / memory_bytes` surface.
 
 `treepo_reduce(items_per_leaf, adapter, schedule)` is the sketch-agnostic
-generalization of `treepo.hll.reduce_hll_sketches`.
+generalization of tree-style sketch reduction.
 """
 
 from treepo.bench.sketches.adapters import (
