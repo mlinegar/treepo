@@ -1,22 +1,42 @@
 # Caches
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.pyre/
+.dmypy.json
+dmypy.json
+.hypothesis/
+.cache/
 __pycache__/
 *.py[cod]
 *.so
 
+# Test / coverage artifacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.prof
+
 # Build artifacts
 build/
 dist/
+.eggs/
 *.egg-info/
+*.egg
+pip-wheel-metadata/
 
 # Generated outputs (runtime caches, test outputs, dspy caches, etc.)
 outputs/
 *.log
 *.db
+*.tmp
 *.lock
 # Reproducibility lockfile — keep tracked (uv convention for applications).
 !uv.lock
+
+# Notebook checkpoints
+.ipynb_checkpoints/
 
 # Editors / OS
 .DS_Store
