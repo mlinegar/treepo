@@ -94,6 +94,45 @@ class _NeuralOperatorStatistic:
     def predict_tree(self, tree: Any) -> Any:
         return self.readout(self.encode_tree(tree))
 
+    def node_readouts(self, trees: Sequence[Any]) -> list[dict[str, Any]]:
+        """Return ``f`` readouts for every node of every tree, in trace order.
+
+        Applies the readout head to each state the merge trace produced, so
+        the rows show the prediction forming up the tree: leaves first, then
+        each merge level, root last. The final row per tree equals
+        ``predict_tree``. Row shape: ``tree_id``, ``node_index``, ``value``
+        (scalar, or a list for vector targets).
+        """
+
+        family = self.family
+        if family._model is None:
+            return []
+        tree_list = list(trees or ())
+        if not tree_list:
+            return []
+        x, lengths = family._encode_trees(tree_list)
+        family._model.eval()
+        rows: list[dict[str, Any]] = []
+        with family._torch.no_grad():
+            _raw, traces = family._model.forward_with_trace(x, lengths)
+            for tree_idx, (tree, trace) in enumerate(zip(tree_list, traces)):
+                raw = family._model.readout(trace)
+                values = family._denormalized_predictions(raw).detach().cpu().tolist()
+                for node_idx, row in enumerate(values):
+                    row = row if isinstance(row, list) else [row]
+                    clamped = [
+                        _clamp(float(value), family.config.target_min, family.config.target_max)
+                        for value in row
+                    ]
+                    rows.append(
+                        {
+                            "tree_id": _tree_row_id(tree, tree_idx),
+                            "node_index": int(node_idx),
+                            "value": clamped[0] if (family._output_dim or 1) == 1 else clamped,
+                        }
+                    )
+        return rows
+
     def local_law_rows(
         self,
         units: Sequence[Any],

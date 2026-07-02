@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """Render trees as standalone expandable HTML files.
 
-Three views, one per supported input style, all openable in any browser:
+Five views, one per supported input style, all openable in any browser:
 
 1. Manifesto/RILE qsentence trees with sampled-leaf markers, propensities/IPW
    weights, gold qsentence and root labels, and per-leaf policy-state
    summaries.
-2. Markov changepoint trees scored by a trained neural-operator family, with
-   local-law proxy losses shown on the synthesized pairwise merge tree the
-   family actually computes, next to exact per-leaf changepoint labels.
-3. Hand-built ``TreeRecord``s showing the general surface: gold labels next
+2. Markov changepoint trees scored by a trained neural-operator family:
+   per-node ``f`` readouts and audited local-law losses on the synthesized
+   merge tree (a sqrt node-audit design picks which nodes get oracle labels),
+   next to exact per-leaf changepoint labels, with the AIPW audit summary as
+   a panel.
+3. LDA topic trees scored by a trained family: per-node readouts converging
+   toward the exact target-topic proportion.
+4. HLL item trees: exact distinct-count gold labels at every leaf and root.
+5. Hand-built ``TreeRecord``s showing the general surface: gold labels next
    to prediction metadata, LLM summaries, sampling rows, and node-keyed
    local-law rows from node metadata.
 """
@@ -43,22 +48,9 @@ def write_manifesto_view(output_dir: Path) -> Path:
     )
 
 
-def write_markov_law_view(output_dir: Path) -> Path:
+def _train_tiny_family(trees: list, output_dir: Path) -> "object":
     from treepo.methods.families import resolve_family
-    from treepo.methods.fixtures import (
-        make_markov_changepoint_trees,
-        markov_tree_records,
-    )
-    from treepo.viz import write_tree_visualization_html
 
-    trees = make_markov_changepoint_trees(
-        n_trees=4,
-        doc_tokens=48,
-        leaf_unit_count=16,
-        vocabulary_size=64,
-        seed=11,
-        split="train",
-    )
     family = resolve_family(
         "neural_operator",
         {
@@ -80,12 +72,82 @@ def write_markov_law_view(output_dir: Path) -> Path:
     family.train_g(
         g_init=None, f=f_artifact, traces=trees, output_dir=output_dir / "g", iteration=2
     )
-    law_rows = family.as_statistic().local_law_rows(trees)
+    return family
+
+
+def write_markov_law_view(output_dir: Path) -> Path:
+    from treepo.local_law import audit_local_laws
+    from treepo.methods.fixtures import (
+        make_markov_changepoint_trees,
+        markov_tree_records,
+    )
+    from treepo.sampling import apply_node_audit, sample_node_audit
+    from treepo.viz import write_tree_visualization_html
+
+    trees = make_markov_changepoint_trees(
+        n_trees=4,
+        doc_tokens=48,
+        leaf_unit_count=16,
+        vocabulary_size=64,
+        seed=11,
+        split="train",
+    )
+    family = _train_tiny_family(trees, output_dir / "markov")
+    statistic = family.as_statistic()
+    # The statistic labels every node; the audit design chooses which nodes
+    # keep their oracle labels (sqrt policy, logged propensity q/N per tree).
+    audited_rows = []
+    for tree_idx, tree in enumerate(trees):
+        prefix = f"{tree.metadata['tree_id']}:state:"
+        tree_rows = [
+            row for row in statistic.local_law_rows([tree]) if row.row_id.startswith(prefix)
+        ]
+        design = sample_node_audit(len(tree_rows), policy="sqrt", seed=tree_idx)
+        audited_rows.extend(apply_node_audit(tree_rows, design))
+    audit = audit_local_laws(audited_rows, gamma_depth=0.9)
     return write_tree_visualization_html(
         markov_tree_records(trees),
         output_dir / "markov_law_trees.html",
-        law_rows=law_rows,
-        title="Markov trees: local-law losses on the merge tree",
+        law_rows=audited_rows,
+        readout_rows=statistic.node_readouts(trees),
+        audit=audit,
+        title="Markov trees: audited local-law losses and node readouts",
+    )
+
+
+def write_lda_readout_view(output_dir: Path) -> Path:
+    from treepo.methods.fixtures import lda_tree_records, make_lda_topic_trees
+    from treepo.viz import write_tree_visualization_html
+
+    trees = make_lda_topic_trees(
+        n_trees=4,
+        n_topics=3,
+        doc_tokens=48,
+        leaf_unit_count=16,
+        vocabulary_size=30,
+        seed=7,
+        split="train",
+    )
+    family = _train_tiny_family(trees, output_dir / "lda")
+    return write_tree_visualization_html(
+        lda_tree_records(trees),
+        output_dir / "lda_readout_trees.html",
+        readout_rows=family.as_statistic().node_readouts(trees),
+        title="LDA trees: node readouts vs exact topic proportions",
+    )
+
+
+def write_hll_view(output_dir: Path) -> Path:
+    from treepo.methods.fixtures import hll_tree_records, make_hll_item_trees
+    from treepo.viz import write_tree_visualization_html
+
+    trees = make_hll_item_trees(
+        n_trees=4, leaves_per_tree=4, leaf_unit_count=16, vocabulary_size=64, seed=2
+    )
+    return write_tree_visualization_html(
+        hll_tree_records(trees),
+        output_dir / "hll_trees.html",
+        title="HLL item trees: exact distinct counts per leaf and root",
     )
 
 
@@ -157,7 +219,14 @@ def write_generic_view(output_dir: Path) -> Path:
 
 def main() -> int:
     output_dir = Path("outputs/tree_visualization")
-    for view in (write_manifesto_view, write_markov_law_view, write_generic_view):
+    views = (
+        write_manifesto_view,
+        write_markov_law_view,
+        write_lda_readout_view,
+        write_hll_view,
+        write_generic_view,
+    )
+    for view in views:
         print(f"wrote {view(output_dir)}")
     return 0
 

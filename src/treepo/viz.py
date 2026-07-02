@@ -2,9 +2,10 @@
 
 ``write_tree_visualization_html`` renders trees as an expandable node tree in
 one self-contained HTML file: no server, no JavaScript dependencies. Each node
-shows its gold label, any prediction-style metadata, sampling status
-(observed marker plus propensity/IPW weight), and local-law losses, with text
-and full metadata behind a click.
+shows its gold label, any prediction-style metadata, per-node ``f`` readouts,
+sampling status (observed marker plus propensity/IPW weight), and local-law
+losses, with text and full metadata behind a click. Audit summaries and error
+certificates render as panels above the trees.
 
 Inputs are the package's existing artifacts:
 
@@ -58,6 +59,7 @@ def tree_visualization_payload(
     *,
     sampling_rows: Iterable[Mapping[str, Any]] | None = None,
     law_rows: Iterable[Any] | None = None,
+    readout_rows: Iterable[Mapping[str, Any]] | None = None,
     label_keys: Sequence[str] = DEFAULT_LABEL_KEYS,
     summary_keys: Sequence[str] = DEFAULT_SUMMARY_KEYS,
 ) -> dict[str, Any]:
@@ -67,6 +69,7 @@ def tree_visualization_payload(
     tree_ids = {str(record.tree_id), str(record.doc_id)}
     sampling_by_node = _rows_by_node(sampling_rows or (), tree_ids)
     laws_by_node, laws_by_trace_index = _index_law_rows(law_rows or (), tree_ids)
+    readouts_by_node, readouts_by_trace = _index_readout_rows(readout_rows or (), tree_ids)
 
     by_id = {str(node.node_id): node for node in record.nodes}
     children: dict[str, list[str]] = {node_id: [] for node_id in by_id}
@@ -109,6 +112,7 @@ def tree_visualization_payload(
             "summaries": _node_summaries(metadata, state, summary_keys),
             "metadata": jsonable(metadata),
             "sampling": sampling_by_node.get(node_id),
+            "readout": readouts_by_node.get(node_id),
             "laws": laws_by_node.get(node_id, []),
             "children": [
                 node_payload(child_id, seen)
@@ -126,8 +130,8 @@ def tree_visualization_payload(
         if str(node.node_id) not in seen:
             roots.append(node_payload(str(node.node_id), seen))
 
-    if laws_by_trace_index and roots:
-        _attach_trace_laws(roots[0], record, laws_by_trace_index)
+    if (laws_by_trace_index or readouts_by_trace) and roots:
+        _attach_trace_annotations(roots[0], laws_by_trace_index, readouts_by_trace)
 
     meta = dict(record.metadata or {})
     n_sampled = sum(1 for row in sampling_by_node.values() if row.get("observed"))
@@ -151,11 +155,20 @@ def write_tree_visualization_html(
     *,
     sampling_rows: Iterable[Mapping[str, Any]] | None = None,
     law_rows: Iterable[Any] | None = None,
+    readout_rows: Iterable[Mapping[str, Any]] | None = None,
+    audit: Mapping[str, Any] | None = None,
+    certificate: Mapping[str, Any] | None = None,
     label_keys: Sequence[str] = DEFAULT_LABEL_KEYS,
     summary_keys: Sequence[str] = DEFAULT_SUMMARY_KEYS,
     title: str = "treepo trees",
 ) -> Path:
-    """Write a standalone expandable-tree HTML file and return its path."""
+    """Write a standalone expandable-tree HTML file and return its path.
+
+    ``audit`` takes an ``audit_local_laws`` payload and renders it as a
+    summary panel above the trees; ``certificate`` takes an error-certificate
+    dict (``UnifiedLearningErrorCertificate.to_dict()``) and renders the
+    component-radius ledger.
+    """
 
     tree_list = list(trees or ())
     # Group rows by their declared tree once, so each payload call only sees
@@ -167,24 +180,36 @@ def write_tree_visualization_html(
         tree_key=_sampling_row_tree,
     )
     laws_by_tree = _group_rows_by_tree(law_rows or (), tree_key=_law_row_tree)
+    readouts_by_tree = _group_rows_by_tree(
+        (row for row in readout_rows or () if isinstance(row, Mapping)),
+        tree_key=_sampling_row_tree,
+    )
     untagged_ok = len(tree_list) == 1
-    payload = []
+    tree_payloads = []
     for tree in tree_list:
         record_ids = _record_tree_ids(tree)
         tree_sampling = [row for key in record_ids for row in sampling_by_tree.get(key, [])]
         tree_laws = [row for key in record_ids for row in laws_by_tree.get(key, [])]
+        tree_readouts = [row for key in record_ids for row in readouts_by_tree.get(key, [])]
         if untagged_ok:
             tree_sampling += sampling_by_tree.get("", [])
             tree_laws += laws_by_tree.get("", [])
-        payload.append(
+            tree_readouts += readouts_by_tree.get("", [])
+        tree_payloads.append(
             tree_visualization_payload(
                 tree,
                 sampling_rows=tree_sampling,
                 law_rows=tree_laws,
+                readout_rows=tree_readouts,
                 label_keys=label_keys,
                 summary_keys=summary_keys,
             )
         )
+    payload = {
+        "trees": tree_payloads,
+        "audit": None if audit is None else jsonable(dict(audit)),
+        "certificate": None if certificate is None else jsonable(dict(certificate)),
+    }
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     document = _HTML_TEMPLATE.replace("__TITLE__", html.escape(str(title))).replace(
@@ -293,6 +318,36 @@ def _node_summaries(
     return out
 
 
+def _index_readout_rows(
+    rows: Iterable[Mapping[str, Any]],
+    tree_ids: set[str],
+) -> tuple[dict[str, Any], dict[int, Any]]:
+    """Index readout rows by node id and, for trace rows, by node index.
+
+    Rows are mappings with a ``value`` plus either a node key (``node_id`` /
+    ``unit_id``) or a ``node_index`` into the merge trace (the statistic's
+    ``node_readouts`` shape).
+    """
+
+    by_node: dict[str, Any] = {}
+    by_trace: dict[int, Any] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        row_tree = str(row.get("tree_id") or row.get("doc_id") or "")
+        if row_tree and row_tree not in tree_ids:
+            continue
+        value = row.get("value")
+        if value is None:
+            continue
+        node_id = _row_node_id(row)
+        if node_id is not None:
+            by_node[node_id] = jsonable(value)
+        elif row.get("node_index") is not None:
+            by_trace[int(row["node_index"])] = jsonable(value)
+    return by_node, by_trace
+
+
 def _record_tree_ids(tree: Any) -> tuple[str, ...]:
     record = TreeRecord.from_value(tree)
     ids = {str(record.tree_id), str(record.doc_id)}
@@ -327,12 +382,12 @@ def _group_rows_by_tree(rows: Iterable[Any], *, tree_key: Any) -> dict[str, list
     return out
 
 
-def _attach_trace_laws(
+def _attach_trace_annotations(
     root_payload: dict[str, Any],
-    record: TreeRecord,
     laws_by_trace_index: Mapping[int, list[dict[str, Any]]],
+    readouts_by_trace: Mapping[int, Any],
 ) -> None:
-    """Attach trace-indexed law rows, synthesizing pairwise merge nodes.
+    """Attach trace-indexed law rows and readouts, synthesizing merge nodes.
 
     Trace indices follow the family schedule: leaves ``0..L-1`` in position
     order, then each merge level bottom-up, root state last (index ``2L-2``).
@@ -344,20 +399,26 @@ def _attach_trace_laws(
     if any(child.get("children") for child in children):
         return
     leaf_count = len(children)
-    max_index = max(laws_by_trace_index)
+    max_index = max([*laws_by_trace_index, *readouts_by_trace])
     if max_index > max(0, 2 * leaf_count - 2):
         raise ValueError(
-            f"trace law rows reference node index {max_index}, but a tree with "
+            f"trace rows reference node index {max_index}, but a tree with "
             f"{leaf_count} leaves has {max(1, 2 * leaf_count - 1)} trace nodes; "
             "the record's leaves and the scored tree's leaves disagree"
         )
+
+    def annotate(node: dict[str, Any], index: int) -> None:
+        node.setdefault("laws", []).extend(laws_by_trace_index.get(index, []))
+        if node.get("readout") is None and index in readouts_by_trace:
+            node["readout"] = readouts_by_trace[index]
+
     if leaf_count < 2:
         if children:
-            children[0].setdefault("laws", []).extend(laws_by_trace_index.get(0, []))
+            annotate(children[0], 0)
         return
 
     for position, leaf in enumerate(children):
-        leaf.setdefault("laws", []).extend(laws_by_trace_index.get(position, []))
+        annotate(leaf, position)
 
     merge_children = _pairwise_merge_children(leaf_count)
     root_index = 2 * leaf_count - 2
@@ -380,6 +441,7 @@ def _attach_trace_laws(
             "summaries": {},
             "metadata": {"synthesized": True, "trace_index": index},
             "sampling": None,
+            "readout": readouts_by_trace.get(index),
             "laws": list(laws_by_trace_index.get(index, [])),
             "children": [build(left), build(right)],
         }
@@ -388,7 +450,7 @@ def _attach_trace_laws(
 
     left, right = merge_children[root_index]
     root_payload["children"] = [build(left), build(right)]
-    root_payload.setdefault("laws", []).extend(laws_by_trace_index.get(root_index, []))
+    annotate(root_payload, root_index)
 
 
 def _row_node_id(row: Mapping[str, Any]) -> str | None:
@@ -424,6 +486,12 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   .chip.pred { background: #e6eefb; color: #1c4587; }
   .chip.proxy { background: #fdf0e0; color: #8a5200; }
   .chip.oracle { background: #fbe8e8; color: #8f2727; }
+  .chip.readout { background: #f0e6fb; color: #5e2a8a; }
+  .panel { border: 1px solid #ddd; border-radius: 6px; padding: 0.5rem 0.8rem; margin-bottom: 0.8rem; font-size: 0.82rem; }
+  .panel h2 { font-size: 0.9rem; margin: 0 0 0.3rem; }
+  .panel table { border-collapse: collapse; }
+  .panel td, .panel th { padding: 0.1rem 0.7rem 0.1rem 0; text-align: left; font-weight: normal; }
+  .panel th { color: #555; }
   .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.3rem; vertical-align: baseline; }
   .dot.sampled { background: #2e7d32; }
   .dot.unsampled { background: #fff; border: 1px solid #999; }
@@ -444,8 +512,10 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   <span class="dot unsampled"></span> in population, unsampled &nbsp;
   <span class="chip gold">gold</span> label &nbsp;
   <span class="chip pred">prediction</span> metadata &nbsp;
+  <span class="chip readout">f&#8594;</span> node readout &nbsp;
   <span class="chip proxy">proxy</span>/<span class="chip oracle">oracle</span> local-law loss
 </div>
+<div id="panels"></div>
 <div id="controls">
   <label><input type="checkbox" id="dim-unsampled"> dim unsampled nodes</label>
   <button id="expand-all">expand all</button>
@@ -455,8 +525,10 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <script type="application/json" id="payload">__PAYLOAD__</script>
 <script>
 (function () {
-  const trees = JSON.parse(document.getElementById("payload").textContent);
+  const data = JSON.parse(document.getElementById("payload").textContent);
+  const trees = data.trees;
   const container = document.getElementById("trees");
+  const panels = document.getElementById("panels");
 
   function chip(cls, text) {
     const span = document.createElement("span");
@@ -466,8 +538,79 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   }
 
   function fmt(value) {
+    if (Array.isArray(value)) return "[" + value.map(fmt).join(", ") + "]";
     if (typeof value === "number" && !Number.isInteger(value)) return value.toPrecision(4);
     return String(value);
+  }
+
+  function panelTable(title, headers, rows) {
+    const panel = document.createElement("div");
+    panel.className = "panel";
+    const heading = document.createElement("h2");
+    heading.textContent = title;
+    panel.appendChild(heading);
+    const table = document.createElement("table");
+    const headRow = document.createElement("tr");
+    for (const header of headers) {
+      const th = document.createElement("th");
+      th.textContent = header;
+      headRow.appendChild(th);
+    }
+    table.appendChild(headRow);
+    for (const row of rows) {
+      const tr = document.createElement("tr");
+      for (const cell of row) {
+        const td = document.createElement("td");
+        td.textContent = cell;
+        tr.appendChild(td);
+      }
+      table.appendChild(tr);
+    }
+    panel.appendChild(table);
+    return panel;
+  }
+
+  if (data.audit) {
+    const rows = [];
+    const overall = data.audit.local_law_objective || {};
+    const overlap = data.audit.influence_weighted_overlap || {};
+    rows.push([
+      "all laws",
+      fmt(overall.objective), String(overall.objective_mode || ""),
+      fmt(overall.row_count), fmt(overall.observed_count),
+      fmt(overlap.effective_sample_size), fmt(overlap.max_weight),
+    ]);
+    for (const [kind, entry] of Object.entries(data.audit.by_law_kind || {})) {
+      const obj = entry.local_law_objective || {};
+      const ovl = entry.influence_weighted_overlap || {};
+      rows.push([
+        kind, fmt(obj.objective), String(obj.objective_mode || ""),
+        fmt(obj.row_count), fmt(obj.observed_count),
+        fmt(ovl.effective_sample_size), fmt(ovl.max_weight),
+      ]);
+    }
+    panels.appendChild(panelTable(
+      "Local-law audit",
+      ["law", "objective", "mode", "rows", "observed", "ESS", "max weight"],
+      rows,
+    ));
+  }
+
+  if (data.certificate) {
+    const cert = data.certificate;
+    const rows = [
+      ["reported estimate", fmt(cert.reported_estimate)],
+      ["local-law radius", fmt(cert.local_law_radius)],
+      ["calibration radius", fmt(cert.calibration_radius)],
+      ["estimation radius", fmt(cert.estimation_radius)],
+      ["clipping radius", fmt(cert.clipping_radius)],
+      ["radius sum", fmt(cert.radius_sum)],
+      ["total bound", fmt(cert.total_bound)],
+    ];
+    if (cert.confidence_delta !== null && cert.confidence_delta !== undefined) {
+      rows.push(["confidence delta", fmt(cert.confidence_delta)]);
+    }
+    panels.appendChild(panelTable("Error certificate", ["component", "value"], rows));
   }
 
   function renderNode(node) {
@@ -489,6 +632,9 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     }
     for (const [key, value] of Object.entries(node.labels || {})) {
       summary.appendChild(chip("pred", key + " " + fmt(value)));
+    }
+    if (node.readout !== null && node.readout !== undefined) {
+      summary.appendChild(chip("readout", "f\\u2192 " + fmt(node.readout)));
     }
     for (const law of node.laws || []) {
       if (law.proxy_loss !== null && law.proxy_loss !== undefined) {

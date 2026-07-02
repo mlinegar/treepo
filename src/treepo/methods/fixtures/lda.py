@@ -289,4 +289,70 @@ def _lda_topic_tree_from_arrays(
     )
 
 
-__all__ = ["LDATopicTree", "make_lda_topic_trees"]
+def lda_tree_records(trees: List[LDATopicTree]) -> List[Any]:
+    """Convert LDA fixture trees into canonical ``TreeRecord`` artifacts.
+
+    Each record is a flat star: token leaves in position order under a root
+    labeled with the exact target-topic proportion. Leaves carry their own
+    realized target-topic proportion as the gold label, with the full
+    per-leaf topic mix in metadata, so per-node supervision is on the same
+    scale as the root readout. ``tree_id`` matches ``metadata["tree_id"]``,
+    which is also the prefix of statistic law-row ids.
+    """
+
+    from treepo.tree import TreeRecord
+
+    records: List[Any] = []
+    for tree in trees or ():
+        metadata = dict(tree.metadata or {})
+        target_topic = int(metadata.get("target_topic", 0))
+        n_topics = int(metadata.get("n_topics", 0)) or (
+            max(tree.topics) + 1 if tree.topics else 1
+        )
+        root_label = metadata.get("teacher_score_native")
+        nodes: List[dict] = []
+        for idx, leaf in enumerate(tree.leaves):
+            topics = [int(t) for t in leaf.topics]
+            counts = [0] * n_topics
+            for topic in topics:
+                counts[topic] += 1
+            total = max(1, len(topics))
+            proportions = [count / total for count in counts]
+            nodes.append(
+                {
+                    "node_id": f"leaf_{idx}",
+                    "unit_type": "leaf",
+                    "text": " ".join(str(int(token)) for token in leaf.tokens),
+                    "parent_id": "root",
+                    "level": 0,
+                    "position": idx,
+                    "label": proportions[target_topic],
+                    "metadata": {
+                        "topics": topics,
+                        "leaf_topic_proportions": proportions,
+                    },
+                }
+            )
+        nodes.append(
+            {
+                "node_id": "root",
+                "unit_type": "root",
+                "level": 1,
+                "label": root_label,
+                "metadata": {
+                    "topic_proportions": [float(x) for x in tree.topic_proportions],
+                },
+            }
+        )
+        records.append(
+            TreeRecord(
+                tree_id=str(metadata.get("tree_id") or "lda"),
+                nodes=nodes,
+                root_label=root_label,
+                metadata=metadata,
+            )
+        )
+    return records
+
+
+__all__ = ["LDATopicTree", "lda_tree_records", "make_lda_topic_trees"]

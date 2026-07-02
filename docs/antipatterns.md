@@ -60,12 +60,14 @@ were deleted with their test sections; the JSONL round-trip test now reads the
 file directly.
 
 **Rule.** Ship API that a workflow, example, or downstream consumer exercises.
-Theory-adjacent code gets the same treatment once the math checks out: the
-uniform-node IPW wrappers in `training/local_law.py` survived the first pass as
-"paper-relevant", but uniform sampling with constant propensity reduces IPW to
-the plain mean of the sampled losses — the general
-`local_law_objective_from_losses` already covers the nonuniform case where the
-correction matters, so the wrappers went in the second pass.
+And run the consumer check over EVERY workspace root before classifying: the
+uniform-node IPW wrappers in `training/local_law.py` were classified test-only
+by a search that covered the main downstream repo's `src/`, `scripts/`, and
+`tests/` — and missed four live callers under its `parallel/` workspace. The
+removal stood (the wrappers are downstream sampling plumbing over the general
+`local_law_objective_from_losses`, now vendored beside their callers), but the
+misclassification cost a repair pass. The must-survive list from step 2 of the
+removal pass is only as good as the roots it enumerates.
 
 **Detect.** Build the import graph: for module `m`,
 `rg "from treepo.m import|import treepo.m" src examples scripts` plus downstream

@@ -1,18 +1,25 @@
-"""Sampling metadata and inverse-propensity weighting records.
+"""Sampling metadata, node-audit designs, and inverse-propensity weighting.
 
 Defines ``SamplingMetadata`` and ``DocumentSamplingRow`` with propensity
 normalization and IPW weight computation used by preference/observation
-exports.
+exports, plus ``sample_node_audit``/``apply_node_audit`` for choosing which
+nodes of a tree receive oracle labels under a logged design.
 """
 
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
-from treepo.common import MIN_PROPENSITY, jsonable as _jsonable
+from treepo.common import (
+    MIN_PROPENSITY,
+    AuditPolicyName,
+    audit_sample_count,
+    jsonable as _jsonable,
+)
 
 
 DEFAULT_PROPENSITY = 1.0
@@ -138,10 +145,124 @@ class DocumentSamplingRow:
         return _jsonable(asdict(self))
 
 
+@dataclass(frozen=True)
+class NodeAuditDesign:
+    """A realized uniform node-audit design over one node population.
+
+    ``observed`` marks which nodes receive oracle labels; ``propensity`` is
+    the shared inclusion probability ``sample_size / population_size`` every
+    row logs, whether or not it was drawn.
+    """
+
+    observed: tuple[bool, ...]
+    propensity: float
+    policy: str
+    population_size: int
+    sample_size: int
+    seed: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return _jsonable(asdict(self))
+
+
+def sample_node_audit(
+    population_size: int,
+    *,
+    policy: AuditPolicyName = "all",
+    fixed_nodes: int = 0,
+    fraction: float = 1.0,
+    scale: float = 1.0,
+    seed: int = 0,
+) -> NodeAuditDesign:
+    """Draw a uniform without-replacement node audit under a named policy.
+
+    The policy sets the draw count ``q`` (``all``, ``fixed``, ``fraction``,
+    ``sqrt``, ``log2`` via ``audit_sample_count``); every node then has
+    inclusion probability ``q / population_size``. Theorem-facing audit rows
+    require a positive inclusion probability, so a design that selects zero
+    nodes raises.
+    """
+
+    n = int(population_size)
+    if n <= 0:
+        raise ValueError("sample_node_audit requires a positive population_size")
+    q = audit_sample_count(
+        n, policy=policy, fixed_nodes=fixed_nodes, fraction=fraction, scale=scale
+    )
+    if q <= 0:
+        raise ValueError(
+            f"audit policy {policy!r} selected zero of {n} nodes; audit rows "
+            "require a positive inclusion probability"
+        )
+    if q >= n:
+        observed = [True] * n
+    else:
+        rng = random.Random(int(seed))
+        drawn = set(rng.sample(range(n), q))
+        observed = [idx in drawn for idx in range(n)]
+    return NodeAuditDesign(
+        observed=tuple(observed),
+        propensity=float(q / n),
+        policy=str(policy),
+        population_size=n,
+        sample_size=int(q),
+        seed=int(seed),
+    )
+
+
+def apply_node_audit(rows: Sequence[Any], design: NodeAuditDesign) -> tuple[Any, ...]:
+    """Apply a node-audit design to fully-labeled local-law audit rows.
+
+    Takes rows that carry oracle losses for every node (for example a
+    statistic's ``local_law_rows``) and returns rows that realize the design:
+    drawn rows keep their oracle loss and log the design propensity;
+    undrawn rows keep only the proxy loss with the same logged propensity.
+    Row order must match the design's node population.
+    """
+
+    from dataclasses import replace
+
+    from treepo.local_law import LocalLawAuditRow
+
+    row_list = list(rows or ())
+    if len(row_list) != design.population_size:
+        raise ValueError(
+            f"design covers {design.population_size} nodes, got {len(row_list)} rows"
+        )
+    out = []
+    for row, observed in zip(row_list, design.observed):
+        if not isinstance(row, LocalLawAuditRow):
+            row = LocalLawAuditRow(**dict(row))
+        if observed and row.oracle_loss is None:
+            raise ValueError(
+                f"audit design drew node {row.row_id} but the row has no oracle_loss"
+            )
+        out.append(
+            replace(
+                row,
+                observed=bool(observed),
+                propensity=float(design.propensity),
+                effective_propensity=None,
+                influence_weight=None,
+                oracle_loss=row.oracle_loss if observed else None,
+                metadata={
+                    **dict(row.metadata or {}),
+                    "audit_policy": design.policy,
+                    "audit_seed": design.seed,
+                    "audit_sample_size": design.sample_size,
+                },
+            )
+        )
+    return tuple(out)
+
+
 __all__ = [
     "DEFAULT_PROPENSITY",
     "MIN_PROPENSITY",
     "DocumentSamplingRow",
+    "NodeAuditDesign",
     "ObservationUnitKind",
     "SamplingMetadata",
+    "apply_node_audit",
+    "sample_node_audit",
 ]

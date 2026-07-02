@@ -67,4 +67,53 @@ def make_hll_item_trees(
     return trees
 
 
-__all__ = ["HLLItemTree", "make_hll_item_trees"]
+def hll_tree_records(trees: List[HLLItemTree]) -> List[Any]:
+    """Convert HLL fixture trees into canonical ``TreeRecord`` artifacts.
+
+    Each record is a flat star: item leaves in position order under a root
+    labeled with the exact document distinct count. Leaves carry their own
+    exact within-leaf distinct count as the gold label. The fixture carries
+    no tree id, so records are numbered ``hll_<index>`` in input order.
+    """
+
+    from treepo.tree import TreeRecord
+
+    records: List[Any] = []
+    for tree_idx, tree in enumerate(trees or ()):
+        metadata = dict(tree.metadata or {})
+        root_label = metadata.get("teacher_score_native")
+        nodes: List[dict] = []
+        for idx, leaf in enumerate(tree.leaves):
+            tokens = [int(t) for t in leaf.tokens]
+            nodes.append(
+                {
+                    "node_id": f"leaf_{idx}",
+                    "unit_type": "leaf",
+                    "text": " ".join(str(token) for token in tokens),
+                    "parent_id": "root",
+                    "level": 0,
+                    "position": idx,
+                    "label": len(set(tokens)),
+                    "metadata": {"leaf_distinct_count": len(set(tokens))},
+                }
+            )
+        nodes.append(
+            {
+                "node_id": "root",
+                "unit_type": "root",
+                "level": 1,
+                "label": root_label,
+            }
+        )
+        records.append(
+            TreeRecord(
+                tree_id=str(metadata.get("tree_id") or f"hll_{tree_idx}"),
+                nodes=nodes,
+                root_label=root_label,
+                metadata=metadata,
+            )
+        )
+    return records
+
+
+__all__ = ["HLLItemTree", "hll_tree_records", "make_hll_item_trees"]

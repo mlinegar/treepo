@@ -106,6 +106,12 @@ shows the intended flow:
 Propensities are logged design probabilities in `(0, 1]`; validation rejects
 anything else. `MIN_PROPENSITY` (`treepo.common`) clips denominators only.
 
+For node-level oracle audits, `treepo.sampling.sample_node_audit` draws a
+uniform without-replacement design under a named policy (`all`, `fixed`,
+`fraction`, `sqrt`, `log2`) and `apply_node_audit` realizes it on
+fully-labeled audit rows: drawn rows keep their oracle losses, undrawn rows
+keep only the proxy, and every row logs the design propensity `q / N`.
+
 ## The corrected objective
 
 Training and audit both use the AIPW-corrected node loss

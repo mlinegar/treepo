@@ -14,13 +14,17 @@ from treepo.tree import TreeRecord, local_law_rows_from_tree_records
 from treepo.viz import tree_visualization_payload, write_tree_visualization_html
 
 
-def _payload_trees(html_path: Path) -> list[dict]:
+def _payload(html_path: Path) -> dict:
     text = html_path.read_text(encoding="utf-8")
     match = re.search(
         r'<script type="application/json" id="payload">(.*?)</script>', text, re.S
     )
     assert match is not None
     return json.loads(match.group(1))
+
+
+def _payload_trees(html_path: Path) -> list[dict]:
+    return _payload(html_path)["trees"]
 
 
 def _tree(idx: int) -> TreeRecord:
@@ -171,11 +175,37 @@ def test_markov_family_law_rows_render_end_to_end(tmp_path: Path) -> None:
     family.train_g(
         g_init=None, f=f_artifact, traces=trees, output_dir=tmp_path / "g", iteration=2
     )
-    law_rows = family.as_statistic().local_law_rows(trees)
+    from treepo.local_law import audit_local_laws
+    from treepo.sampling import apply_node_audit, sample_node_audit
+
+    statistic = family.as_statistic()
+    law_rows = statistic.local_law_rows(trees)
+    per_tree = len(law_rows) // len(trees)
+    audited = []
+    for tree_idx in range(len(trees)):
+        design = sample_node_audit(per_tree, policy="sqrt", seed=tree_idx)
+        audited.extend(
+            apply_node_audit(
+                law_rows[tree_idx * per_tree : (tree_idx + 1) * per_tree], design
+            )
+        )
+    readout_rows = statistic.node_readouts(trees)
+    # The final trace readout per tree equals the statistic's tree prediction.
+    for tree in trees:
+        last = [row for row in readout_rows if row["tree_id"] == tree.metadata["tree_id"]][-1]
+        assert last["value"] == pytest.approx(statistic.predict_tree(tree))
+
     out = write_tree_visualization_html(
-        markov_tree_records(trees), tmp_path / "markov.html", law_rows=law_rows
+        markov_tree_records(trees),
+        tmp_path / "markov.html",
+        law_rows=audited,
+        readout_rows=readout_rows,
+        audit=audit_local_laws(list(audited)),
     )
-    payload_trees = _payload_trees(out)
+    payload = _payload(out)
+    assert payload["audit"]["local_law_objective"]["row_count"] == len(audited)
+    assert payload["audit"]["local_law_objective"]["observed_count"] < len(audited)
+    payload_trees = payload["trees"]
     assert len(payload_trees) == 2
     for tree in payload_trees:
         root = tree["roots"][0]
@@ -183,10 +213,13 @@ def test_markov_family_law_rows_render_end_to_end(tmp_path: Path) -> None:
         child_ids = [child["node_id"] for child in root["children"]]
         assert child_ids == ["merge_3", "leaf_2"]
         assert root["laws"] and root["laws"][0]["depth"] == 0
+        assert root["readout"] is not None
         merge = root["children"][0]
         assert merge["laws"] and merge["laws"][0]["proxy_loss"] is not None
+        assert merge["readout"] is not None
         # Leaves carry exact gold changepoint labels from the fixture.
         assert all(g["label"] is not None for g in merge["children"])
+        assert all(g["readout"] is not None for g in merge["children"])
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
