@@ -121,3 +121,6 @@ def test_converters_share_the_record_shape() -> None:
         assert leaves and all(leaf.parent_id == "root" for leaf in leaves)
         assert all(leaf.label is not None for leaf in leaves)
         assert record.root_label is not None
+        # tree_id comes from fixture metadata, so records line up with the
+        # statistic's "<tree_id>:state:<index>" law-row and readout ids.
+        assert record.tree_id == record.metadata["tree_id"]

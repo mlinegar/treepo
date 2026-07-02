@@ -46,6 +46,14 @@ def _normalize_propensity(value: float | None, name: str) -> float:
 
 @dataclass(frozen=True)
 class SamplingMetadata:
+    """Logged design propensities for one observation.
+
+    ``supports_ipw_estimation`` is a downstream logging flag: exporters set
+    it ``False`` for units whose design is described but whose weights must
+    stay out of IPW estimators (convenience samples, replays); this package
+    records and serializes it.
+    """
+
     document_propensity: float = DEFAULT_PROPENSITY
     unit_propensity: float = DEFAULT_PROPENSITY
     label_propensity: float = DEFAULT_PROPENSITY
@@ -110,6 +118,13 @@ class SamplingMetadata:
 
 @dataclass(frozen=True)
 class DocumentSamplingRow:
+    """One document-level design row covering the full population.
+
+    ``prediction``, ``predicted_var``, and ``fold_id`` are downstream logging
+    fields (model predictions and cross-validation fold assignment recorded
+    next to the design); this package validates and serializes them.
+    """
+
     top_level_unit_id: str
     observed: bool
     inclusion_probability: float

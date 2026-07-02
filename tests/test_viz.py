@@ -245,6 +245,44 @@ def test_embedded_javascript_parses(tmp_path: Path) -> None:
     subprocess.run(["node", "--check", str(js)], check=True)
 
 
+def test_certificate_panel_payload(tmp_path: Path) -> None:
+    from treepo.certificate import (
+        UnifiedLearningComponentEvidence,
+        build_error_certificate,
+    )
+
+    certificate = build_error_certificate(
+        reported_estimate=1.2,
+        component_evidence=[
+            UnifiedLearningComponentEvidence(component="local_law", radius=0.1),
+            UnifiedLearningComponentEvidence(component="estimation", radius=0.05),
+        ],
+    )
+    out = write_tree_visualization_html(
+        [_tree(0)], tmp_path / "cert.html", certificate=certificate.to_dict()
+    )
+    payload = _payload(out)["certificate"]
+    assert payload["reported_estimate"] == 1.2
+    assert payload["radius_sum"] == pytest.approx(0.15)
+    assert payload["total_bound"] == pytest.approx(1.35)
+
+
+def test_payload_script_survives_hostile_text(tmp_path: Path) -> None:
+    tree = TreeRecord(
+        tree_id="hostile",
+        nodes=[
+            {"node_id": "a", "text": "</script><script>alert(1)</script>", "parent_id": "root"},
+            {"node_id": "root", "unit_type": "root"},
+        ],
+    )
+    out = write_tree_visualization_html([tree], tmp_path / "hostile.html")
+    trees = _payload_trees(out)  # the embedded JSON still parses in full
+    assert trees[0]["roots"][0]["children"][0]["text"].startswith("</script>")
+    # The raw script element is not terminated early by node text.
+    body = out.read_text(encoding="utf-8")
+    assert "</script><script>alert(1)" not in body
+
+
 def test_write_html_is_standalone_and_contains_nodes(tmp_path: Path) -> None:
     trees = [_tree(0), _tree(1)]
     rows = _sampling_rows(0) + _sampling_rows(1)

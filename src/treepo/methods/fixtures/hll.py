@@ -42,7 +42,7 @@ def make_hll_item_trees(
         raise ValueError("n_trees, leaves_per_tree, leaf_unit_count must be positive")
     rng = np.random.default_rng(int(seed))
     trees: List[HLLItemTree] = []
-    for _ in range(int(n_trees)):
+    for tree_idx in range(int(n_trees)):
         leaves: List[_HLLLeaf] = []
         all_tokens: List[int] = []
         for _leaf_idx in range(int(leaves_per_tree)):
@@ -57,6 +57,7 @@ def make_hll_item_trees(
                 leaves=tuple(leaves),
                 tokens=tuple(all_tokens),
                 metadata={
+                    "tree_id": f"hll_{int(seed)}_{tree_idx}",
                     "split": split,
                     **exact_score_metadata(exact_unique, target_scale="raw"),
                     "doc_unit_kind": str(doc_unit_kind),
@@ -72,8 +73,9 @@ def hll_tree_records(trees: List[HLLItemTree]) -> List[Any]:
 
     Each record is a flat star: item leaves in position order under a root
     labeled with the exact document distinct count. Leaves carry their own
-    exact within-leaf distinct count as the gold label. The fixture carries
-    no tree id, so records are numbered ``hll_<index>`` in input order.
+    exact within-leaf distinct count as the gold label. ``tree_id`` matches
+    ``metadata["tree_id"]``, which is also the prefix of statistic law-row
+    ids.
     """
 
     from treepo.tree import TreeRecord

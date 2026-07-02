@@ -215,8 +215,11 @@ def write_tree_visualization_html(
     }
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
+    # Escape "</" so node text containing "</script>" can't terminate the
+    # embedded JSON script element; the payload stays valid JSON.
+    encoded = json.dumps(jsonable(payload), sort_keys=True).replace("</", "<\\/")
     document = _HTML_TEMPLATE.replace("__TITLE__", html.escape(str(title))).replace(
-        "__PAYLOAD__", json.dumps(jsonable(payload), sort_keys=True)
+        "__PAYLOAD__", encoded
     )
     out.write_text(document, encoding="utf-8")
     return out
@@ -709,10 +712,12 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     }
     panel.appendChild(svg);
 
+    // The chart caps at four color slots; the table always shows every metric.
+    const allKeys = curve.metric_keys || [];
     const table = panelTable(
       "",
-      [curve.axis_kind, ...metricKeys],
-      points.map((p) => [fmt(p.axis_value), ...metricKeys.map((key) => fmt(p.metrics[key]))]),
+      [curve.axis_kind, ...allKeys],
+      points.map((p) => [fmt(p.axis_value), ...allKeys.map((key) => fmt(p.metrics[key]))]),
     );
     table.classList.remove("panel");
     table.querySelector("h2").remove();
@@ -858,6 +863,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
 __all__ = [
     "DEFAULT_LABEL_KEYS",
+    "DEFAULT_SUMMARY_KEYS",
     "tree_visualization_payload",
     "write_tree_visualization_html",
 ]

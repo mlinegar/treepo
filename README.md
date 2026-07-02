@@ -195,7 +195,7 @@ tree per document with sampled-leaf markers, propensities/IPW weights, gold
 and prediction labels, text snippets, `g`-state summaries, and per-node
 local-law losses on the computed merge tree. See
 [`docs/visualization.md`](docs/visualization.md) for the Manifesto, Markov,
-and generic reference views.
+LDA, HLL, and generic reference views.
 
 ## C-TreePO Shape
 

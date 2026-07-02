@@ -139,9 +139,9 @@ per document: sampled/unsampled markers with propensities and IPW weights,
 gold labels next to prediction metadata, text snippets and `g`-state
 summaries, and local-law losses — statistic rows keyed by trace index render
 on the synthesized merge tree. [`docs/visualization.md`](visualization.md)
-documents the node display, input row shapes, and the Manifesto, Markov, and
-generic reference views; `examples/methods/run_tree_visualization.py` runs
-all three.
+documents the node display, input row shapes, and the Manifesto, Markov,
+LDA, HLL, and generic reference views;
+`examples/methods/run_tree_visualization.py` runs all five.
 
 ## Performance notes
 
