@@ -195,14 +195,26 @@ def test_markov_family_law_rows_render_end_to_end(tmp_path: Path) -> None:
         last = [row for row in readout_rows if row["tree_id"] == tree.metadata["tree_id"]][-1]
         assert last["value"] == pytest.approx(statistic.predict_tree(tree))
 
+    from treepo.methods.tradeoff import TradeoffCurve
+
+    curve = TradeoffCurve.from_rows(
+        [
+            {"leaf_unit_count": 8, "root_mae": 1.4},
+            {"leaf_unit_count": 24, "root_mae": 1.6},
+        ],
+        metric_keys=("root_mae",),
+    )
     out = write_tree_visualization_html(
         markov_tree_records(trees),
         tmp_path / "markov.html",
         law_rows=audited,
         readout_rows=readout_rows,
         audit=audit_local_laws(list(audited)),
+        tradeoff=curve.to_dict(),
     )
     payload = _payload(out)
+    assert payload["tradeoff"]["axis_kind"] == "leaf_unit_count"
+    assert [point["axis_value"] for point in payload["tradeoff"]["points"]] == [8.0, 24.0]
     assert payload["audit"]["local_law_objective"]["row_count"] == len(audited)
     assert payload["audit"]["local_law_objective"]["observed_count"] < len(audited)
     payload_trees = payload["trees"]

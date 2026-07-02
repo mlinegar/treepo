@@ -87,6 +87,28 @@ with `apply_node_audit(rows, design)`: drawn rows keep their oracle losses,
 undrawn rows keep only the proxy, and all rows log the design propensity —
 exactly the shape the corrected objective and the audit panel expect.
 
+## The tradeoff panel
+
+`tradeoff=` takes a `treepo.methods.TradeoffCurve.to_dict()` payload and
+renders the package's central empirical object — task error as a function of
+leaf grouping size — as a small line chart with per-point hover values,
+direct end labels, and a table view. Build the curve from grid rows:
+
+```python
+from treepo.methods.tradeoff import TradeoffCurve
+
+curve = TradeoffCurve.from_rows(
+    rows,                                  # one dict per grid cell
+    metric_keys=("root_mae",),             # up to four series
+    axis_key="leaf_unit_count",
+)
+curve.write(json_out=..., csv_out=...)     # named artifact
+write_tree_visualization_html(records, path, tradeoff=curve.to_dict())
+```
+
+The leaf-grid examples write one named curve per operator kind next to their
+grid outputs.
+
 ## Trace rows synthesize the merge tree
 
 Task fixtures store trees as flat stars — leaves plus a root — because the
@@ -141,12 +163,15 @@ write_tree_visualization_html(
 `markov_tree_records` converts fixture trees into records whose leaves carry
 exact within-leaf changepoint counts as gold labels, so the view puts the
 model's readouts and audited local-law losses next to the ground truth on
-the synthesized merge tree, with the AIPW summary as a panel.
+the synthesized merge tree, with the AIPW summary and the leaf-count
+tradeoff curve as panels.
 
-**LDA** (`write_lda_readout_view`) — `lda_tree_records` labels each leaf
-with its realized target-topic proportion (full per-leaf topic mix in
-metadata) and the root with the exact document proportion; the view shows
-the trained family's readouts converging toward it.
+**LDA** (`write_lda_readout_view`) — the vector path: the family trains with
+`target_dim=n_topics` against full topic-proportion vectors, and
+`lda_tree_records(trees, vector_labels=True)` labels each leaf and the root
+with exact proportion vectors, so vector gold and vector readouts sit side
+by side at every node. The default scalar form labels nodes with the
+target-topic proportion.
 
 **HLL** (`write_hll_view`) — `hll_tree_records` labels each leaf with its
 exact within-leaf distinct count and the root with the exact document

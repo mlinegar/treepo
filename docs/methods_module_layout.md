@@ -73,6 +73,9 @@ assemble the result:
 - `_coerce.py` — scalar/vector coercion helpers shared across methods modules.
 - `families.py` — the small family-name registry; downstream packages register
   additional runtimes here, keeping `treepo` branch-free.
+- `tradeoff.py` — the `TradeoffCurve` record: metric values across one
+  ordered axis (canonically error vs `leaf_unit_count`), built from grid
+  rows, written as JSON+CSV, rendered by `treepo.viz`.
 
 ## Alternating runtime
 

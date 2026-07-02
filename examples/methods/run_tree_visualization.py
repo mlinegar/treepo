@@ -48,7 +48,7 @@ def write_manifesto_view(output_dir: Path) -> Path:
     )
 
 
-def _train_tiny_family(trees: list, output_dir: Path) -> "object":
+def _train_tiny_family(trees: list, output_dir: Path, **config_overrides: object) -> "object":
     from treepo.methods.families import resolve_family
 
     family = resolve_family(
@@ -64,6 +64,7 @@ def _train_tiny_family(trees: list, output_dir: Path) -> "object":
             "numeric_transition_state_weight": 0.05,
             "device": "cpu",
             "seed": 3,
+            **config_overrides,
         },
     )
     f_artifact = family.train_f(
@@ -105,13 +106,55 @@ def write_markov_law_view(output_dir: Path) -> Path:
         design = sample_node_audit(len(tree_rows), policy="sqrt", seed=tree_idx)
         audited_rows.extend(apply_node_audit(tree_rows, design))
     audit = audit_local_laws(audited_rows, gamma_depth=0.9)
+    curve = _markov_tradeoff_curve(output_dir / "markov_tradeoff")
+    curve.write(
+        json_out=output_dir / "markov_tradeoff_curve.json",
+        csv_out=output_dir / "markov_tradeoff_curve.csv",
+    )
     return write_tree_visualization_html(
         markov_tree_records(trees),
         output_dir / "markov_law_trees.html",
         law_rows=audited_rows,
         readout_rows=statistic.node_readouts(trees),
         audit=audit,
-        title="Markov trees: audited local-law losses and node readouts",
+        tradeoff=curve.to_dict(),
+        title="Markov trees: audited local-law losses, node readouts, tradeoff",
+    )
+
+
+def _markov_tradeoff_curve(output_dir: Path) -> "object":
+    """Sweep leaf grouping sizes and record held-out root error per size."""
+
+    from treepo.methods.fixtures import make_markov_changepoint_trees
+    from treepo.methods.tradeoff import TradeoffCurve
+
+    rows = []
+    for leaf_unit_count in (8, 16, 48):
+        train = make_markov_changepoint_trees(
+            n_trees=6,
+            doc_tokens=48,
+            leaf_unit_count=leaf_unit_count,
+            vocabulary_size=64,
+            seed=11,
+            split="train",
+        )
+        eval_trees = make_markov_changepoint_trees(
+            n_trees=6,
+            doc_tokens=48,
+            leaf_unit_count=leaf_unit_count,
+            vocabulary_size=64,
+            seed=12,
+            split="test",
+        )
+        family = _train_tiny_family(train, output_dir / f"leaf_{leaf_unit_count:03d}")
+        scores = family.score_roots_with_f(f=None, g=None, trees=eval_trees)
+        golds = [float(tree.metadata["teacher_score_native"]) for tree in eval_trees]
+        mae = sum(abs(score - gold) for score, gold in zip(scores, golds)) / len(golds)
+        rows.append({"leaf_unit_count": leaf_unit_count, "root_mae": mae})
+    return TradeoffCurve.from_rows(
+        rows,
+        metric_keys=("root_mae",),
+        metadata={"task": "markov_changepoint", "family": "neural_operator/conv1d"},
     )
 
 
@@ -128,12 +171,14 @@ def write_lda_readout_view(output_dir: Path) -> Path:
         seed=7,
         split="train",
     )
-    family = _train_tiny_family(trees, output_dir / "lda")
+    # target_dim=3 trains against the full topic-proportion vector, so gold
+    # labels and node readouts are both 3-vectors.
+    family = _train_tiny_family(trees, output_dir / "lda", target_dim=3)
     return write_tree_visualization_html(
-        lda_tree_records(trees),
+        lda_tree_records(trees, vector_labels=True),
         output_dir / "lda_readout_trees.html",
         readout_rows=family.as_statistic().node_readouts(trees),
-        title="LDA trees: node readouts vs exact topic proportions",
+        title="LDA trees: vector node readouts vs exact topic proportions",
     )
 
 

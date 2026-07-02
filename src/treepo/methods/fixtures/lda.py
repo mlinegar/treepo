@@ -289,15 +289,20 @@ def _lda_topic_tree_from_arrays(
     )
 
 
-def lda_tree_records(trees: List[LDATopicTree]) -> List[Any]:
+def lda_tree_records(
+    trees: List[LDATopicTree],
+    *,
+    vector_labels: bool = False,
+) -> List[Any]:
     """Convert LDA fixture trees into canonical ``TreeRecord`` artifacts.
 
-    Each record is a flat star: token leaves in position order under a root
-    labeled with the exact target-topic proportion. Leaves carry their own
-    realized target-topic proportion as the gold label, with the full
-    per-leaf topic mix in metadata, so per-node supervision is on the same
-    scale as the root readout. ``tree_id`` matches ``metadata["tree_id"]``,
-    which is also the prefix of statistic law-row ids.
+    Each record is a flat star: token leaves in position order under a
+    labeled root. Leaves carry realized gold on the same scale the family
+    reads out: the target-topic proportion by default, or the full topic
+    vector with ``vector_labels=True`` (matching ``target_dim=n_topics``
+    training). The full per-leaf topic mix is always in metadata.
+    ``tree_id`` matches ``metadata["tree_id"]``, which is also the prefix of
+    statistic law-row ids.
     """
 
     from treepo.tree import TreeRecord
@@ -309,7 +314,11 @@ def lda_tree_records(trees: List[LDATopicTree]) -> List[Any]:
         n_topics = int(metadata.get("n_topics", 0)) or (
             max(tree.topics) + 1 if tree.topics else 1
         )
-        root_label = metadata.get("teacher_score_native")
+        root_label: Any = (
+            [float(x) for x in tree.topic_proportions]
+            if vector_labels
+            else metadata.get("teacher_score_native")
+        )
         nodes: List[dict] = []
         for idx, leaf in enumerate(tree.leaves):
             topics = [int(t) for t in leaf.topics]
@@ -326,7 +335,7 @@ def lda_tree_records(trees: List[LDATopicTree]) -> List[Any]:
                     "parent_id": "root",
                     "level": 0,
                     "position": idx,
-                    "label": proportions[target_topic],
+                    "label": proportions if vector_labels else proportions[target_topic],
                     "metadata": {
                         "topics": topics,
                         "leaf_topic_proportions": proportions,

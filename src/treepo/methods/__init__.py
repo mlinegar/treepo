@@ -26,6 +26,7 @@ _LAZY_EXPORTS = {
     "export_preference_records": ("treepo.methods.preference", "export_preference_records"),
     "make_unit_id": ("treepo.methods.preference", "make_unit_id"),
     "preference_units_from_trees": ("treepo.methods.preference", "preference_units_from_trees"),
+    "TradeoffCurve": ("treepo.methods.tradeoff", "TradeoffCurve"),
 }
 
 

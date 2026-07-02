@@ -12,7 +12,7 @@ setup live in `example_setup/` so the runnable files stay readable.
 | `run_hll_sketch.py` | DataSketches HLL fixture + classical_sketch family through `treepo.fit(...)`. |
 | `run_fno_markov.py` | Built-in neural_operator family with operator_kind=fno and root/leaf supervision through `PreferenceDataset`. |
 | `run_neural_operator_markov_compare.py` | Compare official dense `neuralop` operator kinds on the same Markov fixture. |
-| `run_neural_operator_markov_leaf_grid.py` | Leaf-grouping grid for learned neural operators on the Markov fixture. |
+| `run_neural_operator_markov_leaf_grid.py` | Leaf-grouping grid for learned neural operators on the Markov fixture; writes a named `TradeoffCurve` per operator kind. |
 | `run_neural_operator_lda.py` | Overlapping-topic Dirichlet LDA fixture + official sklearn baseline + built-in `neural_operator` family for full topic-proportion vectors. |
 | `run_neural_operator_lda_leaf_grid.py` | Leaf-grouping grid for learned neural operators on the overlapping-topic LDA fixture. |
 | `run_manifesto_end_to_end.py` | Full Manifesto/RILE package walkthrough: sampled docs/qsentences, `treepo.fit(...)`, evidence JSON, and root/qsentence/both reward exports. |
@@ -22,7 +22,7 @@ setup live in `example_setup/` so the runnable files stay readable.
 | `run_manifesto_finetune_views.py` | Manifesto/RILE fine-tuning exports: root `f` rows, qsentence `g` rows, and qsentence pairwise/ranked candidate views. |
 | `run_preference_optimizer_views.py` | Task-neutral optimizer-view skeleton: one `PreferenceDataset` feeds supervised DSPy prompts plus DPO/reward/GRPO projections. |
 | `run_local_law_certificate.py` | Minimal sampled C1/C2/C3 audit rows, preference exports, evidence JSON, and component-radius certificate ledger. |
-| `run_tree_visualization.py` | Standalone expandable-tree HTML views: Manifesto sampling + gold labels + policy summaries; Markov audited local-law losses, node readouts, and the AIPW audit panel on the synthesized merge tree; LDA readouts vs exact topic proportions; HLL exact distinct counts; and hand-built generic records. See [`docs/visualization.md`](../../docs/visualization.md). |
+| `run_tree_visualization.py` | Standalone expandable-tree HTML views: Manifesto sampling + gold labels + policy summaries; Markov audited local-law losses, node readouts, AIPW audit panel, and the leaf-count tradeoff chart; LDA vector readouts vs exact topic proportions; HLL exact distinct counts; and hand-built generic records. See [`docs/visualization.md`](../../docs/visualization.md). |
 
 Preference records can be passed to `treepo.fit({"preference_data": ...})` and
 are exported through supervised, DPO, reward-model, and GRPO views.

@@ -54,6 +54,50 @@ def test_lda_records_carry_target_topic_proportions() -> None:
         )
 
 
+def test_lda_vector_labels_and_vector_readouts(tmp_path) -> None:
+    from treepo.methods.families import resolve_family
+
+    trees = make_lda_topic_trees(
+        n_trees=2,
+        n_topics=3,
+        doc_tokens=32,
+        leaf_unit_count=8,
+        vocabulary_size=24,
+        seed=6,
+    )
+    records = lda_tree_records(trees, vector_labels=True)
+    for tree, record in zip(trees, records):
+        assert record.root_label == pytest.approx(list(tree.topic_proportions))
+        for leaf in record.leaves():
+            assert len(leaf.label) == 3
+            assert sum(leaf.label) == pytest.approx(1.0)
+
+    family = resolve_family(
+        "neural_operator",
+        {
+            "operator_kind": "conv1d",
+            "embedding_dim": 8,
+            "hidden_channels": 4,
+            "n_layers": 1,
+            "head_hidden_dim": 8,
+            "epochs_per_iteration": 1,
+            "batch_size": 4,
+            "target_dim": 3,
+            "device": "cpu",
+            "seed": 3,
+        },
+    )
+    family.train_f(
+        f_init=None, g=None, traces=trees, output_dir=tmp_path / "f", iteration=1
+    )
+    readouts = family.as_statistic().node_readouts(trees)
+    leaf_count = len(trees[0].leaves)
+    assert len(readouts) == len(trees) * (2 * leaf_count - 1)
+    assert all(
+        isinstance(row["value"], list) and len(row["value"]) == 3 for row in readouts
+    )
+
+
 def test_converters_share_the_record_shape() -> None:
     markov = markov_tree_records(
         make_markov_changepoint_trees(

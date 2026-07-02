@@ -66,6 +66,20 @@ def main() -> int:
         "rows": rows,
     }
     write_grid_outputs(json_out=json_out, csv_out=csv_out, payload=payload, rows=rows)
+
+    from treepo.methods.tradeoff import TradeoffCurve
+
+    for operator_kind in operator_kinds:
+        curve = TradeoffCurve.from_rows(
+            (row for row in rows if row["operator_kind"] == operator_kind),
+            metric_keys=("internal_f_mae", "average_guess_mae"),
+            metadata={"operator_kind": operator_kind, "task": "markov_changepoint"},
+        )
+        curve.write(
+            json_out=output_dir / f"tradeoff_curve_{operator_kind}.json",
+            csv_out=output_dir / f"tradeoff_curve_{operator_kind}.csv",
+        )
+
     best = min(
         (row for row in rows if row["internal_f_mae"] is not None),
         key=lambda row: float(row["internal_f_mae"]),

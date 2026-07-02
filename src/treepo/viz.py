@@ -158,6 +158,7 @@ def write_tree_visualization_html(
     readout_rows: Iterable[Mapping[str, Any]] | None = None,
     audit: Mapping[str, Any] | None = None,
     certificate: Mapping[str, Any] | None = None,
+    tradeoff: Mapping[str, Any] | None = None,
     label_keys: Sequence[str] = DEFAULT_LABEL_KEYS,
     summary_keys: Sequence[str] = DEFAULT_SUMMARY_KEYS,
     title: str = "treepo trees",
@@ -167,7 +168,8 @@ def write_tree_visualization_html(
     ``audit`` takes an ``audit_local_laws`` payload and renders it as a
     summary panel above the trees; ``certificate`` takes an error-certificate
     dict (``UnifiedLearningErrorCertificate.to_dict()``) and renders the
-    component-radius ledger.
+    component-radius ledger; ``tradeoff`` takes a ``TradeoffCurve.to_dict()``
+    payload and renders the metric-vs-axis line chart with a table view.
     """
 
     tree_list = list(trees or ())
@@ -209,6 +211,7 @@ def write_tree_visualization_html(
         "trees": tree_payloads,
         "audit": None if audit is None else jsonable(dict(audit)),
         "certificate": None if certificate is None else jsonable(dict(certificate)),
+        "tradeoff": None if tradeoff is None else jsonable(dict(tradeoff)),
     }
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -492,6 +495,9 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   .panel table { border-collapse: collapse; }
   .panel td, .panel th { padding: 0.1rem 0.7rem 0.1rem 0; text-align: left; font-weight: normal; }
   .panel th { color: #555; }
+  .panel .legend-row { font-size: 0.78rem; color: #0b0b0b; margin-bottom: 0.2rem; }
+  .panel .legend-row .swatch { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 2px; margin: 0 0.25rem 0 0.7rem; vertical-align: baseline; }
+  .panel .legend-row .swatch:first-child { margin-left: 0; }
   .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.3rem; vertical-align: baseline; }
   .dot.sampled { background: #2e7d32; }
   .dot.unsampled { background: #fff; border: 1px solid #999; }
@@ -611,6 +617,111 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       rows.push(["confidence delta", fmt(cert.confidence_delta)]);
     }
     panels.appendChild(panelTable("Error certificate", ["component", "value"], rows));
+  }
+
+  // Validated categorical slots (light surface); assigned in fixed order.
+  const SERIES_COLORS = ["#2a78d6", "#1baf7a", "#eda100", "#008300"];
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
+  function svgEl(tag, attrs) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+    return el;
+  }
+
+  function renderTradeoffPanel(curve) {
+    const metricKeys = (curve.metric_keys || []).slice(0, SERIES_COLORS.length);
+    const points = curve.points || [];
+    const panel = document.createElement("div");
+    panel.className = "panel";
+    const heading = document.createElement("h2");
+    heading.textContent = "Tradeoff: " +
+      (metricKeys.length === 1 ? metricKeys[0] + " vs " : "") + curve.axis_kind;
+    panel.appendChild(heading);
+
+    if (metricKeys.length > 1) {
+      const legend = document.createElement("div");
+      legend.className = "legend-row";
+      for (const [idx, key] of metricKeys.entries()) {
+        const swatch = document.createElement("span");
+        swatch.className = "swatch";
+        swatch.style.background = SERIES_COLORS[idx];
+        legend.appendChild(swatch);
+        legend.appendChild(document.createTextNode(key));
+      }
+      panel.appendChild(legend);
+    }
+
+    const width = 480, height = 190;
+    const margin = {top: 10, right: 70, bottom: 28, left: 46};
+    const plotW = width - margin.left - margin.right;
+    const plotH = height - margin.top - margin.bottom;
+    const xs = points.map((p) => p.axis_value);
+    const allValues = points.flatMap((p) =>
+      metricKeys.map((key) => p.metrics[key]).filter((v) => v !== null && v !== undefined));
+    if (!xs.length || !allValues.length) return panel;
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const yMax = Math.max(...allValues) || 1;
+    const x = (v) => margin.left + (xMax === xMin ? plotW / 2 : ((v - xMin) / (xMax - xMin)) * plotW);
+    const y = (v) => margin.top + plotH - (v / yMax) * plotH;
+
+    const svg = svgEl("svg", {width, height, viewBox: `0 0 ${width} ${height}`, role: "img"});
+    for (const frac of [0, 0.5, 1]) {
+      const gy = margin.top + plotH - frac * plotH;
+      svg.appendChild(svgEl("line", {x1: margin.left, y1: gy, x2: margin.left + plotW, y2: gy,
+        stroke: "#e7e7e4", "stroke-width": 1}));
+      const tick = svgEl("text", {x: margin.left - 6, y: gy + 3, "text-anchor": "end",
+        "font-size": 10, fill: "#52514e"});
+      tick.textContent = fmt(frac * yMax);
+      svg.appendChild(tick);
+    }
+    for (const xv of xs) {
+      const tick = svgEl("text", {x: x(xv), y: height - 10, "text-anchor": "middle",
+        "font-size": 10, fill: "#52514e"});
+      tick.textContent = fmt(xv);
+      svg.appendChild(tick);
+    }
+    const axisTitle = svgEl("text", {x: margin.left + plotW / 2, y: height - 1,
+      "text-anchor": "middle", "font-size": 10, fill: "#52514e"});
+    axisTitle.textContent = curve.axis_kind;
+    svg.appendChild(axisTitle);
+
+    for (const [idx, key] of metricKeys.entries()) {
+      const color = SERIES_COLORS[idx];
+      const series = points.filter((p) => p.metrics[key] !== null && p.metrics[key] !== undefined);
+      if (!series.length) continue;
+      const path = series.map((p, i) =>
+        (i ? "L" : "M") + x(p.axis_value) + " " + y(p.metrics[key])).join(" ");
+      svg.appendChild(svgEl("path", {d: path, fill: "none", stroke: color, "stroke-width": 2}));
+      for (const p of series) {
+        const marker = svgEl("circle", {cx: x(p.axis_value), cy: y(p.metrics[key]), r: 4,
+          fill: color, stroke: "#ffffff", "stroke-width": 2});
+        const tip = document.createElementNS(SVG_NS, "title");
+        tip.textContent = `${curve.axis_kind} ${fmt(p.axis_value)} · ${key} ${fmt(p.metrics[key])}`;
+        marker.appendChild(tip);
+        svg.appendChild(marker);
+      }
+      const last = series[series.length - 1];
+      const label = svgEl("text", {x: x(last.axis_value) + 8, y: y(last.metrics[key]) + 3,
+        "font-size": 10, fill: "#0b0b0b"});
+      label.textContent = fmt(last.metrics[key]);
+      svg.appendChild(label);
+    }
+    panel.appendChild(svg);
+
+    const table = panelTable(
+      "",
+      [curve.axis_kind, ...metricKeys],
+      points.map((p) => [fmt(p.axis_value), ...metricKeys.map((key) => fmt(p.metrics[key]))]),
+    );
+    table.classList.remove("panel");
+    table.querySelector("h2").remove();
+    panel.appendChild(table);
+    return panel;
+  }
+
+  if (data.tradeoff && (data.tradeoff.points || []).length) {
+    panels.appendChild(renderTradeoffPanel(data.tradeoff));
   }
 
   function renderNode(node) {
