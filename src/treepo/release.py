@@ -1,3 +1,10 @@
+"""Release-gate checks for the treepo package.
+
+Inspects the source tree and inventory to enforce packaging hygiene: no
+forbidden/heavy imports on the public surface, no generated or local-path
+artifacts, single import surface, and CLI/example conventions.
+"""
+
 from __future__ import annotations
 
 import ast
@@ -15,21 +22,38 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PACKAGE_ROOT / "src" / "treepo"
 INVENTORY_PATH = PACKAGE_ROOT / "inventory.yaml"
 
-GENERATED_PARTS = (".egg-info", "__pycache__", ".pytest_cache", ".ruff_cache")
-GENERATED_SUFFIXES = (".pyc", ".pyo", ".log")
+GENERATED_PARTS = (
+    ".egg-info",
+    ".eggs",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".pyre",
+    ".hypothesis",
+    ".tox",
+    ".nox",
+    ".cache",
+    "htmlcov",
+    ".ipynb_checkpoints",
+    "pip-wheel-metadata",
+)
+GENERATED_SUFFIXES = (".pyc", ".pyo", ".log", ".tmp", ".prof")
 FORBIDDEN_IMPORT_ROOTS = ("src",)
-HEAVY_IMPORT_ROOTS = ("dspy", "openai", "vllm", "torch", "transformers", "pandas")
+HEAVY_IMPORT_ROOTS = ("datasets", "dspy", "openai", "vllm", "torch", "transformers", "pandas", "sentence_transformers", "trl", "peft")
 LOCAL_ABSOLUTE_MARKERS = tuple(f"/{name}/" for name in ("home", "mnt", "Users"))
 PIP_INSTALL_MARKERS = ("pip " "install", "python -m " "pip", "pip " "wheel")
 TEXT_SUFFIXES = (".md", ".py", ".toml", ".yaml", ".yml")
 
 
 def read_inventory(path: str | Path = INVENTORY_PATH) -> dict[str, Any]:
+    """Load and return the inventory YAML as a dict (empty if malformed)."""
     payload = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     return dict(payload or {}) if isinstance(payload, Mapping) else {}
 
 
 def check_inventory(path: str | Path = INVENTORY_PATH) -> dict[str, Any]:
+    """Validate inventory entries/areas against policy; return an ok/failures report."""
     inventory = read_inventory(path)
     policy = dict(inventory.get("policy") or {})
     allowed = set(policy.get("classes") or ())
@@ -60,6 +84,7 @@ def check_inventory(path: str | Path = INVENTORY_PATH) -> dict[str, Any]:
 
 
 def check_hygiene(package_root: str | Path = PACKAGE_ROOT) -> dict[str, Any]:
+    """Scan sources for forbidden/heavy imports and generated/local-path artifacts."""
     root = Path(package_root)
     py_files = sorted((root / "src" / "treepo").rglob("*.py"))
     candidate_paths = _candidate_paths(root)
@@ -87,6 +112,7 @@ def check_hygiene(package_root: str | Path = PACKAGE_ROOT) -> dict[str, Any]:
 
 
 def check_release(package_root: str | Path = PACKAGE_ROOT) -> dict[str, Any]:
+    """Run all release gates and return an aggregate ok/checks/failures report."""
     root = Path(package_root)
     checks: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
@@ -96,6 +122,7 @@ def check_release(package_root: str | Path = PACKAGE_ROOT) -> dict[str, Any]:
         ("hygiene", check_hygiene(root)),
         ("public_imports", _check_public_imports(root)),
         ("lazy_exports", _check_lazy_exports(root)),
+        ("single_surface", _check_single_surface(root)),
         ("examples", _check_examples(root)),
         ("cli_surface", _check_cli_surface(root)),
     ):
@@ -121,6 +148,8 @@ def _is_core_light_path(path: Path) -> bool:
         "objective.py",
         "paths.py",
         "sampling.py",
+        "statistic.py",
+        "state.py",
     }
 
 
@@ -169,11 +198,23 @@ def _check_public_imports(root: Path) -> dict[str, Any]:
 import json
 import sys
 import treepo
-heavy = ["dspy", "openai", "pandas", "torch", "transformers", "vllm"]
-import treepo.methods
-from treepo.methods import fit, list_methods, run
+heavy = ["datasets", "dspy", "openai", "pandas", "peft", "sentence_transformers", "torch", "transformers", "trl", "vllm"]
+from treepo import Candidate, ComposableStatistic, PreferenceDataset, PreferenceRecord, StatisticInfo, TaskState, TreeNode, TreeRecord, TreeUnitRef, family_statistic, fit
 print(json.dumps({
     "heavy": {name: name in sys.modules for name in heavy},
+    "has_run": hasattr(treepo, "run"),
+    "has_list_methods": hasattr(treepo, "list_methods"),
+    "dataset_module": PreferenceDataset.__module__,
+    "candidate_module": Candidate.__module__,
+    "record_module": PreferenceRecord.__module__,
+    "statistic_module": ComposableStatistic.__module__,
+    "statistic_info_module": StatisticInfo.__module__,
+    "task_state_module": TaskState.__module__,
+    "tree_node_module": TreeNode.__module__,
+    "tree_record_module": TreeRecord.__module__,
+    "tree_unit_ref_module": TreeUnitRef.__module__,
+    "family_statistic_module": family_statistic.__module__,
+    "fit_module": fit.__module__,
 }, sort_keys=True))
 """
     env = dict(os.environ)
@@ -196,6 +237,9 @@ print(json.dumps({
         for name, is_loaded in heavy_loaded.items()
         if bool(is_loaded)
     ]
+    for name in ("has_run", "has_list_methods"):
+        if bool(loaded.get(name)):
+            failures.append({"reason": "removed_top_level_export_present", "name": name})
     return {"ok": not failures, "loaded": loaded, "failures": failures}
 
 
@@ -239,6 +283,73 @@ print(json.dumps({"checked_exports": len(treepo._LAZY_EXPORTS), "failures": fail
         "checked_exports": int(payload.get("checked_exports", 0)),
         "failures": failures,
     }
+
+
+def _check_single_surface(root: Path) -> dict[str, Any]:
+    failures: list[dict[str, Any]] = []
+    text_suffixes = {".py", ".md", ".toml", ".yaml", ".yml"}
+    active_roots = ("README.md", "docs", "examples", "src/treepo", "tests")
+    old_axis = "estim" + "ator"
+    old_rows = "training_" + "exam" + "ples"
+    old_fit_call_double = 'run("' + "fit"
+    old_fit_call_single = "run('" + "fit"
+    banned_anywhere = (
+        old_fit_call_double,
+        old_fit_call_single,
+        "g_" + old_axis,
+        "f_" + "train_data",
+        "g_" + "train_data",
+        old_rows,
+        "f_" + old_rows,
+        "g_" + old_rows,
+        "g_" + old_rows[:-1] + "_rows",
+        "methods." + "supervision",
+        "methods." + "dispatch",
+        "Feed" + "backDataset",
+        "feed" + "back_data",
+    )
+    docs_examples_banned = (
+        "treepo." + "run",
+        "treepo." + "list_methods",
+        "treepo." + "list_families",
+        "treepo." + "list_registered_oracles",
+        old_axis + " =",
+        '"' + old_axis + '"',
+        "'" + old_axis + "'",
+    )
+    public_vocab_banned = (
+        "Training" + "Example",
+        "Sample" + "Config",
+    )
+
+    for file_path in _text_files(root, active_roots, text_suffixes):
+        rel = str(file_path.relative_to(root))
+        text = file_path.read_text(encoding="utf-8", errors="ignore")
+        for token in banned_anywhere:
+            if token in text:
+                failures.append({"path": rel, "reason": "removed_surface_token", "token": token})
+        if rel == "README.md" or rel.startswith(("docs/", "examples/")):
+            for token in docs_examples_banned:
+                if token in text:
+                    failures.append({"path": rel, "reason": "old_public_call_style", "token": token})
+            for token in public_vocab_banned:
+                if token in text:
+                    failures.append({"path": rel, "reason": "old_public_vocab", "token": token})
+    return {"ok": not failures, "failures": failures}
+
+
+def _text_files(root: Path, rel_roots: Iterable[str], suffixes: set[str]) -> list[Path]:
+    out: list[Path] = []
+    for rel_root in rel_roots:
+        path = root / rel_root
+        if path.is_file():
+            files = [path]
+        elif path.exists():
+            files = [item for item in path.rglob("*") if item.is_file()]
+        else:
+            files = []
+        out.extend(item for item in files if item.suffix in suffixes)
+    return sorted(out)
 
 
 def _check_examples(root: Path) -> dict[str, Any]:

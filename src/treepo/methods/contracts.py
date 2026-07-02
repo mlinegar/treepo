@@ -12,7 +12,6 @@ from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
 
 from treepo.objective import ObjectiveSpec
 
-
 JsonDict = dict[str, Any]
 
 
@@ -78,11 +77,10 @@ class CTreePOLearningSpec:
     schedule: str
     initial_artifacts: Mapping[str, Any] = field(default_factory=dict)
     train_data: Any = None
+    preference_data: Any = None
     eval_data: Any = None
     backend_config: Mapping[str, Any] = field(default_factory=dict)
     axis: Mapping[str, Any] = field(default_factory=dict)
-    estimator: Any = None
-    g_estimator: Any = None
 
     def with_schedule(self, schedule: str) -> "CTreePOLearningSpec":
         return replace(self, schedule=str(schedule))
@@ -101,8 +99,7 @@ class CTreePOLearningSpec:
             "initial_artifacts": jsonable(dict(self.initial_artifacts or {})),
             "backend_config": jsonable(dict(self.backend_config or {})),
             "axis": jsonable(dict(self.axis or {})),
-            "estimator": jsonable(self.estimator),
-            "g_estimator": jsonable(self.g_estimator),
+            "preference_data": jsonable(self.preference_data),
         }
 
     @classmethod
@@ -113,17 +110,16 @@ class CTreePOLearningSpec:
             schedule=str(payload.get("schedule") or ""),
             initial_artifacts=dict(payload.get("initial_artifacts") or {}),
             train_data=payload.get("train_data"),
+            preference_data=payload.get("preference_data"),
             eval_data=payload.get("eval_data"),
             backend_config=dict(payload.get("backend_config") or {}),
             axis=dict(payload.get("axis") or {}),
-            estimator=payload.get("estimator"),
-            g_estimator=payload.get("g_estimator"),
         )
 
 
 @dataclass(frozen=True)
-class CTreePOFitResult:
-    """Uniform result returned by public treepo methods entry points."""
+class FitResult:
+    """Uniform result returned by treepo.fit and internal fit helpers."""
 
     status: str
     metrics: Mapping[str, float] = field(default_factory=dict)
@@ -131,10 +127,12 @@ class CTreePOFitResult:
     history: Sequence[Mapping[str, Any]] = field(default_factory=tuple)
     summary: Mapping[str, Any] = field(default_factory=dict)
     manifest_path: str | None = None
+    mode: str = "learning"
 
     def to_dict(self) -> JsonDict:
         return {
             "status": str(self.status),
+            "mode": str(self.mode),
             "metrics": jsonable(dict(self.metrics or {})),
             "artifacts": jsonable(dict(self.artifacts or {})),
             "history": jsonable(list(self.history or ())),
@@ -143,8 +141,12 @@ class CTreePOFitResult:
         }
 
 
+CTreePOFitResult = FitResult
+
+
 __all__ = [
     "CTreePOFitResult",
+    "FitResult",
     "CTreePOLearningSpec",
     "FamilyRuntime",
     "JsonDict",

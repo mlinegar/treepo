@@ -3,7 +3,9 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from treepo.methods import run
+import pytest
+
+from treepo import ComposableStatistic, fit
 from treepo.methods.families import list_families, resolve_family
 from treepo.methods.fixtures import make_markov_changepoint_trees
 from treepo.methods.fno import (
@@ -34,7 +36,10 @@ def test_fno_family_is_builtin() -> None:
     family = resolve_family("fno", _tiny_fno_config())
     assert isinstance(family, FNOFamily)
     assert isinstance(family.config, FNOFamilyConfig)
+    assert family.name == "fno"
+    assert family.operator_kind == "fno"
     assert family.config.embedding_dim == 8
+    assert family.config.embedding_salt == "treepo_fno"
 
 
 def test_neural_operator_family_is_builtin_with_fno_option() -> None:
@@ -49,6 +54,20 @@ def test_neural_operator_family_is_builtin_with_fno_option() -> None:
     assert isinstance(family, NeuralOperatorFamily)
     assert not isinstance(family, FNOFamily)
     assert isinstance(family.config, NeuralOperatorFamilyConfig)
+    assert family.name == "neural_operator"
+    assert family.operator_kind == "fno"
+
+
+def test_neural_operator_family_accepts_fourier_alias() -> None:
+    family = resolve_family(
+        "neural_operator",
+        {
+            **_tiny_fno_config(),
+            "operator_kind": "fourier",
+        },
+    )
+    assert isinstance(family, NeuralOperatorFamily)
+    assert not isinstance(family, FNOFamily)
     assert family.name == "neural_operator"
     assert family.operator_kind == "fno"
 
@@ -80,13 +99,66 @@ def test_neural_operator_family_accepts_neuralop_model_names() -> None:
     family._ensure_model()
 
 
-def test_fno_alias_rejects_non_fno_operator_kind() -> None:
+def test_neural_operator_statistic_is_available_after_training(tmp_path: Path) -> None:
+    family = resolve_family(
+        "fno",
+        {
+            **_tiny_fno_config(),
+            "numeric_transition_state_weight": 0.05,
+        },
+    )
+    assert family.as_statistic() is None
+    train = make_markov_changepoint_trees(
+        n_trees=5,
+        doc_tokens=32,
+        leaf_unit_count=8,
+        vocabulary_size=64,
+        seed=41,
+        split="train",
+    )
+    eval_trees = make_markov_changepoint_trees(
+        n_trees=3,
+        doc_tokens=32,
+        leaf_unit_count=8,
+        vocabulary_size=64,
+        seed=42,
+        split="test",
+    )
+    f_artifact = family.train_f(
+        f_init=None,
+        g=None,
+        traces=train,
+        output_dir=tmp_path / "f",
+        iteration=1,
+    )
+    g_artifact = family.train_g(
+        g_init=None,
+        f=f_artifact,
+        traces=train,
+        output_dir=tmp_path / "g",
+        iteration=2,
+    )
+    statistic = family.as_statistic(f=f_artifact, g=g_artifact)
+    assert isinstance(statistic, ComposableStatistic)
+    assert statistic.info.exact is False
+    assert statistic.info.state_kind == "fno"
+
+    via_family = family.score_roots_with_f(f=f_artifact, g=g_artifact, trees=eval_trees)
+    via_statistic = [statistic.predict_tree(tree) for tree in eval_trees]
+    assert via_statistic == pytest.approx(via_family)
+
+    rows = statistic.local_law_rows(eval_trees)
+    assert rows
+    assert {row.metadata["check"] for row in rows} == {"numeric_transition_state"}
+
+
+def test_fno_route_rejects_non_fno_operator_kind() -> None:
     try:
         resolve_family("fno", {"operator_kind": "conv1d"})
     except ValueError as exc:
         assert "family='fno' only supports operator_kind='fno'" in str(exc)
     else:  # pragma: no cover
-        raise AssertionError("expected fno alias to reject operator_kind='conv1d'")
+        raise AssertionError("expected fno route to reject operator_kind='conv1d'")
 
 
 def test_neural_operator_rejects_unknown_operator_kind_with_available_names() -> None:
@@ -140,7 +212,7 @@ def test_fit_runs_builtin_fno_on_markov_fixture(tmp_path: Path) -> None:
     train = make_markov_changepoint_trees(
         n_trees=6,
         doc_tokens=32,
-        leaf_token_count=8,
+        leaf_unit_count=8,
         vocabulary_size=64,
         seed=11,
         split="train",
@@ -148,14 +220,13 @@ def test_fit_runs_builtin_fno_on_markov_fixture(tmp_path: Path) -> None:
     eval_trees = make_markov_changepoint_trees(
         n_trees=4,
         doc_tokens=32,
-        leaf_token_count=8,
+        leaf_unit_count=8,
         vocabulary_size=64,
         seed=12,
         split="test",
     )
 
-    result = run(
-        "fit",
+    result = fit(
         {
             "family": "fno",
             "train_data": train,
@@ -173,6 +244,7 @@ def test_fit_runs_builtin_fno_on_markov_fixture(tmp_path: Path) -> None:
     assert result.artifacts["f"]["kind"] == "treepo_fno"
     assert result.artifacts["g"]["kind"] == "treepo_fno_g"
     assert result.artifacts["g"]["trained"] == "g"
+    assert result.artifacts["statistic"]["info"]["state_kind"] == "fno"
     assert result.metrics["n"] == 4.0
     assert result.metrics["internal_f_mae"] >= 0.0
     assert result.artifacts["prediction_records"]
@@ -182,7 +254,7 @@ def test_fit_runs_neural_operator_fno_on_markov_fixture(tmp_path: Path) -> None:
     train = make_markov_changepoint_trees(
         n_trees=6,
         doc_tokens=32,
-        leaf_token_count=8,
+        leaf_unit_count=8,
         vocabulary_size=64,
         seed=21,
         split="train",
@@ -190,14 +262,13 @@ def test_fit_runs_neural_operator_fno_on_markov_fixture(tmp_path: Path) -> None:
     eval_trees = make_markov_changepoint_trees(
         n_trees=4,
         doc_tokens=32,
-        leaf_token_count=8,
+        leaf_unit_count=8,
         vocabulary_size=64,
         seed=22,
         split="test",
     )
 
-    result = run(
-        "fit",
+    result = fit(
         {
             "family": "neural_operator",
             "train_data": train,
@@ -216,6 +287,7 @@ def test_fit_runs_neural_operator_fno_on_markov_fixture(tmp_path: Path) -> None:
     assert result.artifacts["f"]["kind"] == "treepo_fno"
     assert result.artifacts["f"]["operator_kind"] == "fno"
     assert result.artifacts["g"]["trained"] == "g"
+    assert result.summary["statistic"]["state_kind"] == "fno"
     assert result.metrics["n"] == 4.0
     assert result.metrics["internal_f_mae"] >= 0.0
 
@@ -224,7 +296,7 @@ def test_neural_operator_fno_matches_fno_alias_on_markov_fixture(tmp_path: Path)
     train = make_markov_changepoint_trees(
         n_trees=6,
         doc_tokens=32,
-        leaf_token_count=8,
+        leaf_unit_count=8,
         vocabulary_size=64,
         seed=24,
         split="train",
@@ -232,7 +304,7 @@ def test_neural_operator_fno_matches_fno_alias_on_markov_fixture(tmp_path: Path)
     eval_trees = make_markov_changepoint_trees(
         n_trees=4,
         doc_tokens=32,
-        leaf_token_count=8,
+        leaf_unit_count=8,
         vocabulary_size=64,
         seed=25,
         split="test",
@@ -242,8 +314,7 @@ def test_neural_operator_fno_matches_fno_alias_on_markov_fixture(tmp_path: Path)
         "operator_kind": "fno",
     }
 
-    fno_result = run(
-        "fit",
+    fno_result = fit(
         {
             "family": "fno",
             "train_data": train,
@@ -255,8 +326,7 @@ def test_neural_operator_fno_matches_fno_alias_on_markov_fixture(tmp_path: Path)
             "axis": {"max_iterations": 3, "axis_value": 0},
         },
     )
-    generic_result = run(
-        "fit",
+    generic_result = fit(
         {
             "family": "neural_operator",
             "train_data": train,
@@ -285,7 +355,7 @@ def test_neural_operator_compares_dense_official_kinds_and_conv1d_on_markov_fixt
     train = make_markov_changepoint_trees(
         n_trees=8,
         doc_tokens=32,
-        leaf_token_count=8,
+        leaf_unit_count=8,
         vocabulary_size=64,
         seed=31,
         split="train",
@@ -293,15 +363,14 @@ def test_neural_operator_compares_dense_official_kinds_and_conv1d_on_markov_fixt
     eval_trees = make_markov_changepoint_trees(
         n_trees=5,
         doc_tokens=32,
-        leaf_token_count=8,
+        leaf_unit_count=8,
         vocabulary_size=64,
         seed=32,
         split="test",
     )
     by_kind = {}
     for operator_kind in ("fno", "tfno", "uno", "conv1d"):
-        result = run(
-            "fit",
+        result = fit(
             {
                 "family": "neural_operator",
                 "train_data": train,

@@ -60,6 +60,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     (output_root / "configs").mkdir(exist_ok=True)
     (output_root / "logs").mkdir(exist_ok=True)
 
+    if bool(args.detach) and not bool(args.summarize_only):
+        return _launch_detached(args, output_root)
+
     if bool(args.summarize_only):
         report = _build_report(output_root, _load_existing_job_results(output_root))
         _write_json(output_root / "manifest.json", report)
@@ -109,6 +112,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--quick", action="store_true", default=False)
     parser.add_argument("--stop-on-failure", action="store_true", default=False)
     parser.add_argument("--summarize-only", action="store_true", default=False)
+    parser.add_argument("--detach", action="store_true", default=False)
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -228,6 +232,60 @@ device = "cuda"
 """.strip() + "\n",
     )
     _write_text(
+        configs / "markov_leaf_grid_1k_8states.toml",
+        """
+operator_kinds = ["fno", "tfno", "uno", "conv1d"]
+leaf_token_counts = [32, 64, 128, 256]
+n_train = 1024
+n_eval = 256
+n_states = 8
+doc_tokens = 512
+transition_prob = 0.12
+vocabulary_size = 1024
+seed = 505
+max_iterations = 5
+embedding_dim = 32
+hidden_channels = 32
+n_modes = 8
+n_layers = 2
+conv_kernel_size = 3
+head_hidden_dim = 64
+epochs_per_iteration = 5
+batch_size = 64
+learning_rate = 0.003
+device = "cuda"
+normalize_targets = true
+numeric_transition_state_weight = 0.05
+""".strip() + "\n",
+    )
+    _write_text(
+        configs / "markov_leaf_grid_2k_8states.toml",
+        """
+operator_kinds = ["fno", "tfno", "uno", "conv1d"]
+leaf_token_counts = [64, 128, 256]
+n_train = 2048
+n_eval = 512
+n_states = 8
+doc_tokens = 768
+transition_prob = 0.18
+vocabulary_size = 1024
+seed = 606
+max_iterations = 5
+embedding_dim = 32
+hidden_channels = 48
+n_modes = 8
+n_layers = 2
+conv_kernel_size = 3
+head_hidden_dim = 96
+epochs_per_iteration = 5
+batch_size = 64
+learning_rate = 0.003
+device = "cuda"
+normalize_targets = true
+numeric_transition_state_weight = 0.05
+""".strip() + "\n",
+    )
+    _write_text(
         configs / "lda_quick.toml",
         """
 operator_kinds = ["fno", "conv1d"]
@@ -281,12 +339,40 @@ learning_rate = 0.01
 device = "cuda"
 """.strip() + "\n",
     )
+    _write_text(
+        configs / "markov_leaf_grid_quick.toml",
+        """
+operator_kinds = ["fno", "conv1d"]
+leaf_token_counts = [32, 64]
+n_train = 64
+n_eval = 16
+n_states = 5
+doc_tokens = 128
+transition_prob = 0.12
+vocabulary_size = 256
+seed = 13
+max_iterations = 3
+embedding_dim = 16
+hidden_channels = 8
+n_modes = 4
+n_layers = 1
+conv_kernel_size = 3
+head_hidden_dim = 16
+epochs_per_iteration = 1
+batch_size = 16
+learning_rate = 0.01
+device = "cuda"
+normalize_targets = true
+numeric_transition_state_weight = 0.05
+""".strip() + "\n",
+    )
 
 
 def _jobs(output_root: Path, *, quick: bool) -> dict[str, list[Job]]:
     configs = output_root / "configs"
     lanes: dict[str, list[Job]] = {
         "cpu": [
+            *_method_smoke_jobs(output_root),
             Job("pytest_full", (PYTHON, "-m", "pytest", "tests", "-q"), output_root / "pytest", kind="check"),
             Job("release_check", (PYTHON, "-m", "treepo.release"), output_root / "release", kind="check"),
             *_benchmark_jobs(output_root),
@@ -298,6 +384,7 @@ def _jobs(output_root: Path, *, quick: bool) -> dict[str, list[Job]]:
     if quick:
         lanes["gpu1"].append(_lda_job("lda_quick", configs / "lda_quick.toml", output_root / "methods" / "lda_quick", gpu="1"))
         lanes["gpu2"].append(_markov_job("markov_quick", configs / "markov_quick.toml", output_root / "methods" / "markov_quick", gpu="2"))
+        lanes["gpu3"].append(_markov_leaf_grid_job("markov_leaf_grid_quick", configs / "markov_leaf_grid_quick.toml", output_root / "methods" / "markov_leaf_grid_quick", gpu="3"))
         return lanes
     lanes["gpu1"].extend([
         _lda_job("lda_vector_1k_12topics", configs / "lda_vector_1k_12topics.toml", output_root / "methods" / "lda_vector_1k_12topics", gpu="1"),
@@ -306,10 +393,42 @@ def _jobs(output_root: Path, *, quick: bool) -> dict[str, list[Job]]:
     lanes["gpu2"].append(
         _lda_job("lda_vector_2k_16topics", configs / "lda_vector_2k_16topics.toml", output_root / "methods" / "lda_vector_2k_16topics", gpu="2")
     )
-    lanes["gpu3"].append(
-        _markov_job("markov_1k_8states_leaf32", configs / "markov_1k_8states_leaf32.toml", output_root / "methods" / "markov_1k_8states_leaf32", gpu="3")
+    lanes["gpu2"].append(
+        _markov_leaf_grid_job("markov_leaf_grid_1k_8states", configs / "markov_leaf_grid_1k_8states.toml", output_root / "methods" / "markov_leaf_grid_1k_8states", gpu="2")
     )
+    lanes["gpu3"].extend([
+        _markov_job("markov_1k_8states_leaf32", configs / "markov_1k_8states_leaf32.toml", output_root / "methods" / "markov_1k_8states_leaf32", gpu="3"),
+        _markov_leaf_grid_job("markov_leaf_grid_2k_8states", configs / "markov_leaf_grid_2k_8states.toml", output_root / "methods" / "markov_leaf_grid_2k_8states", gpu="3"),
+    ])
     return lanes
+
+
+def _method_smoke_jobs(output_root: Path) -> list[Job]:
+    root = output_root / "method_smoke"
+    return [
+        _method_example_job("method_hll_sketch", "run_hll_sketch.py", root / "hll_sketch"),
+        _method_example_job("method_fno_markov", "run_fno_markov.py", root / "fno_markov"),
+        _method_example_job("method_manifesto_dspy", "run_manifesto_replications.py", root / "manifesto_dspy"),
+        _method_example_job(
+            "method_manifesto_prompted_llm",
+            "run_manifesto_replications.py",
+            root / "manifesto_prompted_llm",
+            extra=("--estimator", "prompted_llm"),
+        ),
+        _method_example_job("method_neural_operator_lda", "run_neural_operator_lda.py", root / "neural_operator_lda"),
+        _method_example_job("method_neural_operator_markov_compare", "run_neural_operator_markov_compare.py", root / "neural_operator_markov_compare"),
+        _method_example_job("method_neural_operator_lda_leaf_grid", "run_neural_operator_lda_leaf_grid.py", root / "neural_operator_lda_leaf_grid"),
+        _method_example_job("method_neural_operator_markov_leaf_grid", "run_neural_operator_markov_leaf_grid.py", root / "neural_operator_markov_leaf_grid"),
+    ]
+
+
+def _method_example_job(name: str, script: str, out: Path, *, extra: Sequence[str] = ()) -> Job:
+    return Job(
+        name=name,
+        command=(PYTHON, f"examples/methods/{script}", "--output-dir", str(out), *tuple(extra)),
+        output_dir=out,
+        kind="method_smoke",
+    )
 
 
 def _lda_job(name: str, config: Path, out: Path, *, gpu: str) -> Job:
@@ -332,6 +451,16 @@ def _markov_job(name: str, config: Path, out: Path, *, gpu: str) -> Job:
     )
 
 
+def _markov_leaf_grid_job(name: str, config: Path, out: Path, *, gpu: str) -> Job:
+    return Job(
+        name=name,
+        command=(PYTHON, "examples/methods/run_neural_operator_markov_leaf_grid.py", "--config", str(config), "--output-dir", str(out)),
+        output_dir=out,
+        gpu=gpu,
+        kind="markov_leaf_grid",
+    )
+
+
 def _benchmark_jobs(output_root: Path) -> list[Job]:
     specs = [
         ("bench_classical_sketches", "classical-sketches", "examples/bench/classical_sketches.yaml"),
@@ -350,6 +479,37 @@ def _benchmark_jobs(output_root: Path) -> list[Job]:
         )
     return jobs
 
+
+
+def _launch_detached(args: argparse.Namespace, output_root: Path) -> int:
+    command = [PYTHON, str(Path(__file__).resolve()), "--output-dir", str(output_root)]
+    if bool(args.quick):
+        command.append("--quick")
+    if bool(args.stop_on_failure):
+        command.append("--stop-on-failure")
+    log_path = output_root / "logs" / "launcher.log"
+    with log_path.open("w", encoding="utf-8") as log:
+        proc = subprocess.Popen(
+            command,
+            cwd=str(ROOT),
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+    _write_json(
+        output_root / "launcher.json",
+        {
+            "pid": int(proc.pid),
+            "started_at": _now(),
+            "output_root": str(output_root),
+            "log_path": str(log_path),
+            "command": command,
+        },
+    )
+    print(f"launched pid={proc.pid} output_root={output_root} log={log_path}")
+    return 0
 
 
 def _run_job(job: Job, output_root: Path) -> JobResult:
@@ -505,6 +665,20 @@ def _collect_method_results(output_root: Path) -> list[dict[str, Any]]:
             "rows": rows,
             "g_checks": {"all_trained_g": all(row.get("g_trained") == "g" for row in rows)},
         })
+    for result_path in sorted(methods_root.glob("*/neural_operator_markov_leaf_grid.json")):
+        payload = json.loads(result_path.read_text(encoding="utf-8"))
+        rows = [dict(row) for row in list(payload.get("rows") or [])]
+        out.append({
+            "name": result_path.parent.name,
+            "kind": "markov_leaf_grid",
+            "path": str(result_path),
+            "n_rows": len(rows),
+            "config": payload.get("config"),
+            "average_guess_mae": _float(payload.get("average_guess_baseline", {}).get("mae")),
+            "best_scalar": _min_row(rows, "internal_f_mae"),
+            "rows": rows,
+            "g_checks": {"all_trained_g": all(row.get("g_trained") == "g" for row in rows)},
+        })
     return out
 
 
@@ -512,10 +686,14 @@ def _publication_checks(jobs: Sequence[Mapping[str, Any]], methods: Sequence[Map
     failures: list[str] = []
     if any(not bool(job.get("ok")) for job in jobs):
         failures.append("one_or_more_jobs_failed")
+    if not any(job.get("kind") == "method_smoke" for job in jobs):
+        failures.append("missing_method_smoke_jobs")
     if not any(item.get("kind") == "lda" for item in methods):
         failures.append("missing_lda_method_results")
     if not any(item.get("kind") == "markov" for item in methods):
         failures.append("missing_markov_method_results")
+    if not any(item.get("kind") == "markov_leaf_grid" for item in methods):
+        failures.append("missing_markov_leaf_grid_method_results")
     for item in methods:
         checks = dict(item.get("g_checks") or {})
         if checks.get("all_trained_g") is False:
@@ -606,6 +784,16 @@ def _write_markdown(path: Path, report: Mapping[str, Any]) -> None:
             lines.extend([
                 f"- Task: Markov changepoint count with `{config.get('n_train')}` train docs, `{config.get('n_eval')}` eval docs, `{config.get('n_states')}` states.",
                 f"- Best MAE: `{best.get('internal_f_mae')}` / Pearson `{best.get('internal_f_pearson')}` with operator `{best.get('operator_kind')}`.",
+                f"- Trained g check: `{item.get('g_checks')}`.",
+                "",
+            ])
+        elif item.get("kind") == "markov_leaf_grid":
+            config = dict(item.get("config") or {})
+            best = dict(item.get("best_scalar") or {})
+            lines.extend([
+                f"- Task: Markov leaf-size grid with `{config.get('n_train')}` train docs, `{config.get('n_eval')}` eval docs, `{config.get('n_states')}` states.",
+                f"- Best MAE: `{best.get('internal_f_mae')}` / Pearson `{best.get('internal_f_pearson')}` at leaf `{best.get('leaf_token_count')}` / operator `{best.get('operator_kind')}`.",
+                f"- Average-guess MAE: `{item.get('average_guess_mae')}`.",
                 f"- Trained g check: `{item.get('g_checks')}`.",
                 "",
             ])

@@ -1,8 +1,9 @@
-# Leaf-size grid for overlapping-topic synthetic LDA. Documents and topics are
-# held fixed; only leaf_token_count changes.
+# Leaf grouping-size grid for overlapping-topic synthetic LDA. Documents and topics are
+# held fixed; only leaf_unit_count changes.
 
 operator_kinds = ["fno", "tfno", "uno", "conv1d"]
-leaf_token_counts = [32, 64, 128]
+doc_unit_kind = "token"
+leaf_unit_counts = [32, 64, 128]
 n_train = 256
 n_eval = 64
 n_topics = 8

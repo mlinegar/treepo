@@ -6,6 +6,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from treepo.local_law import LawKind, LocalLawAuditRow
+from treepo.statistic import StatisticInfo
+
 
 @dataclass(frozen=True)
 class ClassicalSketchFamilyConfig:
@@ -82,6 +85,133 @@ class ClassicalSketchFamily:
         if not isinstance(artifact, Mapping):
             raise TypeError(f"classical_sketch {kind} artifact must be a mapping")
 
+    def as_statistic(self, *, f: Any = None, g: Any = None) -> Any:
+        del f, g
+        return ClassicalSketchStatistic(config=self.config, adapter=_make_adapter(self.config))
+
+
+class ClassicalSketchStatistic:
+    """ComposableStatistic wrapper around a ``SketchAdapter``."""
+
+    def __init__(self, *, config: ClassicalSketchFamilyConfig, adapter: Any) -> None:
+        self.config = config
+        self.adapter = adapter
+        self.info = StatisticInfo(
+            name=f"classical_sketch:{config.sketch}",
+            state_kind=str(getattr(adapter, "name", config.sketch)),
+            exact=True,
+            supports_local_laws=True,
+            metadata={
+                "config": asdict(config),
+                "adapter_config": dict(getattr(adapter, "config", {}) or {}),
+                "is_associative": bool(getattr(adapter, "is_associative", False)),
+                "is_commutative": bool(getattr(adapter, "is_commutative", False)),
+                "is_idempotent": bool(getattr(adapter, "is_idempotent", False)),
+                "is_byte_deterministic": bool(getattr(adapter, "is_byte_deterministic", False)),
+            },
+        )
+
+    def encode_leaf(self, leaf: Any) -> Any:
+        return self.adapter.encode(_leaf_tokens(leaf))
+
+    def merge(self, left: Any, right: Any) -> Any:
+        return self.adapter.merge(left, right)
+
+    def readout(self, state: Any, query: Any = None) -> Any:
+        return self.adapter.query(state, query)
+
+    def state_equal(self, left: Any, right: Any) -> bool:
+        return bool(self.adapter.state_equal(left, right))
+
+    def serialize(self, state: Any) -> bytes:
+        return self.adapter.serialize(state)
+
+    def memory_bytes(self, state: Any) -> float:
+        return float(self.adapter.memory_bytes(state))
+
+    def encode_tree(self, tree: Any, *, schedule: str | None = None) -> Any:
+        from treepo.bench.sketches.tree_reducer import treepo_reduce
+
+        return treepo_reduce(_leaf_items(tree), self.adapter, schedule=str(schedule or self.config.schedule))
+
+    def local_law_rows(
+        self,
+        units: Sequence[Any],
+        *,
+        query: Any = None,
+        oracle: Any = None,
+    ) -> Sequence[LocalLawAuditRow]:
+        from treepo.bench.sketches.tree_reducer import fold_states
+
+        rows: list[LocalLawAuditRow] = []
+        for idx, unit in enumerate(list(units or ())):
+            leaf_items = _leaf_items(unit)
+            if not leaf_items:
+                continue
+            leaf_states = [self.adapter.encode(items) for items in leaf_items]
+            root = fold_states(leaf_states, self.adapter, schedule=self.config.schedule)
+            row_prefix = _unit_row_prefix(unit, idx)
+            if bool(getattr(self.adapter, "is_associative", False)):
+                left_root = fold_states(leaf_states, self.adapter, schedule="left_to_right")
+                rows.append(
+                    _state_law_row(
+                        row_id=f"{row_prefix}:schedule:left_to_right",
+                        law_kind=LawKind.C3_MERGE,
+                        loss=0.0 if self.adapter.state_equal(root, left_root) else 1.0,
+                        metadata={
+                            "statistic": self.info.name,
+                            "check": "schedule_invariance",
+                            "schedule": "left_to_right",
+                        },
+                    )
+                )
+            if bool(getattr(self.adapter, "is_commutative", False)):
+                right_root = fold_states(leaf_states, self.adapter, schedule="right_to_left")
+                rows.append(
+                    _state_law_row(
+                        row_id=f"{row_prefix}:schedule:right_to_left",
+                        law_kind=LawKind.C3_MERGE,
+                        loss=0.0 if self.adapter.state_equal(root, right_root) else 1.0,
+                        metadata={
+                            "statistic": self.info.name,
+                            "check": "schedule_invariance",
+                            "schedule": "right_to_left",
+                        },
+                    )
+                )
+            if bool(getattr(self.adapter, "is_idempotent", False)):
+                rows.append(
+                    _state_law_row(
+                        row_id=f"{row_prefix}:idempotence",
+                        law_kind=LawKind.C2_IDEMPOTENCE,
+                        loss=0.0 if self.adapter.state_equal(root, self.adapter.merge(root, root)) else 1.0,
+                        metadata={"statistic": self.info.name, "check": "idempotence"},
+                    )
+                )
+            target = _oracle_value(oracle, unit, idx)
+            if target is not None:
+                try:
+                    prediction = float(self.adapter.query(root, query))
+                    truth = float(target)
+                except (TypeError, ValueError):
+                    prediction = truth = None
+                if prediction is not None and truth is not None:
+                    loss = float((prediction - truth) ** 2)
+                    rows.append(
+                        _state_law_row(
+                            row_id=f"{row_prefix}:readout",
+                            law_kind=LawKind.C1_LEAF,
+                            loss=loss,
+                            metadata={
+                                "statistic": self.info.name,
+                                "check": "readout_oracle_agreement",
+                                "prediction": prediction,
+                                "target": truth,
+                            },
+                        )
+                    )
+        return tuple(rows)
+
 
 def build_classical_sketch_family(backend_config: Mapping[str, Any]) -> ClassicalSketchFamily:
     return ClassicalSketchFamily(
@@ -124,8 +254,71 @@ def _leaf_items(tree: Any) -> list[list[Any]]:
     return [list(tokens)] if tokens is not None else []
 
 
+def _leaf_tokens(leaf: Any) -> list[Any]:
+    tokens = getattr(leaf, "tokens", None)
+    if tokens is None and isinstance(leaf, Mapping):
+        tokens = leaf.get("tokens")
+    return list(tokens or [])
+
+
+def _unit_row_prefix(unit: Any, idx: int) -> str:
+    metadata = getattr(unit, "metadata", None)
+    if isinstance(metadata, Mapping):
+        for key in ("tree_id", "doc_id", "unit_id"):
+            if metadata.get(key) is not None:
+                return str(metadata[key])
+    return f"unit_{idx}"
+
+
+def _state_law_row(
+    *,
+    row_id: str,
+    law_kind: LawKind,
+    loss: float,
+    metadata: Mapping[str, Any],
+) -> LocalLawAuditRow:
+    value = float(loss)
+    return LocalLawAuditRow(
+        row_id=row_id,
+        law_kind=law_kind,
+        proxy_loss=value,
+        oracle_loss=value,
+        observed=True,
+        propensity=1.0,
+        metadata=dict(metadata or {}),
+    )
+
+
+def _oracle_value(oracle: Any, unit: Any, idx: int) -> Any:
+    if oracle is None:
+        return None
+    if callable(oracle):
+        try:
+            return oracle(unit)
+        except TypeError:
+            return oracle(unit, idx)
+    if isinstance(oracle, Mapping):
+        metadata = getattr(unit, "metadata", None)
+        keys = [idx, str(idx)]
+        if isinstance(metadata, Mapping):
+            keys.extend(
+                value
+                for value in (
+                    metadata.get("tree_id"),
+                    metadata.get("doc_id"),
+                    metadata.get("unit_id"),
+                )
+                if value is not None
+            )
+        for key in keys:
+            if key in oracle:
+                return oracle[key]
+    return None
+
+
 __all__ = [
     "ClassicalSketchFamily",
     "ClassicalSketchFamilyConfig",
+    "ClassicalSketchStatistic",
     "build_classical_sketch_family",
 ]

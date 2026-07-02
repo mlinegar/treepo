@@ -101,6 +101,10 @@ class LearnableConstantFamily:
     def validate_artifact(self, *, kind: str, artifact: Any) -> None:
         return None
 
+    def as_statistic(self, *, f: Any = None, g: Any = None) -> None:
+        del f, g
+        return None
+
     # ------------------------------ helpers ------------------------------ #
 
     def _rows_from_trees(self, trees: Sequence[Any]) -> List[LocalLawAuditRow]:

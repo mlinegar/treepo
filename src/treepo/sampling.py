@@ -1,9 +1,18 @@
+"""Sampling metadata and inverse-propensity weighting records.
+
+Defines ``SamplingMetadata`` and ``DocumentSamplingRow`` with propensity
+normalization and IPW weight computation used by preference/observation
+exports.
+"""
+
 from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
 from typing import Any, Mapping
+
+from treepo.common import jsonable as _jsonable
 
 
 MIN_PROPENSITY = 1e-12
@@ -27,18 +36,6 @@ def _normalize_propensity(value: float | None, name: str) -> float:
     if not math.isfinite(parsed) or parsed <= 0.0 or parsed > 1.0:
         raise ValueError(f"{name} must be finite and in (0, 1], got {value!r}")
     return parsed
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Enum):
-        return value.value
-    if isinstance(value, Mapping):
-        return {str(k): _jsonable(v) for k, v in value.items()}
-    if isinstance(value, tuple):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, list):
-        return [_jsonable(v) for v in value]
-    return value
 
 
 @dataclass(frozen=True)

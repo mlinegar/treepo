@@ -26,6 +26,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+  "datasets>=2.14.0",
   "numpy>=1.24",
   "torch>=2.0.0",
   "neuraloperator>=2.0.0",
@@ -46,9 +47,9 @@ neural = [
   "torch>=2.0.0",
   "neuraloperator>=2.0.0",
 ]
-# Full dependency set for a downstream FNO family (e.g. ThinkingTrees'
-# FNOFamily registered via register_family("fno", ...)): the neural operator
-# stack plus the tokenizer used for leaf chunking.
+# Full dependency set for FNO-style methods workflows: the built-in neural
+# operator stack plus tokenizer dependencies commonly used by downstream
+# leaf-preparation code.
 fno = [
   "torch>=2.0.0",
   "neuraloperator>=2.0.0",
@@ -65,6 +66,15 @@ llm = [
 ]
 train = [
   "torch>=2.0.0",
+]
+embed-train = [
+  "sentence-transformers>=3.0.0",
+  "accelerate>=0.30.0",
+]
+llm-train = [
+  "trl>=0.8.0",
+  "peft>=0.8.0",
+  "accelerate>=0.30.0",
 ]
 dev = [
   "pytest>=7.0.0",
@@ -85,6 +95,10 @@ all = [
   "openai>=1.0.0",
   "requests>=2.31.0",
   "transformers>=4.40.0",
+  "sentence-transformers>=3.0.0",
+  "trl>=0.8.0",
+  "peft>=0.8.0",
+  "accelerate>=0.30.0",
 ]
 
 [dependency-groups]

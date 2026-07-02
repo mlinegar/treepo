@@ -1,11 +1,17 @@
+"""Training objective specification and canonical digesting.
+
+Defines ``ObjectiveSpec`` (the convex root / local-law objective contract),
+its normalization and validation rules, and content-addressed digests over
+normalized specs.
+"""
+
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from treepo.common import finite_float
+from treepo.common import finite_float, jsonable
+from treepo.manifest import stable_digest
 
 
 OBJECTIVE_SCHEMA_VERSION = "treepo.objective.v1"
@@ -42,21 +48,6 @@ _UNSUPPORTED_PUBLIC_FIELDS = {
     "reliability",
 }
 _EVIDENCE_ONLY_TERM_NAMES = {"oracle_gap", "gap", "f_star_gap"}
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(k): _jsonable(v) for k, v in value.items()}
-    if isinstance(value, tuple):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, list):
-        return [_jsonable(v) for v in value]
-    return value
-
-
-def _stable_digest(payload: Mapping[str, Any]) -> str:
-    rendered = json.dumps(_jsonable(payload), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
 
 
 def canonical_law_component_weights(weights: Mapping[str, float]) -> dict[str, float]:
@@ -285,8 +276,8 @@ class ObjectiveSpec:
             "local_law_weight": float(local_weight),
             "root_share": float(self.root_share),
             "local_law_component_weights": weights,
-            "terms": _jsonable(self._normalized_terms()),
-            "metadata": _jsonable(dict(self.metadata or {})),
+            "terms": jsonable(self._normalized_terms()),
+            "metadata": jsonable(dict(self.metadata or {})),
             "allow_nonconvex_objective": bool(self.allow_nonconvex_objective),
         }
 
@@ -329,18 +320,21 @@ class ObjectiveSpec:
 
     @property
     def digest(self) -> str:
-        return _stable_digest(self.to_dict())
+        return stable_digest(self.to_dict())
 
 
 def normalize_objective_spec(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate ``payload`` and return its canonical ``ObjectiveSpec`` dict."""
     return ObjectiveSpec.from_mapping(payload).to_dict()
 
 
 def objective_spec_digest(payload: Mapping[str, Any]) -> str:
-    return _stable_digest(normalize_objective_spec(payload))
+    """Return the stable SHA-256 digest of the normalized objective spec."""
+    return stable_digest(normalize_objective_spec(payload))
 
 
 def objective_metadata(**kwargs: Any) -> dict[str, Any]:
+    """Build an ``ObjectiveSpec`` from keyword fields and return its dict."""
     return ObjectiveSpec(**kwargs).to_dict()
 
 

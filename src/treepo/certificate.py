@@ -1,3 +1,10 @@
+"""Unified learning error certificates.
+
+Aggregates per-component error evidence (local-law, calibration, estimation,
+clipping) into a ``UnifiedLearningErrorCertificate`` with additive radii around
+a reported estimate.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -122,6 +129,7 @@ def build_error_certificate(
     confidence_delta: float | None = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> UnifiedLearningErrorCertificate:
+    """Sum component evidence radii into a unified error certificate."""
     evidence = tuple(
         item
         if isinstance(item, UnifiedLearningComponentEvidence)

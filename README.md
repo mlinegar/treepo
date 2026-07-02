@@ -1,8 +1,8 @@
 # treepo
 
-`treepo` is the Python package for C-TreePO: mergeable tree states,
-local-law certificates, a compact methods surface, lightweight LLM helpers,
-and small runnable benchmarks.
+`treepo` is the Python package for C-TreePO: composable tree operators,
+JSONable task states, unit-level supervision/preferences, local-law
+certificates, lightweight LLM helpers, and small runnable benchmarks.
 
 Large application code, model-serving fleets, datasets, launchers, and
 publication-scale experiment grids live outside this package and register
@@ -19,8 +19,9 @@ uv sync
 uv run pytest -q
 ```
 
-The default install includes the small numerical stack plus the built-in
-neural-operator family:
+The default install includes the small numerical stack, Hugging Face
+`datasets` for preference-data interchange, and the built-in neural-operator
+family:
 
 ```bash
 uv sync --no-dev
@@ -40,7 +41,7 @@ treepo/
 ├── src/treepo/
 │   ├── bench/       # treepo-bench run/check implementation
 │   ├── llm/         # OpenAI-compatible and Transformers helper contracts
-│   ├── methods/     # fit/run registry and built-in lightweight families
+│   ├── methods/     # internal fit registry and built-in lightweight families
 │   ├── training/    # optional local-law tensor helpers
 │   └── ...
 ├── examples/        # small bench and methods examples
@@ -64,30 +65,50 @@ uv sync --extra all         # every optional package stack
 The `torch` and `neural` extras remain as explicit selectors for environments
 that install extras piecemeal; the default package already includes them.
 
-`import treepo` and `treepo.core` do not require PyYAML, langextract, tiktoken,
-DSPy, OpenAI, vLLM, torch, pandas, transformers, or datasets.
+`import treepo` and `treepo.core` do not import PyYAML, langextract, tiktoken,
+DSPy, OpenAI, vLLM, torch, pandas, transformers, or Hugging Face `datasets`.
 
-## Methods Surface
+## Fit Surface
 
-`treepo.methods` is the compact fit/run registry. The top-level `treepo.fit()`
-is a thin learning entry point; benchmark examples run through
-`treepo-bench run`.
+`treepo.fit()` is the public learning entry point. It learns and evaluates one
+composable tree-operator family from raw/tree traces plus optional
+`PreferenceDataset` supervision.
 
 ```python
 import treepo
 
-treepo.list_methods()                      # ('audit', 'fit', 'oracle')
-treepo.list_families()                     # ('fno', 'learnable_constant', 'neural_operator', 'oracle')
-treepo.list_registered_oracles()           # ('hll_exact', 'markov_changepoint_count')
-
-result = treepo.run("oracle", {"oracle_name": "hll_exact", "n_trees": 4})
+result = treepo.fit(
+    {
+        "family": "neural_operator",
+        "train_data": train_trees,
+        "eval_data": eval_trees,
+        "preference_data": preferences,
+        "backend_config": {"operator_kind": "fno"},
+        "axis": {"max_iterations": 2},
+    }
+)
 ```
 
 Built-in families are deliberately small: deterministic oracles, a learnable
-constant baseline, and a generic `neural_operator` root scorer with `operator_kind="fno"`, `operator_kind="tfno"`, `operator_kind="uno"`, and the local `operator_kind="conv1d"` baseline. `fno` is the short FNO alias. DSPy, TRL,
-diffusion/dgemma and domain applications register from the package or
-workspace that owns their application code. The package includes a small
-synthetic overlapping-topic LDA fixture with an official sklearn baseline and leaf-size grid as neural-operator methods examples.
+constant baseline, a concrete `fno` route, and a generic `neural_operator`
+root scorer with `operator_kind="fno"`/`"fourier"`,
+`operator_kind="tfno"`, `operator_kind="uno"`, and the local
+`operator_kind="conv1d"` baseline. `llm` and `dspy` are provider-neutral
+wrappers that require injected callables/programs. Additional application
+families can register from the package or workspace that owns their runtime.
+The package includes a small synthetic overlapping-topic LDA fixture with an
+official sklearn baseline and leaf grouping-size grid as neural-operator
+methods examples.
+
+`PreferenceDataset` is the unit-level surface for root, node, merge,
+trajectory, or task-unit candidate data. It stores one canonical Hugging Face
+`DatasetDict` shape and exports generic, supervised, DPO, reward-model, and
+GRPO-style downstream records.
+
+`TaskState` is the JSONable value shape for explicit task states produced by
+`g` and read by `f`. Exact sketches and learned operators may additionally
+expose executable `ComposableStatistic` objects for encode/merge/readout and
+local-law diagnostics.
 
 ## LLM Helpers
 
@@ -150,8 +171,9 @@ Runnable fixtures live under `examples/`:
 | --- | --- |
 | `examples/bench/classical_sketches.yaml` | `treepo-bench run classical-sketches` |
 | `examples/bench/markov.yaml` | `treepo-bench run markov` |
-| `examples/methods/*.toml` | `treepo.fit()` / `treepo.methods.fit()` examples, including Markov and overlapping-topic synthetic LDA |
+| `examples/methods/*.toml` | `treepo.fit()` examples, including Markov and overlapping-topic synthetic LDA |
 
+The Manifesto/RILE methods example has two lanes: root-only document labels for `f`, and document-unit `TaskState` labels for guiding `g`. The packaged fixture uses qsentences as document units; the same surface is intended for paragraph, section, or extractor-span units supplied by downstream tasks. Leaves group document units via `leaf_unit_count`.
 
 ## C-TreePO Shape
 
@@ -160,12 +182,13 @@ losing task-relevant information:
 
 ```text
 raw document x
-  -> locally composable state sigma(x)
-  -> downstream scorer/readout U(sigma(x))
+  -> g: locally composable state sigma(x)
+  -> f: downstream scorer/readout U(sigma(x))
 ```
 
 The state must be locally mergeable. For example, a sketch state can be
-merged locally and queried for a distinct-count estimate.
+merged locally and queried for a distinct-count estimate; a manifesto policy
+state can preserve qsentence-level evidence and read out document-level RILE.
 
 ## Release Checks
 
@@ -186,4 +209,6 @@ config validation, and the benchmark CLI surface.
 
 - Package boundary: [`docs/boundary.md`](docs/boundary.md)
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
+- `treepo.methods` module layout & decomposition convention: [`docs/methods_module_layout.md`](docs/methods_module_layout.md)
+- LLM/code-agent guide: [`docs/llm_guide.md`](docs/llm_guide.md)
 - Training defaults: [`docs/training_defaults.md`](docs/training_defaults.md)

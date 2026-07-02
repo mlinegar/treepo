@@ -105,7 +105,7 @@ def test_classical_sketch_comparison_smoke_covers_all_families() -> None:
             n_docs=8,
             min_tokens=64,
             max_tokens=96,
-            leaf_size=32,
+            leaf_unit_count=32,
             distinct_lg_k=8,
             theta_lg_k=8,
             cms_num_buckets=128,

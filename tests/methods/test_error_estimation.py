@@ -31,8 +31,9 @@ from typing import Any, List, Optional, Sequence
 
 import pytest
 
-import treepo.methods
 from treepo.methods import LocalLawAuditRow
+from treepo.local_law import audit_local_laws
+from treepo import fit
 
 
 # --------------------------------------------------------------------------- #
@@ -104,8 +105,7 @@ def test_per_split_metrics_surface_in_result_metrics(tmp_path: Path) -> None:
     eval_data = train_trees + test_trees
 
     family = _TeacherPassthroughFamily()
-    result = treepo.methods.run(
-        "fit",
+    result = fit(
         {
             "family": "passthrough",
             "eval_data": eval_data,
@@ -138,8 +138,7 @@ def test_per_split_metrics_only_present_when_split_has_rows(tmp_path: Path) -> N
         [1, 2, 3, 4], [1, 2, 3, 4], split="test"
     )
     family = _TeacherPassthroughFamily()
-    result = treepo.methods.run(
-        "fit",
+    result = fit(
         {
             "family": "passthrough",
             "eval_data": trees,
@@ -184,8 +183,7 @@ def test_f_star_gap_positive_when_f_matches_teacher_but_not_expert(
     )
 
     family = _TeacherPassthroughFamily()
-    result = treepo.methods.run(
-        "fit",
+    result = fit(
         {
             "family": "teacher_only",
             "eval_data": trees,
@@ -206,8 +204,7 @@ def test_f_star_gap_zero_when_teacher_equals_expert(tmp_path: Path) -> None:
     same = [1, 2, 3, 4, 5, 6, 7, 8]
     trees = _make_trees_with_distinct_teacher_and_expert(same, same, split="test")
     family = _TeacherPassthroughFamily()
-    result = treepo.methods.run(
-        "fit",
+    result = fit(
         {
             "family": "teacher_only",
             "eval_data": trees,
@@ -227,8 +224,7 @@ def test_prediction_records_jsonl_paths_in_artifacts(tmp_path: Path) -> None:
         [1, 2, 3, 4, 5, 6, 7, 8], [1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1], "test",
     )
     family = _TeacherPassthroughFamily()
-    result = treepo.methods.run(
-        "fit",
+    result = fit(
         {
             "family": "passthrough",
             "eval_data": trees,
@@ -289,7 +285,7 @@ def test_audit_by_law_kind_decomposes_c1_c2_c3() -> None:
         )
         for i in range(4)
     ]
-    result = treepo.methods.run("audit", {"rows": rows, "objective_mode": "corrected_local_law"})
+    result = audit_local_laws(rows, objective_mode="corrected_local_law")
     assert result["status"] == "success"
     assert result["n_rows"] == 9
 
@@ -343,7 +339,7 @@ def test_audit_top_level_objective_equals_weighted_average_of_per_law(
             observed=True, propensity=1.0, node_weight=1.0,
         ),
     ]
-    result = treepo.methods.run("audit", {"rows": rows})
+    result = audit_local_laws(rows)
     top = result["local_law_objective"]["objective"]
     # Top is the unit-weighted mean over all rows = (1+2+3)/3 = 2.0.
     assert top == pytest.approx(2.0)
@@ -365,8 +361,7 @@ def test_manifest_carries_per_split_metrics(tmp_path: Path) -> None:
         [1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 8], "test",
     )
     family = _TeacherPassthroughFamily()
-    result = treepo.methods.run(
-        "fit",
+    result = fit(
         {
             "family": "passthrough",
             "eval_data": trees,

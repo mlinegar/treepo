@@ -1,3 +1,9 @@
+"""Public ``treepo-bench`` command entrypoint.
+
+Thin wrapper that defers to ``treepo.bench.cli.main`` so the console script has
+a stable, import-light home.
+"""
+
 from __future__ import annotations
 
 from typing import Optional, Sequence

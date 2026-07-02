@@ -22,7 +22,7 @@ from __future__ import annotations
 import typing
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence, Type, TypeVar
+from typing import Any, Mapping, Optional, Type, TypeVar
 
 try:  # Python 3.11+ stdlib
     import tomllib as _toml_loader
@@ -57,7 +57,6 @@ GEPA_STRONG_DEFAULTS: dict[str, Any] = {
     "use_merge": True,
     "max_merge_invocations": 5,
     "track_stats": True,
-    "add_format_failure_as_feedback": True,
     "reflection_minibatch_size": 8,
     "use_wandb": False,
     "use_mlflow": False,

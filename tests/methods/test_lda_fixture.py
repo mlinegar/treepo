@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from treepo.methods import run
+from treepo import fit
 from treepo.methods.fixtures import make_lda_topic_trees
 from treepo.methods.lda import fit_sklearn_lda_baseline
 
@@ -28,7 +28,7 @@ def test_lda_fixture_has_exact_topic_proportion_targets() -> None:
         n_trees=4,
         n_topics=3,
         doc_tokens=48,
-        leaf_token_count=12,
+        leaf_unit_count=12,
         vocabulary_size=30,
         seed=7,
         split="train",
@@ -55,12 +55,12 @@ def test_lda_fixture_has_exact_topic_proportion_targets() -> None:
         assert overlap_mass > 0.0
 
 
-def test_lda_leaf_sizes_keep_documents_fixed() -> None:
+def test_lda_leaf_unit_counts_keep_documents_fixed() -> None:
     small_leaves = make_lda_topic_trees(
         n_trees=3,
         n_topics=3,
         doc_tokens=48,
-        leaf_token_count=8,
+        leaf_unit_count=8,
         vocabulary_size=30,
         topic_seed=11,
         seed=12,
@@ -70,7 +70,7 @@ def test_lda_leaf_sizes_keep_documents_fixed() -> None:
         n_trees=3,
         n_topics=3,
         doc_tokens=48,
-        leaf_token_count=24,
+        leaf_unit_count=24,
         vocabulary_size=30,
         topic_seed=11,
         seed=12,
@@ -89,7 +89,7 @@ def test_sklearn_lda_baseline_runs_on_overlapping_topics() -> None:
         n_trees=80,
         n_topics=3,
         doc_tokens=160,
-        leaf_token_count=20,
+        leaf_unit_count=20,
         vocabulary_size=45,
         target_topic=0,
         topic_word_concentration=0.05,
@@ -100,7 +100,7 @@ def test_sklearn_lda_baseline_runs_on_overlapping_topics() -> None:
         n_trees=20,
         n_topics=3,
         doc_tokens=160,
-        leaf_token_count=20,
+        leaf_unit_count=20,
         vocabulary_size=45,
         target_topic=0,
         topic_word_concentration=0.05,
@@ -133,7 +133,7 @@ def test_neural_operator_runs_on_lda_topic_proportions(tmp_path: Path) -> None:
         n_trees=8,
         n_topics=3,
         doc_tokens=48,
-        leaf_token_count=12,
+        leaf_unit_count=12,
         vocabulary_size=30,
         target_topic=0,
         seed=17,
@@ -143,15 +143,14 @@ def test_neural_operator_runs_on_lda_topic_proportions(tmp_path: Path) -> None:
         n_trees=5,
         n_topics=3,
         doc_tokens=48,
-        leaf_token_count=12,
+        leaf_unit_count=12,
         vocabulary_size=30,
         target_topic=0,
         seed=18,
         split="test",
     )
 
-    result = run(
-        "fit",
+    result = fit(
         {
             "family": "neural_operator",
             "train_data": train,

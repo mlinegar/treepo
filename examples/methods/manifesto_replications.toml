@@ -1,9 +1,38 @@
 # Central Manifesto/RILE methods example.
-# Root supervision comes from document-level RILE labels; qsentence rows are
-# passed as guidance for the estimator's unified-g prompt/state.
+#
+# Two intended supervision lanes:
+# - Root-only: document-level RILE labels supervise f. This can run over a
+#   grid of leaf_unit_counts.
+# - Unit-supervised: sampled gold document-unit labels supervise g as
+#   TaskState(kind="manifesto_policy"). This fixture uses qsentences as the
+#   doc_unit_kind, but the same shape applies to paragraph/section/extractor
+#   span units in downstream tasks.
 
-estimator = "dspy"
+family = "dspy"
 model = "local-dspy-program"
 max_iterations = 2
 use_oracle_predictor = true
+
+# Document sampling controls the training documents supplied to fit(...).
+# Leave both unset to use every packaged document.
+# doc_sample_size = 2
+# doc_sample_rate = 0.67
+doc_sample_seed = 0
+
+# Qsentence sampling controls document-unit supervision for g. The legacy
+# sample_size/sample_rate/sample_seed keys are accepted as aliases.
+qsentence_sample_size = 1
+# qsentence_sample_rate = 0.5
+qsentence_sample_seed = 0
 prompt_template = ""
+
+# Single-cell default: root/document labels only.
+preference_mode = "none" # none, scores, pairwise, ranked
+preference_scope = "both" # both, roots, qsentences
+doc_unit_kind = "qsentence"
+leaf_unit_count = 1
+
+# Full local grid example. Uncomment to run root-only over grouped leaves
+# and unit-supervised g supervision with one document unit per leaf.
+# leaf_unit_counts = [1, 2]
+# supervision_grid = ["none", "scores"]

@@ -1,33 +1,26 @@
+"""Run-manifest contract types and content-addressed digesting.
+
+Provides the ``RunManifestContract`` and its component records (spans, rows,
+top-level units, artifact refs), plus ``stable_digest``/``manifest_digest`` for
+deterministic hashing of manifest payloads.
+"""
+
 from __future__ import annotations
 
 import hashlib
 import json
 from dataclasses import asdict, dataclass, field, replace
-from enum import Enum
 from typing import Any, Mapping, Sequence
 
-from treepo.common import finite_float
+from treepo.common import finite_float, jsonable as _jsonable
 
 
 MANIFEST_SCHEMA_VERSION = "treepo.run_manifest.v1"
 MIN_PROPENSITY = 1e-12
 
 
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Enum):
-        return value.value
-    if hasattr(value, "to_dict") and callable(value.to_dict):
-        return value.to_dict()
-    if isinstance(value, Mapping):
-        return {str(k): _jsonable(v) for k, v in value.items()}
-    if isinstance(value, tuple):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, list):
-        return [_jsonable(v) for v in value]
-    return value
-
-
 def stable_digest(payload: Mapping[str, Any]) -> str:
+    """Return a deterministic SHA-256 digest over the JSONable ``payload``."""
     rendered = json.dumps(_jsonable(payload), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
 

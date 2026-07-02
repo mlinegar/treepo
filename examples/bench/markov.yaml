@@ -6,6 +6,7 @@ n_trees: 8
 task_config:
   n_states: 4
   doc_tokens: 128
-  leaf_token_count: 16
+  doc_unit_kind: token
+  leaf_unit_count: 16
   transition_prob: 0.15
   vocabulary_size: 256

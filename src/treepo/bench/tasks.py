@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from treepo.methods import run as run_method
+from treepo.methods.oracles import score_oracle
 
 
 @dataclass(frozen=True)
@@ -103,7 +103,7 @@ def run_task_benchmark(
     else:
         method_config = _default_oracle_method_config(config, task_config, scorer, out_path)
 
-    result = run_method(method, method_config)
+    result = score_oracle(method_config)
     result_payload = result.to_dict() if hasattr(result, "to_dict") else dict(result)
     config_payload = _config_payload(config, task_config=task_config, scorer=scorer, method=method)
     row = _row_from_result(
@@ -227,14 +227,16 @@ register_task_benchmark(
         default_task_config={
             "n_states": 4,
             "doc_tokens": 128,
-            "leaf_token_count": 16,
+            "doc_unit_kind": "token",
+            "leaf_unit_count": 16,
             "transition_prob": 0.15,
             "vocabulary_size": 256,
         },
         allowed_task_config_keys=(
             "n_states",
             "doc_tokens",
-            "leaf_token_count",
+            "doc_unit_kind",
+            "leaf_unit_count",
             "transition_prob",
             "vocabulary_size",
         ),

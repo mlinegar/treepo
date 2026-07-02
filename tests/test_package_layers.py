@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 
 from treepo.core import (
+    ROLE_SCORER,
     BenchmarkRef,
     ExperimentContext,
     MethodRef,
-    ROLE_SCORER,
     SamplingPlan,
     role_ref,
     roles_metadata,
@@ -25,8 +25,14 @@ def test_treepo_import_keeps_heavy_optional_modules_lazy() -> None:
 import json
 import sys
 import treepo
-heavy = ["dspy", "openai", "pandas", "scipy", "sklearn", "torch", "transformers", "vllm"]
-print(json.dumps({name: name in sys.modules for name in heavy}, sort_keys=True))
+public = sorted(treepo.__all__)
+heavy = ["datasets", "dspy", "openai", "pandas", "peft", "scipy", "sentence_transformers", "sklearn", "torch", "transformers", "trl", "vllm"]
+print(json.dumps({
+    "heavy": {name: name in sys.modules for name in heavy},
+    "public": public,
+    "has_run": hasattr(treepo, "run"),
+    "has_list_methods": hasattr(treepo, "list_methods"),
+}, sort_keys=True))
 """
     env = dict(os.environ)
     env["PYTHONPATH"] = str(src_root) + os.pathsep + env.get("PYTHONPATH", "")
@@ -38,14 +44,48 @@ print(json.dumps({name: name in sys.modules for name in heavy}, sort_keys=True))
         env=env,
     )
     assert json.loads(proc.stdout) == {
-        "dspy": False,
-        "openai": False,
-        "pandas": False,
-        "scipy": False,
-        "sklearn": False,
-        "torch": False,
-        "transformers": False,
-        "vllm": False,
+        "heavy": {
+            "datasets": False,
+            "dspy": False,
+            "openai": False,
+            "pandas": False,
+            "peft": False,
+            "scipy": False,
+            "sentence_transformers": False,
+            "sklearn": False,
+            "torch": False,
+            "transformers": False,
+            "trl": False,
+            "vllm": False,
+        },
+        "public": [
+            "Candidate",
+            "ComposableStatistic",
+            "FitConfig",
+            "FitResult",
+            "InfluenceWeightedAuditOverlap",
+            "LawKind",
+            "LocalLawAuditRow",
+            "LocalLawObjectiveSummary",
+            "PreferenceDataset",
+            "PreferenceRecord",
+            "StatisticInfo",
+            "TaskState",
+            "TreeNode",
+            "TreeRecord",
+            "TreeUnitRef",
+            "__version__",
+            "compute_influence_weighted_overlap",
+            "corrected_local_law_loss",
+            "family_statistic",
+            "fit",
+            "local_law_objective_summary",
+            "state_from_value",
+            "state_to_dict",
+            "unit_ref_from",
+        ],
+        "has_run": False,
+        "has_list_methods": False,
     }
 
 
@@ -55,13 +95,13 @@ def test_treepo_methods_import_keeps_optional_modules_lazy() -> None:
 import json
 import sys
 import treepo.methods
-from treepo.methods import fit, run, list_methods
-heavy = ["dspy", "openai", "pandas", "scipy", "sklearn", "torch", "transformers", "vllm"]
+from treepo.methods import fit
+heavy = ["datasets", "dspy", "openai", "pandas", "peft", "scipy", "sentence_transformers", "sklearn", "torch", "transformers", "trl", "vllm"]
 print(json.dumps({
     "heavy": {name: name in sys.modules for name in heavy},
     "fit_module": fit.__module__,
-    "run_module": run.__module__,
-    "methods": list_methods.__module__,
+    "methods_exports_run": hasattr(treepo.methods, "run"),
+    "methods_exports_list_methods": hasattr(treepo.methods, "list_methods"),
 }, sort_keys=True))
 """
     env = dict(os.environ)
@@ -76,18 +116,22 @@ print(json.dumps({
     payload = json.loads(proc.stdout)
     assert payload == {
         "heavy": {
+            "datasets": False,
             "dspy": False,
             "openai": False,
             "pandas": False,
+            "peft": False,
             "scipy": False,
+            "sentence_transformers": False,
             "sklearn": False,
             "torch": False,
             "transformers": False,
+            "trl": False,
             "vllm": False,
         },
         "fit_module": "treepo.methods.learning",
-        "run_module": "treepo.methods.dispatch",
-        "methods": "treepo.methods.dispatch",
+        "methods_exports_run": False,
+        "methods_exports_list_methods": False,
     }
 
 
@@ -100,12 +144,8 @@ import treepo.methods.dspy
 import treepo.methods.fno
 import treepo.methods.neural_operator
 import treepo.methods.llm
-import treepo.methods.estimators
-import treepo.methods.g_estimators
-import treepo.methods.diffusion
 import treepo.methods.lda
-import treepo.llm.diffusion
-heavy = ["dspy", "openai", "pandas", "scipy", "sklearn", "torch", "transformers", "vllm"]
+heavy = ["datasets", "dspy", "openai", "pandas", "peft", "scipy", "sentence_transformers", "sklearn", "torch", "transformers", "trl", "vllm"]
 print(json.dumps({
     "heavy": {name: name in sys.modules for name in heavy},
 }, sort_keys=True))
@@ -121,13 +161,17 @@ print(json.dumps({
     )
     assert json.loads(proc.stdout) == {
         "heavy": {
+            "datasets": False,
             "dspy": False,
             "openai": False,
             "pandas": False,
+            "peft": False,
             "scipy": False,
+            "sentence_transformers": False,
             "sklearn": False,
             "torch": False,
             "transformers": False,
+            "trl": False,
             "vllm": False,
         }
     }
@@ -138,11 +182,11 @@ def test_public_defaults_helpers_keep_optional_modules_lazy() -> None:
     code = """
 import json
 import sys
-from treepo import LmSection, build_lm_config_dict, load_dataclass
+from treepo.methods import LmSection, build_lm_config_dict, load_dataclass
 import treepo.methods.canonical_defaults as cd
 _ = cd.LmSection()
 _ = cd.DEFAULT_BATCH_SIZE
-heavy = ["dspy", "openai", "pandas", "scipy", "sklearn", "torch", "transformers", "vllm"]
+heavy = ["datasets", "dspy", "openai", "pandas", "peft", "scipy", "sentence_transformers", "sklearn", "torch", "transformers", "trl", "vllm"]
 print(json.dumps({
     "heavy": {name: name in sys.modules for name in heavy},
     "lm_module": LmSection.__module__,
@@ -159,29 +203,105 @@ print(json.dumps({
     )
     assert json.loads(proc.stdout) == {
         "heavy": {
+            "datasets": False,
             "dspy": False,
             "openai": False,
             "pandas": False,
+            "peft": False,
             "scipy": False,
+            "sentence_transformers": False,
             "sklearn": False,
             "torch": False,
             "transformers": False,
+            "trl": False,
             "vllm": False,
         },
         "lm_module": "treepo.methods.canonical_defaults",
     }
 
 
-def test_top_level_normalized_output_export() -> None:
-    from treepo import NormalizedOutput
+def test_llm_openai_compatible_example_stays_import_light() -> None:
+    src_root = Path(__file__).resolve().parents[1] / "src"
+    code = """
+import json
+import sys
+from treepo.llm import OpenAICompatibleConfig, render_chat_payload
+heavy = ["datasets", "dspy", "openai", "pandas", "peft", "scipy", "sentence_transformers", "sklearn", "torch", "transformers", "trl", "vllm"]
+config = OpenAICompatibleConfig(
+    base_url="http://localhost:8000/v1",
+    model="served-chat-model",
+    api_key="EMPTY",
+)
+payload = render_chat_payload(
+    model=config.model,
+    messages=[
+        {"role": "system", "content": "Return a compact answer."},
+        {"role": "user", "content": "Summarize the local-law result."},
+    ],
+    temperature=0.0,
+    max_tokens=64,
+)
+print(json.dumps({
+    "base_url": config.base_url,
+    "heavy": {name: name in sys.modules for name in heavy},
+    "payload": payload,
+}, sort_keys=True))
+"""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(src_root) + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    payload = json.loads(proc.stdout)
+    assert payload["base_url"] == "http://localhost:8000/v1"
+    assert payload["payload"]["model"] == "served-chat-model"
+    assert payload["payload"]["messages"][1]["content"] == "Summarize the local-law result."
+    assert payload["payload"]["max_tokens"] == 64
+    assert payload["heavy"] == {
+        "datasets": False,
+        "dspy": False,
+        "openai": False,
+        "pandas": False,
+        "peft": False,
+        "scipy": False,
+        "sentence_transformers": False,
+        "sklearn": False,
+        "torch": False,
+        "transformers": False,
+        "trl": False,
+        "vllm": False,
+    }
 
-    out = NormalizedOutput(metrics={"x": 1.0})
-    assert out.metrics["x"] == 1.0
+
+def test_top_level_exposes_fit_and_preference_dataset_only() -> None:
+    import treepo
+
+    assert callable(treepo.fit)
+    assert treepo.ComposableStatistic.__name__ == "ComposableStatistic"
+    assert treepo.StatisticInfo.__name__ == "StatisticInfo"
+    assert treepo.TaskState.__name__ == "TaskState"
+    assert treepo.TreeNode.__name__ == "TreeNode"
+    assert treepo.TreeRecord.__name__ == "TreeRecord"
+    assert treepo.TreeUnitRef.__name__ == "TreeUnitRef"
+    assert callable(treepo.family_statistic)
+    assert callable(treepo.state_from_value)
+    assert callable(treepo.state_to_dict)
+    assert callable(treepo.unit_ref_from)
+    assert treepo.PreferenceDataset.__name__ == "PreferenceDataset"
+    assert treepo.PreferenceRecord.__name__ == "PreferenceRecord"
+    assert treepo.Candidate.__name__ == "Candidate"
+    assert not hasattr(treepo, "run")
+    assert not hasattr(treepo, "list_methods")
+    assert not hasattr(treepo, "NormalizedOutput")
 
 
 def test_benchmarks_are_not_top_level_exports() -> None:
     import importlib
-    import treepo
+
 
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("treepo.runtime")

@@ -1,90 +1,101 @@
 #!/usr/bin/env python3
-"""Central Manifesto/RILE replication example with qsentence-guided g.
+"""Central Manifesto/RILE replication example with unified preference data.
 
 This is intentionally provider-neutral. By default it uses a tiny oracle
 predictor so the example is runnable in package tests. Downstream manifesto
-replications can swap in a real DSPy program through the same estimator/family
-surface.
+replications can swap in a real DSPy or LLM program through the same family
+surface. Root and document-unit supervision is supplied through PreferenceDataset.
 """
 
 from __future__ import annotations
 
-import argparse
-import json
-from dataclasses import asdict, dataclass
-from pathlib import Path
+from typing import Any
 
-
-@dataclass
-class ManifestoReplicationConfig:
-    estimator: str = "dspy"
-    model: str = "local-dspy-program"
-    max_iterations: int = 2
-    use_oracle_predictor: bool = True
-    prompt_template: str = ""
+from example_setup import (
+    ManifestoReplicationConfig,
+    config_dict,
+    load_example_config,
+    manifesto_grid_cells,
+    resolved_qsentence_sampling,
+    run_manifesto_replication_cell,
+    sample_desc,
+    write_json,
+)
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--output-dir", type=Path, required=True)
-    ap.add_argument(
-        "--config",
-        type=Path,
-        default=Path(__file__).resolve().with_name("manifesto_replications.toml"),
-    )
-    ap.add_argument("--estimator", choices=("dspy", "prompted_llm", "llm"), default=None)
-    args = ap.parse_args()
-
-    from treepo.methods import run
-    from treepo.methods.canonical_defaults import load_dataclass
     from treepo.tasks.manifesto import (
-        make_manifesto_replication_trees,
-        manifesto_oracle_predict_fn,
         manifesto_prompt_template,
         replication_payload,
     )
 
-    cfg = load_dataclass(args.config, ManifestoReplicationConfig, overrides={"estimator": args.estimator})
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    train = make_manifesto_replication_trees(split="train")
-    eval_trees = make_manifesto_replication_trees(split="test")
+    output_dir, cfg = load_example_config(
+        default_config="manifesto_replications.toml",
+        config_cls=ManifestoReplicationConfig,
+        cli_overrides=(("family", str),),
+    )
+    if cfg.preference_mode not in {"none", "scores", "pairwise", "ranked"}:
+        raise ValueError("preference_mode must be one of: none, scores, pairwise, ranked")
+    doc_unit_kind = str(cfg.doc_unit_kind or "qsentence")
+    cells = manifesto_grid_cells(cfg)
+    grid_mode = len(cells) > 1
     prompt_template = cfg.prompt_template or manifesto_prompt_template()
-    backend = {
-        "output_dir": str(args.output_dir / "fit"),
-        "model": cfg.model,
-        "prompt_template": prompt_template,
-        "min_score": -100.0,
-        "max_score": 100.0,
-    }
-    if cfg.use_oracle_predictor:
-        backend["predict_fn"] = manifesto_oracle_predict_fn
-
-    result = run(
-        "fit",
+    grid_rows: list[dict[str, Any]] = []
+    last_payload: dict[str, Any] | None = None
+    for cell in cells:
+        leaf_count = int(cell["leaf_unit_count"])
+        mode = str(cell["preference_mode"])
+        supervision_unit = str(cell["supervision_unit"])
+        cell_dir = output_dir / f"{supervision_unit}_leaf_count_{leaf_count:03d}_{mode}"
+        payload = run_manifesto_replication_cell(
+            config=cfg,
+            output_dir=cell_dir,
+            leaf_unit_count=leaf_count,
+            preference_mode=mode,
+            prompt_template=prompt_template,
+        )
+        grid_rows.append(
+            {
+                "leaf_unit_count": leaf_count,
+                "doc_unit_kind": doc_unit_kind,
+                "preference_mode": mode,
+                "preference_scope": cfg.preference_scope,
+                "supervision_unit": supervision_unit,
+                "status": payload["result"].status,
+                "metrics": dict(payload["result"].metrics),
+                "output_dir": str(cell_dir),
+                "preference_counts": (payload["preference_artifacts"].get("counts") or {}),
+                "sampling": payload["sampling_artifacts"]["summary"],
+            }
+        )
+        last_payload = payload
+    if last_payload is None:
+        raise RuntimeError("manifesto grid produced no runnable cells")
+    result = last_payload["result"]
+    out = output_dir / "manifesto_replications_result.json"
+    write_json(
+        out,
         {
-            "estimator": {"name": cfg.estimator, "target": "g", "model": cfg.model},
-            "train_data": train,
-            "eval_data": eval_trees,
-            "backend_config": backend,
-            "axis": {"max_iterations": cfg.max_iterations, "axis_value": 0},
+            "config": config_dict(cfg),
+            "grid": grid_rows,
+            "preferences": last_payload["preference_artifacts"],
+            "replications": replication_payload(last_payload["eval_trees"]),
+            "result": result.to_dict(),
+            "sampling": last_payload["sampling_artifacts"],
         },
     )
-    out = args.output_dir / "manifesto_replications_result.json"
-    out.write_text(
-        json.dumps(
-            {
-                "config": asdict(cfg),
-                "replications": replication_payload(eval_trees),
-                "result": result.to_dict(),
-            },
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
+    qsentence_sample_size, qsentence_sample_rate, _ = resolved_qsentence_sampling(cfg)
+    doc_sample_desc = sample_desc(sample_size=cfg.doc_sample_size, sample_rate=cfg.doc_sample_rate)
+    qsentence_sample_desc = sample_desc(sample_size=qsentence_sample_size, sample_rate=qsentence_sample_rate)
+    grid_desc = f" grid_cells={len(grid_rows)}" if grid_mode else ""
     print(
-        f"status={result.status} estimator={cfg.estimator} family={result.summary.get('family')} "
-        f"docs={len(eval_trees)} mae={result.metrics.get('internal_f_mae')} output={out}"
+        f"status={result.status} family={cfg.family} "
+        f"docs={len(last_payload['eval_trees'])} train={len(last_payload['train'])} "
+        f"doc_sample={doc_sample_desc} qsentence_sample={qsentence_sample_desc} "
+        f"preferences={last_payload['preference_mode']} scope={cfg.preference_scope} "
+        f"doc_unit={last_payload['doc_unit_kind']} "
+        f"leaf_unit_count={last_payload['leaf_unit_count']}{grid_desc} "
+        f"mae={result.metrics.get('internal_f_mae')} output={out}"
     )
     return 0
 

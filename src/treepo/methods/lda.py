@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-
 LDA_RECOVERY_CONFIG_FIELDS: tuple[str, ...] = ()
 
 

@@ -1,6 +1,6 @@
 """Adapter-level contract tests (S1/S2/S3/S4) — fast CI gate.
 
-These bypass `fit()` for quick feedback; the `fit()`-routed equivalents live
+These bypass `fit()` for quick checks; the `fit()`-routed equivalents live
 in `parallel/unified_g_v1/tests/test_classical_hll_parity_fit.py`.
 
 - S1 single-leaf identity: L=1 TreePO state byte-identical to flat state.
@@ -16,8 +16,12 @@ import random
 
 import pytest
 
+from treepo import ComposableStatistic
 from treepo.bench.sketches import make_hll_adapter, treepo_reduce
 from treepo.bench.sketches.tree_reducer import fold_states
+from treepo.local_law import local_law_objective_summary
+from treepo.methods.families import resolve_family
+from treepo.methods.fixtures import make_hll_item_trees
 
 pytest.importorskip("datasketches")
 
@@ -47,11 +51,11 @@ def test_s1_single_leaf_identity(backend: str) -> None:
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("n_leaves", [2, 4, 8, 16])
-def test_s2_schedule_invariance(backend: str, n_leaves: int) -> None:
+@pytest.mark.parametrize("leaf_count", [2, 4, 8, 16])
+def test_s2_schedule_invariance(backend: str, leaf_count: int) -> None:
     adapter = make_hll_adapter(backend=backend, precision=10)
     items = _seeded_tokens(2000, universe=20_000, seed=1)
-    leaves = _chunk(items, n_leaves)
+    leaves = _chunk(items, leaf_count)
 
     leaf_states = [adapter.encode(chunk) for chunk in leaves]
     roots = [fold_states(leaf_states, adapter, schedule=sched) for sched in SCHEDULES]
@@ -77,11 +81,11 @@ def test_s3_permutation_invariance(backend: str) -> None:
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("n_leaves", [2, 4, 8, 16])
-def test_s4_reference_agreement(backend: str, n_leaves: int) -> None:
+@pytest.mark.parametrize("leaf_count", [2, 4, 8, 16])
+def test_s4_reference_agreement(backend: str, leaf_count: int) -> None:
     adapter = make_hll_adapter(backend=backend, precision=11)
     items = _seeded_tokens(3000, universe=50_000, seed=3)
-    leaves = _chunk(items, n_leaves)
+    leaves = _chunk(items, leaf_count)
 
     tree_state = treepo_reduce(leaves, adapter, schedule="balanced")
     flat_state = adapter.encode(items)
@@ -111,3 +115,28 @@ def test_theoretical_accuracy_floor(backend: str) -> None:
     assert rmse_rel < 2.5 * theoretical_floor, (
         f"{backend} rmse_rel={rmse_rel:.4f} exceeds 2.5x floor {theoretical_floor:.4f}"
     )
+
+
+def test_classical_sketch_family_exposes_composable_statistic() -> None:
+    family = resolve_family(
+        "classical_sketch",
+        {"backend": "datasketches", "precision": 10, "schedule": "balanced"},
+    )
+    statistic = family.as_statistic()
+    assert isinstance(statistic, ComposableStatistic)
+    assert statistic.info.exact is True
+    assert statistic.info.supports_local_laws is True
+
+    trees = make_hll_item_trees(n_trees=3, leaves_per_tree=4, leaf_unit_count=12, seed=17)
+    family_predictions = family.score_roots_with_f(f=None, g=None, trees=trees)
+    statistic_predictions = [
+        float(statistic.readout(statistic.encode_tree(tree), None))
+        for tree in trees
+    ]
+    assert statistic_predictions == pytest.approx(family_predictions)
+
+    rows = statistic.local_law_rows(trees)
+    assert rows
+    summary = local_law_objective_summary(rows)
+    assert summary.row_count == len(rows)
+    assert summary.objective == pytest.approx(0.0)

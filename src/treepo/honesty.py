@@ -1,3 +1,9 @@
+"""Deterministic three-layer honesty splits and role assignment.
+
+Hashes sample ids into a stable unit interval to assign train/audit/holdout
+layers and roles, and to filter item collections by their assigned role.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -32,6 +38,7 @@ def _clamp_unit(value: float) -> float:
 
 
 def stable_unit_interval(sample_id: str, *, seed: int, salt: str = "") -> float:
+    """Hash ``sample_id`` (with seed/salt) to a stable float in ``[0, 1)``."""
     payload = f"{int(seed)}:{salt}:{sample_id}".encode("utf-8", errors="ignore")
     digest = hashlib.sha256(payload).digest()
     value = int.from_bytes(digest[:8], byteorder="big", signed=False)
@@ -39,6 +46,7 @@ def stable_unit_interval(sample_id: str, *, seed: int, salt: str = "") -> float:
 
 
 def assign_three_layer_split(sample_id: str, layer: str, cfg: ThreeLayerHonestyConfig) -> str:
+    """Assign the train/eval role for ``sample_id`` within one ``layer``."""
     if not cfg.enabled:
         return "all"
     fraction_by_layer = {
@@ -54,6 +62,7 @@ def assign_three_layer_split(sample_id: str, layer: str, cfg: ThreeLayerHonestyC
 
 
 def assign_three_layer_roles(sample_id: str, cfg: ThreeLayerHonestyConfig) -> dict[str, str]:
+    """Return the chunk/summarizer/oracle role assignments for ``sample_id``."""
     if not cfg.enabled:
         return {"chunk": "all", "summarizer": "all", "oracle": "all"}
     return {
@@ -64,6 +73,7 @@ def assign_three_layer_roles(sample_id: str, cfg: ThreeLayerHonestyConfig) -> di
 
 
 def role_tuple_for_unit(sample_id: str, cfg: ThreeLayerHonestyConfig) -> RoleTuple:
+    """Build the ``RoleTuple`` (chunker/g/oracle) for ``sample_id``."""
     roles = assign_three_layer_roles(sample_id, cfg)
     return RoleTuple(
         chunker=roles["chunk"],
@@ -73,6 +83,7 @@ def role_tuple_for_unit(sample_id: str, cfg: ThreeLayerHonestyConfig) -> RoleTup
 
 
 def assign_honest_split(sample_id: str, policy: HonestChunkingPolicy | None = None) -> str:
+    """Assign a boundary/eval split for ``sample_id`` under a chunking policy."""
     if policy is None or not policy.enabled:
         return "all"
     draw = stable_unit_interval(sample_id, seed=policy.split_seed)
@@ -98,6 +109,7 @@ def filter_items_by_three_layer_role(
     layer: str,
     role: str,
 ) -> list[Any]:
+    """Return the ``items`` whose ``layer`` assignment matches ``role``."""
     if not cfg.enabled:
         return list(items)
     out: list[Any] = []

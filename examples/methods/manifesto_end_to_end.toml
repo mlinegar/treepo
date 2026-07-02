@@ -1,0 +1,34 @@
+# Full Manifesto/RILE end-to-end package example.
+#
+# This runs the deterministic provider-neutral path:
+# docs/qsentences -> known-propensity sampling -> PreferenceDataset ->
+# treepo.fit(...) -> evidence JSON -> root/qsentence/both reward exports.
+
+family = "dspy"
+model = "local-dspy-program"
+max_iterations = 2
+use_oracle_predictor = true
+
+# Leave unset to use every packaged Manifesto fixture document/qsentence.
+# doc_sample_size = 2
+# doc_sample_rate = 0.67
+doc_sample_seed = 0
+
+# Leave unset to use every qsentence in sampled documents.
+# qsentence_sample_size = 1
+# qsentence_sample_rate = 0.5
+qsentence_sample_seed = 0
+
+prompt_template = ""
+doc_unit_kind = "qsentence"
+leaf_unit_count = 1
+
+# Supervision passed into treepo.fit(...). "both" gives f root labels and g
+# qsentence state labels. Use "roots" or "qsentences" to isolate one lane.
+fit_preference_mode = "scores"
+fit_preference_scope = "both"
+
+# Trainer-export views written after fit from the same sampled training set.
+reward_scopes = ["roots", "qsentences", "both"]
+reward_modes = ["pairwise", "ranked"]
+export_formats = ["general", "supervised", "dpo", "reward", "grpo"]

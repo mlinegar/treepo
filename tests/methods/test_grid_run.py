@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-import treepo.methods
+from treepo import fit
+from treepo.methods.oracles import score_oracle
 from treepo.methods.grid import iter_grid, write_grid_outputs
 
 
@@ -51,8 +52,7 @@ def _run_oracle_grid(
             cells_skipped += 1
             continue
 
-        result = treepo.methods.run(
-            "oracle",
+        result = score_oracle(
             {
                 "oracle_name": oracle_name,
                 "seed": seed,
@@ -128,13 +128,11 @@ def test_grid_run_resume_skips_existing_cells(tmp_path: Path) -> None:
         assert r1["internal_f_mae"] == r2["internal_f_mae"]
 
 
-def test_grid_run_fit_method_for_oracle_family(tmp_path: Path) -> None:
-    """The ``"fit"`` method handles the oracle family through the same
-    grid-loop shape as direct ``run("oracle", ...)`` calls.
-    """
-    from treepo.methods.fixtures import make_hll_token_trees
+def test_grid_run_can_use_public_fit_for_oracle_family(tmp_path: Path) -> None:
+    """Grid loops can use public ``treepo.fit`` for learning cells."""
+    from treepo.methods.fixtures import make_hll_item_trees
 
-    trees = make_hll_token_trees(n_trees=4, seed=21)
+    trees = make_hll_item_trees(n_trees=4, seed=21)
     cells = [
         {
             "family": "oracle",
@@ -147,7 +145,7 @@ def test_grid_run_fit_method_for_oracle_family(tmp_path: Path) -> None:
     ]
     rows = []
     for cell in cells:
-        result = treepo.methods.run("fit", cell)
+        result = fit(cell)
         rows.append(
             {
                 "family": cell["family"],

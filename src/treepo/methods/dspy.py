@@ -1,9 +1,4 @@
-"""Provider-neutral DSPy family wrapper.
-
-DSPy is a first-class estimator route, but importing this module must not import
-``dspy``. Application code can pass an already-built DSPy program through
-``backend_config['dspy_program']`` / ``['program']`` or pass ``predict_fn``.
-"""
+"""Provider-neutral DSPy family wrapper."""
 
 from __future__ import annotations
 
@@ -20,9 +15,9 @@ class DSPyFamilyConfig:
     gepa_kwargs: Mapping[str, Any] = field(default_factory=dict)
     prompt_template: str = (
         "Estimate the document-level score. Return only one number.\n\n"
-        "Document:\n{text}\n\nQ-sentence guidance for g:\n{qsentence_guidance}\n\nScore:"
+        "Document:\n{text}\n\nSupervised examples:\n{supervised_examples}\n\nScore:"
     )
-    system_prompt: str = "You are a DSPy program estimating tree root labels from qsentence-guided state."
+    system_prompt: str = "You are a DSPy program estimating tree root labels from supervised examples."
     score_regex: str = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)"
     default_prediction: float | None = None
     min_score: float | None = None

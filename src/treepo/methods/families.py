@@ -2,28 +2,18 @@
 
 `treepo` keeps this registry small. Built-ins cover deterministic oracles,
 a simple learnable baseline, classical sketches, generic neural operators,
-and provider-neutral LLM/DSPy wrappers. TRL, diffusion/dgemma, and specialized
-large-training families register from the package that owns their application
-dependencies.
+and provider-neutral LLM/DSPy wrappers. Additional application families can be
+registered by the package that owns their runtime dependencies.
 """
 
 from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 
-
 FamilyRuntime = Any
 FamilyFactory = Callable[[Mapping[str, Any]], FamilyRuntime]
 
 _REGISTRY: dict[str, FamilyFactory] = {}
-_EXTENSION_FAMILIES = frozenset(
-    {
-        "trl",
-        "diffusion",
-        "dgemma",
-        "diffusiongemma",
-    }
-)
 
 
 def register_family(name: str, factory: FamilyFactory) -> None:
@@ -45,19 +35,15 @@ def resolve_family(
 
     key = _normalize(name)
     if key not in _REGISTRY:
-        if key in _EXTENSION_FAMILIES:
-            raise ImportError(
-                f"family {name!r} is optional application code. Register a "
-                "family factory before resolving it."
-            )
         raise KeyError(
-            f"family {name!r} not registered; available: {', '.join(sorted(_REGISTRY))}"
+            f"family {name!r} not registered; available built-in families: "
+            f"{', '.join(sorted(_REGISTRY))}"
         )
     return _REGISTRY[key](dict(backend_config or {}))
 
 
 def list_families() -> tuple[str, ...]:
-    """Return built-in registered family names, sorted."""
+    """Return currently registered family names, sorted."""
 
     return tuple(sorted(_REGISTRY))
 
@@ -120,9 +106,6 @@ register_family("neural_operator", _make_neural_operator)
 register_family("fno", _make_fno)
 register_family("dspy", _make_dspy)
 register_family("llm", _make_llm)
-register_family("prompted_llm", _make_llm)
-register_family("llm_prompt", _make_llm)
-register_family("summary_llm", _make_llm)
 
 
 __all__ = [

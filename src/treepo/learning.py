@@ -1,8 +1,16 @@
+"""Public ``fit`` entrypoint for treepo learning runs.
+
+Wraps a ``FitConfig`` (or mapping) and routes it through the methods learning
+backend, returning a normalized ``FitResult``.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
+
+from treepo.methods.contracts import FitResult
 
 
 @dataclass(frozen=True)
@@ -35,40 +43,6 @@ class FitConfig:
             eval_data=data.get("eval_data"),
             metadata=dict(data.get("metadata") or {}),
         )
-
-
-@dataclass(frozen=True)
-class FitResult:
-    status: str
-    metrics: Mapping[str, float] = field(default_factory=dict)
-    artifacts: Mapping[str, Any] = field(default_factory=dict)
-    history: tuple[Mapping[str, Any], ...] = ()
-    summary: Mapping[str, Any] = field(default_factory=dict)
-    manifest_path: str | None = None
-    mode: str = "learning"
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "status": str(self.status),
-            "mode": str(self.mode),
-            "metrics": dict(self.metrics or {}),
-            "artifacts": dict(self.artifacts or {}),
-            "history": [dict(item) for item in self.history],
-            "summary": _jsonable(dict(self.summary or {})),
-            "manifest_path": self.manifest_path,
-        }
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(k): _jsonable(v) for k, v in value.items()}
-    if isinstance(value, tuple):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, list):
-        return [_jsonable(v) for v in value]
-    if hasattr(value, "to_dict") and callable(value.to_dict):
-        return value.to_dict()
-    return value
 
 
 def _as_fit_config(config: FitConfig | Mapping[str, Any] | None, **kwargs: Any) -> FitConfig:
@@ -114,7 +88,7 @@ def _fit_learning(cfg: FitConfig) -> FitResult:
     spec["backend_config"] = backend_config
 
     from treepo.methods.contracts import CTreePOLearningSpec
-    from treepo.methods import fit as methods_fit
+    from treepo.methods.learning import fit as methods_fit
 
     if isinstance(spec, CTreePOLearningSpec):
         learning_spec = spec

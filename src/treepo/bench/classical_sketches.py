@@ -45,8 +45,7 @@ class ClassicalSketchComparisonConfig:
     min_tokens: int = 128
     max_tokens: int = 512
     universe_size: int = 4096
-    leaf_size: int = 64
-    n_leaves: int | None = None
+    leaf_unit_count: int = 64
     distinct_lg_k: int = 10
     theta_lg_k: int = 12
     cms_num_hashes: int = 5
@@ -71,30 +70,13 @@ class ClassicalSketchComparisonSummary:
         return json.dumps({"config": self.config, "rows": list(self.rows)}, indent=2, sort_keys=True)
 
 
-def _chunks(xs: Sequence, leaf_size: int) -> List[List]:
-    size = int(max(1, leaf_size))
+def _chunks(xs: Sequence, leaf_unit_count: int) -> List[List]:
+    size = int(max(1, leaf_unit_count))
     return [list(xs[i : i + size]) for i in range(0, len(xs), size)] or [[]]
 
 
-def _chunks_by_count(xs: Sequence, n_leaves: int) -> List[List]:
-    items = list(xs)
-    if not items:
-        return [[]]
-    n = max(1, min(int(n_leaves), len(items)))
-    q, r = divmod(len(items), n)
-    out: List[List] = []
-    start = 0
-    for i in range(n):
-        step = q + (1 if i < r else 0)
-        out.append(items[start : start + step])
-        start += step
-    return out
-
-
 def _leaves(config: ClassicalSketchComparisonConfig, xs: Sequence) -> List[List]:
-    if config.n_leaves is not None:
-        return _chunks_by_count(xs, int(config.n_leaves))
-    return _chunks(xs, int(config.leaf_size))
+    return _chunks(xs, int(config.leaf_unit_count))
 
 
 def _leaf_count_stats(config: ClassicalSketchComparisonConfig, docs: Sequence[Sequence]) -> Dict[str, object]:
@@ -104,9 +86,9 @@ def _leaf_count_stats(config: ClassicalSketchComparisonConfig, docs: Sequence[Se
         for doc in docs
     ]
     if not counts:
-        counts = [int(config.n_leaves) if config.n_leaves is not None else 1]
+        counts = [1]
     if not tokens_per_leaf:
-        tokens_per_leaf = [float(config.leaf_size) if config.n_leaves is None else float("nan")]
+        tokens_per_leaf = [float(config.leaf_unit_count)]
     return {
         "leaf_count_min": int(min(counts)),
         "leaf_count_mean": float(np.mean(np.asarray(counts, dtype=np.float64))),
@@ -122,34 +104,20 @@ def _row_axes(
     docs: Sequence[Sequence] | None = None,
 ) -> Dict[str, object]:
     if docs is None:
-        leaf_stats: Dict[str, object]
-        if config.n_leaves is not None:
-            fixed = int(config.n_leaves)
-            leaf_stats = {
-                "leaf_count_min": fixed,
-                "leaf_count_mean": float(fixed),
-                "leaf_count_max": fixed,
-                "tokens_per_leaf_min": float("nan"),
-                "tokens_per_leaf_mean": float("nan"),
-                "tokens_per_leaf_max": float("nan"),
-            }
-        else:
-            leaf_stats = {
-                "leaf_count_min": -1,
-                "leaf_count_mean": float("nan"),
-                "leaf_count_max": -1,
-                "tokens_per_leaf_min": float(config.leaf_size),
-                "tokens_per_leaf_mean": float(config.leaf_size),
-                "tokens_per_leaf_max": float(config.leaf_size),
-            }
+        leaf_stats = {
+            "leaf_count_min": -1,
+            "leaf_count_mean": float("nan"),
+            "leaf_count_max": -1,
+            "tokens_per_leaf_min": float(config.leaf_unit_count),
+            "tokens_per_leaf_mean": float(config.leaf_unit_count),
+            "tokens_per_leaf_max": float(config.leaf_unit_count),
+        }
     else:
         leaf_stats = _leaf_count_stats(config, docs)
     return {
         "seed": int(config.seed),
         "capacity_label": str(config.capacity_label),
-        "n_leaves": int(config.n_leaves) if config.n_leaves is not None else -1,
-        "leaf_size": int(config.leaf_size),
-        "leaf_axis": "n_leaves" if config.n_leaves is not None else "leaf_size",
+        "leaf_unit_count": int(config.leaf_unit_count),
         **leaf_stats,
         "distinct_lg_k": int(config.distinct_lg_k),
         "theta_lg_k": int(config.theta_lg_k),
@@ -265,9 +233,7 @@ def _attach_tree_bundle_contract(
 ) -> Dict[str, object]:
     out = dict(row)
     leaf_policy = {
-        "leaf_axis": "n_leaves" if config.n_leaves is not None else "leaf_size",
-        "leaf_size": int(config.leaf_size),
-        "n_leaves": int(config.n_leaves) if config.n_leaves is not None else None,
+        "leaf_unit_count": int(config.leaf_unit_count),
         "min_tokens": int(config.min_tokens),
         "max_tokens": int(config.max_tokens),
     }

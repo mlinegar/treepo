@@ -9,8 +9,10 @@ do not drift across package surfaces.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from treepo.common import finite_float
@@ -315,6 +317,51 @@ def local_law_objective_summary_by_law_kind(
     }
 
 
+def audit_local_laws(
+    rows: Sequence[LocalLawAuditRow | Mapping[str, Any]] | Iterable[LocalLawAuditRow | Mapping[str, Any]],
+    *,
+    objective_mode: str = LOCAL_LAW_OBJECTIVE_CORRECTED,
+    gamma_depth: float = 1.0,
+    output_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    row_list: list[LocalLawAuditRow] = []
+    for item in rows:
+        if isinstance(item, LocalLawAuditRow):
+            row_list.append(item)
+        elif isinstance(item, Mapping):
+            row_list.append(LocalLawAuditRow(**dict(item)))
+        else:
+            raise TypeError(f"audit rows must be LocalLawAuditRow or mappings; got {type(item).__name__}")
+    if not row_list:
+        raise ValueError("audit_local_laws requires at least one row")
+    summary = local_law_objective_summary(row_list, objective_mode=objective_mode, gamma_depth=gamma_depth)
+    overlap = compute_influence_weighted_overlap(row_list)
+    by_kind_summaries = local_law_objective_summary_by_law_kind(
+        row_list,
+        objective_mode=objective_mode,
+        gamma_depth=gamma_depth,
+    )
+    by_kind_overlaps = compute_influence_weighted_overlap_by_law_kind(row_list)
+    payload = {
+        "status": "success",
+        "local_law_objective": summary.to_dict(),
+        "influence_weighted_overlap": overlap.to_dict(),
+        "by_law_kind": {
+            kind: {
+                "local_law_objective": by_kind_summaries[kind].to_dict(),
+                "influence_weighted_overlap": by_kind_overlaps[kind].to_dict(),
+            }
+            for kind in sorted(by_kind_summaries)
+        },
+        "n_rows": len(row_list),
+    }
+    if output_dir is not None:
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "audit_summary.json").write_text(json.dumps(payload, indent=2, sort_keys=True))
+    return payload
+
+
 def compute_influence_weighted_overlap(
     rows: Sequence[LocalLawAuditRow] | Iterable[LocalLawAuditRow],
     *,
@@ -405,6 +452,7 @@ __all__ = [
     "LocalLawObjectiveSummary",
     "MIN_PROPENSITY",
     "compute_influence_weighted_overlap",
+    "audit_local_laws",
     "compute_influence_weighted_overlap_by_law_kind",
     "corrected_local_law_loss",
     "corrected_losses_from_rows",

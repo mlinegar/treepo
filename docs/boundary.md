@@ -4,9 +4,15 @@
 
 ## Included
 
-- Base install: `numpy`, `torch`, and `neuraloperator` for the built-in neural-operator family.
+- Base install: `numpy`, Hugging Face `datasets`, `torch`, and
+  `neuraloperator` for the built-in neural-operator family.
 - Public modules: `treepo`, `treepo.methods`, `treepo.local_law`,
+  `treepo.state`, `treepo.tree`, `treepo.statistic`, `treepo.artifacts`,
   `treepo.bench`, `treepo.llm`, `treepo.training`, and small task fixtures.
+- Generic f/g supervision, JSONable task states, minimal labeled tree records,
+  tree validation/summaries, unit-level preference datasets, local-law row
+  artifacts, and projection exports for downstream DPO, reward-model, or GRPO
+  trainers.
 - Source examples: `examples/bench` and `examples/methods`.
 
 ## Extras
@@ -25,16 +31,18 @@ dependencies too.
 
 ## Extensions
 
-TRL, diffusion/dgemma, large manifesto-training campaigns, deployment, and
-large simulation code belongs in packages or workspaces that register with the
-public `treepo` contracts. DSPy and prompted-LLM estimator routes are included
-as provider-neutral wrappers; downstream code supplies the actual program or
-callable.
+Trainer applications, large manifesto-training campaigns, deployment, and large
+simulation code belongs in packages or workspaces that register with the public
+`treepo` contracts. DSPy and prompted-LLM families are included as
+provider-neutral wrappers; downstream code supplies the actual program or
+callable. Preference data export is included; policy optimization engines
+consume those records downstream.
 
-Extension stubs preserve public names and provide clear registration errors.
-They must not import heavy dependencies. Markov has a built-in changepoint
-fixture/oracle task benchmark. LDA and Manifesto/RILE have small native fixtures
-for method examples; full-scale workflows can still live downstream.
+Additional family runtimes can register with
+`treepo.methods.families.register_family(...)`. Markov has a built-in
+changepoint fixture/oracle task benchmark. LDA and Manifesto/RILE have small
+native fixtures for method examples; full-scale workflows can still live
+downstream.
 
 ## Checks
 

@@ -4,7 +4,7 @@ n_docs: 4
 min_tokens: 24
 max_tokens: 48
 universe_size: 256
-leaf_size: 16
+leaf_unit_count: 16
 distinct_lg_k: 8
 theta_lg_k: 8
 cms_num_hashes: 3

@@ -1,0 +1,20 @@
+# Manifesto reward-mechanism export example.
+#
+# This does not train a model. It exports trainer-ready preference projections
+# for root-only, qsentence-only, and combined supervision scopes.
+
+# Leave document and qsentence sampling unset to use the full packaged fixture.
+# doc_sample_size = 2
+# doc_sample_rate = 0.67
+doc_sample_seed = 0
+
+# qsentence_sample_size = 1
+# qsentence_sample_rate = 0.5
+qsentence_sample_seed = 0
+
+doc_unit_kind = "qsentence"
+leaf_unit_count = 1
+
+preference_scopes = ["roots", "qsentences", "both"]
+preference_modes = ["pairwise", "ranked"]
+export_formats = ["general", "supervised", "dpo", "reward", "grpo"]

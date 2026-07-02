@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from treepo.bench.runner import VALID_EXPERIMENTS, run_single
-from treepo.methods import run as run_method
+from treepo.methods.oracles import score_oracle
 
 
 def test_markov_is_public_task_benchmark() -> None:
@@ -14,14 +14,14 @@ def test_markov_is_public_task_benchmark() -> None:
 
 
 def test_markov_oracle_fixture_is_exact(tmp_path: Path) -> None:
-    result = run_method(
-        "oracle",
+    result = score_oracle(
         {
             "oracle_name": "markov_changepoint_count",
             "n_trees": 6,
             "n_states": 3,
             "doc_tokens": 64,
-            "leaf_token_count": 8,
+            "doc_unit_kind": "token",
+            "leaf_unit_count": 8,
             "transition_prob": 0.2,
             "seed": 11,
             "output_dir": str(tmp_path / "methods"),
@@ -46,7 +46,8 @@ def test_treepo_bench_markov_writes_json_csv(tmp_path: Path) -> None:
             "task_config": {
                 "n_states": 3,
                 "doc_tokens": 64,
-                "leaf_token_count": 8,
+                "doc_unit_kind": "token",
+                "leaf_unit_count": 8,
                 "transition_prob": 0.25,
                 "vocabulary_size": 96,
             },
