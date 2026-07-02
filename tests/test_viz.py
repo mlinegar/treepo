@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
+import json
+import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from treepo.tree import TreeRecord, local_law_rows_from_tree_records
 from treepo.viz import tree_visualization_payload, write_tree_visualization_html
+
+
+def _payload_trees(html_path: Path) -> list[dict]:
+    text = html_path.read_text(encoding="utf-8")
+    match = re.search(
+        r'<script type="application/json" id="payload">(.*?)</script>', text, re.S
+    )
+    assert match is not None
+    return json.loads(match.group(1))
 
 
 def _tree(idx: int) -> TreeRecord:
@@ -120,6 +133,71 @@ def test_trace_law_rows_synthesize_merge_nodes() -> None:
     assert merge["laws"][0]["proxy_loss"] == pytest.approx(0.4)
     assert root["laws"][0]["proxy_loss"] == pytest.approx(0.5)
     assert root["children"][1]["laws"][0]["proxy_loss"] == pytest.approx(0.3)
+
+
+def test_markov_family_law_rows_render_end_to_end(tmp_path: Path) -> None:
+    from treepo.methods.families import resolve_family
+    from treepo.methods.fixtures import (
+        make_markov_changepoint_trees,
+        markov_tree_records,
+    )
+
+    trees = make_markov_changepoint_trees(
+        n_trees=2,
+        doc_tokens=24,
+        leaf_unit_count=8,
+        vocabulary_size=64,
+        seed=5,
+        split="train",
+    )
+    family = resolve_family(
+        "neural_operator",
+        {
+            "operator_kind": "conv1d",
+            "embedding_dim": 8,
+            "hidden_channels": 4,
+            "n_layers": 1,
+            "head_hidden_dim": 8,
+            "epochs_per_iteration": 1,
+            "batch_size": 4,
+            "numeric_transition_state_weight": 0.05,
+            "device": "cpu",
+            "seed": 3,
+        },
+    )
+    f_artifact = family.train_f(
+        f_init=None, g=None, traces=trees, output_dir=tmp_path / "f", iteration=1
+    )
+    family.train_g(
+        g_init=None, f=f_artifact, traces=trees, output_dir=tmp_path / "g", iteration=2
+    )
+    law_rows = family.as_statistic().local_law_rows(trees)
+    out = write_tree_visualization_html(
+        markov_tree_records(trees), tmp_path / "markov.html", law_rows=law_rows
+    )
+    payload_trees = _payload_trees(out)
+    assert len(payload_trees) == 2
+    for tree in payload_trees:
+        root = tree["roots"][0]
+        # 3 leaves -> synthesized merge node under the root plus a carried leaf.
+        child_ids = [child["node_id"] for child in root["children"]]
+        assert child_ids == ["merge_3", "leaf_2"]
+        assert root["laws"] and root["laws"][0]["depth"] == 0
+        merge = root["children"][0]
+        assert merge["laws"] and merge["laws"][0]["proxy_loss"] is not None
+        # Leaves carry exact gold changepoint labels from the fixture.
+        assert all(g["label"] is not None for g in merge["children"])
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_embedded_javascript_parses(tmp_path: Path) -> None:
+    out = write_tree_visualization_html([_tree(0)], tmp_path / "t.html")
+    text = out.read_text(encoding="utf-8")
+    scripts = re.findall(r"<script>(.*?)</script>", text, re.S)
+    assert scripts
+    js = tmp_path / "embedded.js"
+    js.write_text(scripts[-1], encoding="utf-8")
+    subprocess.run(["node", "--check", str(js)], check=True)
 
 
 def test_write_html_is_standalone_and_contains_nodes(tmp_path: Path) -> None:

@@ -129,11 +129,13 @@ certificate, never the objective.
 
 `treepo.viz.write_tree_visualization_html(trees, path, sampling_rows=...,
 law_rows=...)` writes one self-contained HTML file with an expandable tree
-per document. Leaves show a sampled/unsampled marker with propensity and IPW
-weight, gold labels sit next to prediction-style metadata (for example
-`llm_score`), and local-law rows attach proxy/oracle losses and depth to
-their nodes. `examples/methods/run_tree_visualization.py` renders the
-packaged Manifesto fixture end to end.
+per document: sampled/unsampled markers with propensities and IPW weights,
+gold labels next to prediction metadata, text snippets and `g`-state
+summaries, and local-law losses — statistic rows keyed by trace index render
+on the synthesized merge tree. [`docs/visualization.md`](visualization.md)
+documents the node display, input row shapes, and the Manifesto, Markov, and
+generic reference views; `examples/methods/run_tree_visualization.py` runs
+all three.
 
 ## Performance notes
 

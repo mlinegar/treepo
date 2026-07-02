@@ -22,6 +22,7 @@ setup live in `example_setup/` so the runnable files stay readable.
 | `run_manifesto_finetune_views.py` | Manifesto/RILE fine-tuning exports: root `f` rows, qsentence `g` rows, and qsentence pairwise/ranked candidate views. |
 | `run_preference_optimizer_views.py` | Task-neutral optimizer-view skeleton: one `PreferenceDataset` feeds supervised DSPy prompts plus DPO/reward/GRPO projections. |
 | `run_local_law_certificate.py` | Minimal sampled C1/C2/C3 audit rows, preference exports, evidence JSON, and component-radius certificate ledger. |
+| `run_tree_visualization.py` | Standalone expandable-tree HTML views: Manifesto sampling + gold labels + policy summaries, Markov local-law losses on the synthesized merge tree, and hand-built generic records. See [`docs/visualization.md`](../../docs/visualization.md). |
 
 Preference records can be passed to `treepo.fit({"preference_data": ...})` and
 are exported through supervised, DPO, reward-model, and GRPO views.

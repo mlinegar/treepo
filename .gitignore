@@ -38,10 +38,15 @@ outputs/
 # Notebook checkpoints
 .ipynb_checkpoints/
 
-# Editors / OS
+# Editors / OS / agent harnesses
 .DS_Store
 .vscode/
 .idea/
+.claude/
+
+# Local environment
+.env
+.envrc
 
 # Virtualenvs
 venv/

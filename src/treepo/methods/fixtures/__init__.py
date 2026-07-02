@@ -11,6 +11,7 @@ from treepo.methods.fixtures.lda import LDATopicTree, make_lda_topic_trees
 from treepo.methods.fixtures.markov import (
     MarkovChangepointTree,
     make_markov_changepoint_trees,
+    markov_tree_records,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "make_hll_item_trees",
     "make_lda_topic_trees",
     "make_markov_changepoint_trees",
+    "markov_tree_records",
 ]

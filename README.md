@@ -192,7 +192,10 @@ The Manifesto/RILE methods example has two lanes: root-only document labels for 
 `treepo.viz.write_tree_visualization_html` renders tree records, sampling
 rows, and local-law audit rows as one self-contained HTML file: an expandable
 tree per document with sampled-leaf markers, propensities/IPW weights, gold
-and prediction labels, and per-node local-law losses.
+and prediction labels, text snippets, `g`-state summaries, and per-node
+local-law losses on the computed merge tree. See
+[`docs/visualization.md`](docs/visualization.md) for the Manifesto, Markov,
+and generic reference views.
 
 ## C-TreePO Shape
 
@@ -229,6 +232,7 @@ config validation, and the benchmark CLI surface.
 - Package boundary: [`docs/boundary.md`](docs/boundary.md)
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
 - Trees and sampling over leaves: [`docs/tree_and_sampling.md`](docs/tree_and_sampling.md)
+- Tree visualization: [`docs/visualization.md`](docs/visualization.md)
 - `treepo.methods` module layout & decomposition convention: [`docs/methods_module_layout.md`](docs/methods_module_layout.md)
 - Anti-pattern catalog for cleanup passes: [`docs/antipatterns.md`](docs/antipatterns.md)
 - Evidence artifact: [`docs/evidence.md`](docs/evidence.md)

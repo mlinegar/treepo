@@ -208,4 +208,65 @@ def _make_markov_changepoint_trees_torch(
     return trees
 
 
-__all__ = ["MarkovChangepointTree", "make_markov_changepoint_trees"]
+def markov_tree_records(trees: Sequence[MarkovChangepointTree]) -> List[Any]:
+    """Convert Markov fixture trees into canonical ``TreeRecord`` artifacts.
+
+    Each record is a flat star: token leaves in position order under a root
+    labeled with the exact changepoint count. Leaves carry their own exact
+    within-leaf changepoint count as the gold label, so audits and the tree
+    visualization can compare per-node supervision against learned losses.
+    ``tree_id`` matches the fixture's ``metadata["tree_id"]``, which is also
+    the prefix of statistic law-row ids.
+    """
+
+    from treepo.tree import TreeRecord
+
+    records: List[Any] = []
+    for tree in trees or ():
+        metadata = dict(tree.metadata or {})
+        root_label = metadata.get("teacher_score_native")
+        nodes: List[dict] = []
+        for idx, leaf in enumerate(tree.leaves):
+            regimes = [int(r) for r in leaf.regimes]
+            leaf_changepoints = sum(
+                1 for left, right in zip(regimes, regimes[1:]) if left != right
+            )
+            nodes.append(
+                {
+                    "node_id": f"leaf_{idx}",
+                    "unit_type": "leaf",
+                    "text": " ".join(str(int(token)) for token in leaf.tokens),
+                    "parent_id": "root",
+                    "level": 0,
+                    "position": idx,
+                    "label": leaf_changepoints,
+                    "metadata": {
+                        "regimes": regimes,
+                        "leaf_changepoints": leaf_changepoints,
+                    },
+                }
+            )
+        nodes.append(
+            {
+                "node_id": "root",
+                "unit_type": "root",
+                "level": 1,
+                "label": root_label,
+            }
+        )
+        records.append(
+            TreeRecord(
+                tree_id=str(metadata.get("tree_id") or "markov"),
+                nodes=nodes,
+                root_label=root_label,
+                metadata=metadata,
+            )
+        )
+    return records
+
+
+__all__ = [
+    "MarkovChangepointTree",
+    "make_markov_changepoint_trees",
+    "markov_tree_records",
+]
