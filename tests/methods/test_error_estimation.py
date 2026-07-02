@@ -54,7 +54,7 @@ class _TeacherPassthroughFamily:
         out: List[Optional[float]] = []
         for tree in trees:
             meta = getattr(tree, "metadata", None) or {}
-            value = meta.get("teacher_score_1_7")
+            value = meta.get("teacher_score_native")
             out.append(float(value) if value is not None else None)
         return out
 
@@ -73,10 +73,10 @@ def _make_trees_with_distinct_teacher_and_expert(
             leaves=[SimpleNamespace(tokens=[])],
             metadata={
                 "split": split,
-                "teacher_score_1_7": float(t),
                 "teacher_score_native": float(t),
-                "expert_score_1_7": float(e),
-                "expert_score_native": float(e),
+                "teacher_score_native": float(t),
+                
+                "expert_score_for_objective": float(e),
                 "expert_target_scale": "raw",
                 "expert_score_for_objective": float(e),
             },
@@ -259,7 +259,7 @@ def test_audit_by_law_kind_decomposes_c1_c2_c3() -> None:
     rows = [
         # 3 C1 rows: observed=True, oracle - proxy small
         LocalLawAuditRow(
-            row_id=f"c1_{i}", law_kind="c1_leaf",
+            row_id=f"c1_{i}", law_kind="c1",
             proxy_loss=0.10, oracle_loss=0.10,
             observed=True, propensity=0.5, node_weight=1.0,
         )
@@ -267,7 +267,7 @@ def test_audit_by_law_kind_decomposes_c1_c2_c3() -> None:
     ] + [
         # 2 C2 rows: observed=True, oracle - proxy bigger
         LocalLawAuditRow(
-            row_id=f"c2_{i}", law_kind="c2_idempotence",
+            row_id=f"c2_{i}", law_kind="c2",
             proxy_loss=0.20, oracle_loss=0.50,
             observed=True, propensity=0.5, node_weight=1.0,
         )
@@ -275,7 +275,7 @@ def test_audit_by_law_kind_decomposes_c1_c2_c3() -> None:
     ] + [
         # 4 C3 rows: half observed, half not
         LocalLawAuditRow(
-            row_id=f"c3_{i}", law_kind="c3_merge",
+            row_id=f"c3_{i}", law_kind="c3",
             proxy_loss=0.05,
             oracle_loss=0.05 if i % 2 == 0 else None,
             observed=(i % 2 == 0),

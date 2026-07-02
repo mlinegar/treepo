@@ -132,13 +132,13 @@ def test_spec_mapping_keeps_family_only_fit_surface() -> None:
 
 def test_fit_can_use_llm_family_with_injected_predict_fn(tmp_path: Path) -> None:
     trees = [
-        SimpleNamespace(metadata={"split": "test", "text": "alpha", "teacher_score_1_7": 2.0}),
-        SimpleNamespace(metadata={"split": "test", "text": "beta", "teacher_score_1_7": 4.0}),
+        SimpleNamespace(metadata={"split": "test", "text": "alpha", "teacher_score_native": 2.0}),
+        SimpleNamespace(metadata={"split": "test", "text": "beta", "teacher_score_native": 4.0}),
     ]
 
     def predict_fn(*, tree, **kwargs):
         del kwargs
-        return {"score": getattr(tree, "metadata", {})["teacher_score_1_7"]}
+        return {"score": getattr(tree, "metadata", {})["teacher_score_native"]}
 
     result = fit(
         {
@@ -165,7 +165,7 @@ def test_manifesto_trees_are_plain_and_preferences_supply_root_and_node_views() 
     assert len(trees) >= 3
     first = trees[0]
     assert first.metadata["root_label_name"] == "rile"
-    assert isinstance(first.metadata["teacher_score_1_7"], float)
+    assert isinstance(first.metadata["teacher_score_native"], float)
     removed_key = "training_" + "examples"
     assert removed_key not in first.metadata
 

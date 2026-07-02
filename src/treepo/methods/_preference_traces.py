@@ -43,7 +43,6 @@ def preference_training_rows(
         vector = _as_float_vector(label)
         if scalar is not None:
             metadata["teacher_score_native"] = scalar
-            metadata["teacher_score_1_7"] = scalar
             document_score: float | None = scalar
         else:
             metadata["target_vector"] = vector

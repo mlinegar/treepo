@@ -182,7 +182,7 @@ def _markov_changepoint_count(tree: Any) -> float | None:
             sum(1 for left, right in zip(regimes, regimes[1:]) if int(left) != int(right))
         )
     metadata = getattr(tree, "metadata", None) or {}
-    value = metadata.get("teacher_score_native", metadata.get("teacher_score_1_7"))
+    value = metadata.get("teacher_score_native")
     return float(value) if value is not None else None
 
 
@@ -198,7 +198,7 @@ def _hll_exact(tree: Any) -> float | None:
     if tokens:
         return float(len(set(tokens)))
     metadata = getattr(tree, "metadata", None) or {}
-    value = metadata.get("teacher_score_native", metadata.get("teacher_score_1_7"))
+    value = metadata.get("teacher_score_native")
     return float(value) if value is not None else None
 
 

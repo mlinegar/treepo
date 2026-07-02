@@ -30,7 +30,7 @@ The built-in families are:
 | `oracle` | Wraps built-in oracle scorers as a `FamilyRuntime`. |
 | `learnable_constant` | Tiny deterministic trainable baseline for package tests and API smoke. |
 | `classical_sketch` | Exact classical sketch adapters (e.g. HLL) as a composable-statistic family. |
-| `neural_operator` | Generic neural-operator root-score scorer over embedded leaf sequences; supports `operator_kind="fno"`/`"fourier"`, `operator_kind="tfno"`, `operator_kind="uno"`, and the local `operator_kind="conv1d"` baseline. |
+| `neural_operator` | Generic neural-operator root-score scorer over embedded leaf sequences; supports `operator_kind="fno"`, `operator_kind="tfno"`, `operator_kind="uno"`, and the local `operator_kind="conv1d"` baseline. |
 | `fno` | Concrete FNO route over the shared neural-operator runtime. Use `family="neural_operator"` when selecting a non-FNO operator kind explicitly. |
 | `llm` | Provider-neutral prompt wrapper. Pass `predict_fn` for concrete OpenAI-compatible/vLLM calls. |
 | `dspy` | Provider-neutral DSPy wrapper. Pass `dspy_program`, `program`, or `predict_fn`; DSPy loads only when a program runs. |

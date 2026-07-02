@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "treepo"
-version = "0.1.0"
+version = "0.1.1"
 description = "treepo: composable tree operators and local-law certificates for C-TreePO"
 readme = "README.md"
 # LicenseRef- prefix (PEP 639) for custom non-SPDX licenses like PolyForm-NC.

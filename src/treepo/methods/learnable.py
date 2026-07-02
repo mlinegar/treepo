@@ -35,7 +35,7 @@ class LearnableConstantFamily:
 
     Each training tree's ``metadata`` must carry:
 
-    - ``"teacher_score_1_7"`` (the oracle root score),
+    - ``"teacher_score_native"`` (the oracle root score),
     - ``"observed"`` (whether the oracle was sampled for this tree),
     - ``"propensity"`` (the design sampling probability).
 
@@ -113,7 +113,7 @@ class LearnableConstantFamily:
             meta = getattr(tree, "metadata", None) or {}
             observed = bool(meta.get("observed", True))
             propensity = float(meta.get("propensity", 1.0))
-            oracle_value = meta.get("teacher_score_1_7") if observed else None
+            oracle_value = meta.get("teacher_score_native") if observed else None
             oracle = float(oracle_value) if oracle_value is not None else None
             # Sampled-IPW mode only reads oracle_loss / propensity / observed.
             # We use ``oracle_loss`` as the per-tree target value (the loss

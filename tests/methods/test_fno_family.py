@@ -58,18 +58,15 @@ def test_neural_operator_family_is_builtin_with_fno_option() -> None:
     assert family.operator_kind == "fno"
 
 
-def test_neural_operator_family_accepts_fourier_alias() -> None:
-    family = resolve_family(
-        "neural_operator",
-        {
-            **_tiny_fno_config(),
-            "operator_kind": "fourier",
-        },
-    )
-    assert isinstance(family, NeuralOperatorFamily)
-    assert not isinstance(family, FNOFamily)
-    assert family.name == "neural_operator"
-    assert family.operator_kind == "fno"
+def test_neural_operator_family_rejects_unknown_operator_kind() -> None:
+    with pytest.raises(ValueError, match="does not support operator_kind='fourier'"):
+        resolve_family(
+            "neural_operator",
+            {
+                **_tiny_fno_config(),
+                "operator_kind": "fourier",
+            },
+        )
 
 
 def test_neural_operator_family_is_builtin_with_conv1d_option() -> None:

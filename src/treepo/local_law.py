@@ -41,39 +41,22 @@ class LawKind(str, Enum):
         return cls(normalized)
 
 
+# Two spellings per law: the paper's C-conditions and the Lean L-numbering
+# (L1=leaf, L2=merge, L3=idempotence). The enum values are the canonical
+# long names.
 LAW_KIND_ALIASES: dict[str, LawKind] = {
     "c1": LawKind.C1_LEAF,
     "l1": LawKind.C1_LEAF,
-    "leaf": LawKind.C1_LEAF,
-    "c1_leaf": LawKind.C1_LEAF,
-    "leaf_preservation": LawKind.C1_LEAF,
     "c2": LawKind.C2_IDEMPOTENCE,
     "l3": LawKind.C2_IDEMPOTENCE,
-    "idempotence": LawKind.C2_IDEMPOTENCE,
-    "c2_idempotence": LawKind.C2_IDEMPOTENCE,
-    "on_range_idempotence": LawKind.C2_IDEMPOTENCE,
     "c3": LawKind.C3_MERGE,
     "l2": LawKind.C3_MERGE,
-    "merge": LawKind.C3_MERGE,
-    "c3_merge": LawKind.C3_MERGE,
-    "merge_preservation": LawKind.C3_MERGE,
 }
 
 def normalize_local_law_objective_mode(mode: str) -> str:
-    aliases = {
-        "corrected": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "aipw": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "adjusted": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "adjusted_local_law": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "dr": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "doubly_robust": LOCAL_LAW_OBJECTIVE_CORRECTED,
-        "ipw": LOCAL_LAW_OBJECTIVE_SAMPLED_IPW,
-        "sampled": LOCAL_LAW_OBJECTIVE_SAMPLED_IPW,
-        "hajek": LOCAL_LAW_OBJECTIVE_SAMPLED_IPW,
-        "sampled_hajek": LOCAL_LAW_OBJECTIVE_SAMPLED_IPW,
-    }
     normalized = str(mode or LOCAL_LAW_OBJECTIVE_CORRECTED).strip().lower()
-    normalized = aliases.get(normalized, normalized)
+    if normalized == "corrected":
+        normalized = LOCAL_LAW_OBJECTIVE_CORRECTED
     if normalized not in LOCAL_LAW_OBJECTIVE_MODES:
         raise ValueError(
             f"unknown local-law objective mode {mode!r}; expected one of "

@@ -83,7 +83,11 @@ def _disk_cache_key(model_id: str, text: str) -> str:
 
 
 class DiskCachedEmbeddingClient:
-    """Wrap any embedding client with a per-text on-disk cache."""
+    """Wrap any embedding client with a per-text on-disk cache.
+
+    Shards are compressed ``.npz`` files (one float32 array per text key):
+    portable, pickle-free, and readable with numpy alone.
+    """
 
     def __init__(self, inner: EmbeddingClient, cache_dir: str | os.PathLike, *, model_id: str) -> None:
         self._inner = inner
@@ -94,37 +98,42 @@ class DiskCachedEmbeddingClient:
         self._loaded_shards: set[str] = set()
         self._lock = threading.Lock()
 
+    def _shard_path(self, prefix: str) -> Path:
+        return self._dir / f"shard_{prefix}.npz"
+
     def _load_shard(self, prefix: str) -> None:
         if prefix in self._loaded_shards:
             return
-        path = self._dir / f"shard_{prefix}.pt"
+        path = self._shard_path(prefix)
         if path.exists():
             try:
-                import torch
+                import numpy as np
 
-                data = torch.load(path, map_location="cpu", weights_only=False)
-                if isinstance(data, dict):
-                    self._mem.update(data)
+                with np.load(path) as data:
+                    for key in data.files:
+                        self._mem[key] = [float(x) for x in data[key]]
             except Exception:
                 pass
         self._loaded_shards.add(prefix)
 
     def _persist(self, by_prefix: dict[str, dict[str, List[float]]]) -> None:
-        import torch
+        import numpy as np
 
         for prefix, entries in by_prefix.items():
-            path = self._dir / f"shard_{prefix}.pt"
-            merged: dict[str, List[float]] = {}
+            path = self._shard_path(prefix)
+            merged: dict[str, Any] = {}
             if path.exists():
                 try:
-                    existing = torch.load(path, map_location="cpu", weights_only=False)
-                    if isinstance(existing, dict):
-                        merged.update(existing)
+                    with np.load(path) as existing:
+                        merged.update({key: existing[key] for key in existing.files})
                 except Exception:
                     pass
-            merged.update(entries)
-            tmp = path.with_suffix(".pt.tmp")
-            torch.save(merged, tmp)
+            merged.update(
+                {key: np.asarray(vec, dtype=np.float32) for key, vec in entries.items()}
+            )
+            tmp = path.with_suffix(".npz.tmp")
+            with tmp.open("wb") as handle:
+                np.savez_compressed(handle, **merged)
             os.replace(tmp, path)
 
     def embed_texts(self, texts: Sequence[str]) -> List[List[float]]:

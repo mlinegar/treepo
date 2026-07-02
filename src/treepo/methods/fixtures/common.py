@@ -9,12 +9,9 @@ def exact_score_metadata(target: float, *, target_scale: str) -> dict[str, float
     """Return the standard exact-score metadata fields used by fixtures."""
     value = float(target)
     return {
-        "teacher_score_1_7": value,
         "teacher_score_native": value,
-        "expert_score_1_7": value,
-        "expert_score_native": value,
-        "expert_target_scale": str(target_scale),
         "expert_score_for_objective": value,
+        "expert_target_scale": str(target_scale),
     }
 
 

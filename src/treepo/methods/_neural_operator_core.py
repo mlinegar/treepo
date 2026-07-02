@@ -5,7 +5,7 @@ to ``neuralop.models`` when available and keeps ``operator_kind='conv1d'`` as
 a tiny local baseline. The public ``family='fno'`` route is the concrete
 Fourier neural-operator route over the same shared runtime. Use
 ``family='neural_operator'`` when selecting an operator kind explicitly, for
-example ``operator_kind='fno'`` or the ``operator_kind='fourier'`` alias.
+example ``operator_kind='fno'``.
 Dataset-specific structure belongs in tree fixtures or registered downstream
 families; this module only owns the generic neural-operator method surface.
 
@@ -345,12 +345,9 @@ def build_neural_operator_family(backend_config: Mapping[str, Any]) -> NeuralOpe
     """Build the generic neural-operator family from method ``backend_config``."""
 
     payload = dict(backend_config or {})
-    raw_config = (
-        payload.get("neural_operator_config")
-        if "neural_operator_config" in payload
-        else payload.get("no_config", payload.get("fno_config"))
+    config = _coerce_config(
+        payload.get("neural_operator_config"), payload, config_cls=NeuralOperatorFamilyConfig
     )
-    config = _coerce_config(raw_config, payload, config_cls=NeuralOperatorFamilyConfig)
     embedding_client = payload.get("embedding_client")
     if embedding_client is not None and not hasattr(embedding_client, "embed_texts"):
         raise TypeError("backend_config['embedding_client'] must provide embed_texts(texts)")
@@ -361,12 +358,7 @@ def build_fno_family(backend_config: Mapping[str, Any]) -> FNOFamily:
     """Build the concrete FNO family from method ``backend_config``."""
 
     payload = dict(backend_config or {})
-    raw_config = (
-        payload.get("fno_config")
-        if "fno_config" in payload
-        else payload.get("neural_operator_config", payload.get("no_config"))
-    )
-    config = _coerce_config(raw_config, payload, config_cls=FNOFamilyConfig)
+    config = _coerce_config(payload.get("fno_config"), payload, config_cls=FNOFamilyConfig)
     requested = _normalize_operator_kind(config.operator_kind)
     if requested != "fno":
         raise ValueError(

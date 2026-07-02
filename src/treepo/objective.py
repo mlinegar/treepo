@@ -45,16 +45,14 @@ _EVIDENCE_ONLY_TERM_NAMES = {"oracle_gap", "gap", "f_star_gap"}
 
 
 def canonical_law_component_weights(weights: Mapping[str, float]) -> dict[str, float]:
+    # Two spellings per law: the paper's C-conditions and the Lean L-numbering.
     aliases = {
         "c1": "leaf_preservation",
         "l1": "leaf_preservation",
-        "leaf": "leaf_preservation",
         "c2": "on_range_idempotence",
         "l3": "on_range_idempotence",
-        "idempotence": "on_range_idempotence",
         "c3": "merge_preservation",
         "l2": "merge_preservation",
-        "merge": "merge_preservation",
     }
     out = {name: 0.0 for name in CANONICAL_LAW_COMPONENTS}
     for raw_name, raw_weight in dict(weights or {}).items():

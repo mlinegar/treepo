@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 from treepo.methods.contracts import FitResult
 
-_NON_SPEC_KEYS = {"output_dir", "metadata", "fit", "train_data", "eval_data"}
+_NON_SPEC_KEYS = {"output_dir", "metadata", "train_data", "eval_data"}
 
 
 def fit(
@@ -33,9 +33,6 @@ def fit(
     overrides = {"output_dir": output_dir, "train_data": train_data, "eval_data": eval_data}
     payload.update({k: v for k, v in overrides.items() if v is not None})
     payload.update({k: v for k, v in kwargs.items() if v is not None})
-    nested = payload.get("fit")
-    if isinstance(nested, Mapping):
-        payload.update(dict(nested))
 
     spec = payload.get("spec")
     if spec is None:

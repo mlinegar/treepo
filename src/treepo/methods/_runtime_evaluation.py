@@ -208,23 +208,15 @@ def _tree_id(tree: Any, fallback: int) -> str:
 
 def _teacher_root_score(tree: Any) -> float | None:
     meta = _metadata(tree)
-    for key in ("teacher_score_native", "teacher_score_1_7", "document_score"):
-        value = meta.get(key) if key != "document_score" else getattr(tree, key, None)
-        score = _safe_float(value)
-        if score is not None:
-            return score
-    return None
+    score = _safe_float(meta.get("teacher_score_native"))
+    if score is not None:
+        return score
+    return _safe_float(getattr(tree, "document_score", None))
 
 
 def _expert_root_score(tree: Any) -> float | None:
     meta = _metadata(tree)
-    for key in (
-        "expert_score_native",
-        "expert_score_for_objective",
-        "expert_score_1_7",
-        "teacher_score_native",
-        "teacher_score_1_7",
-    ):
+    for key in ("expert_score_for_objective", "teacher_score_native"):
         score = _safe_float(meta.get(key))
         if score is not None:
             return score

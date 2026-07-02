@@ -1,8 +1,6 @@
 # Changelog
 
-## v0.1.0 — first release
-
-First public version.
+## v0.1.1 — first release
 
 Shipped public surface:
 
@@ -14,17 +12,32 @@ Shipped public surface:
   additional runtimes with `treepo.methods.families.register_family(...)`.
 - Unit-level `PreferenceDataset` records, JSONable task states, tree records
   with validation and summaries, fine-tuning export views, and executable
-  `ComposableStatistic` hooks for exact or learned tree-state methods.
-- Local-law training objectives (`treepo.training.local_law`), local-law audit
-  rows, objective metadata, and component-radius certificates
+  `ComposableStatistic` hooks — including per-node `f` readouts
+  (`node_readouts`) over the merge trace.
+- Local-law training objectives (`treepo.training.local_law`) with the
+  root-at-depth-0 `gamma^depth` convention, local-law audit rows, uniform
+  node-audit designs (`treepo.sampling.sample_node_audit` /
+  `apply_node_audit`), objective metadata, and component-radius certificates
   (`treepo.certificate`).
+- The tree visualization (`treepo.viz.write_tree_visualization_html`): one
+  self-contained HTML file per run with sampled-node markers, gold and
+  prediction labels, text and `g`-state summaries, per-node readouts,
+  local-law losses on the synthesized merge tree, and audit, certificate,
+  and tradeoff panels.
+- The `TradeoffCurve` record (`treepo.methods.tradeoff`): the named
+  error-vs-`leaf_unit_count` artifact, built from grid rows, written as
+  JSON+CSV, rendered by the visualization.
+- Fixture record converters (`markov_tree_records`, `lda_tree_records`,
+  `hll_tree_records`) with exact per-leaf gold labels and one shared
+  `tree_id` convention across DGPs.
 - The `treepo-bench` CLI: `run` for single experiments with JSON/CSV output,
   `check {inventory,hygiene,release}` for package gates.
 - Extras: `bench` (YAML config IO), `sketches` (datasketches adapters), `llm`
   (the requests-based OpenAI-compatible client layer), and `all`.
-- Source-tree examples under `examples/bench` and `examples/methods`.
+- Source-tree examples under `examples/bench` and `examples/methods`,
+  including five reference visualization views.
 
-Scope notes for v0.1:
+Scope notes:
 
 - `treepo.certificate` is a component-radius ledger; callers supply Lipschitz
   readout and measurement-error terms in their radii where a bound needs them.

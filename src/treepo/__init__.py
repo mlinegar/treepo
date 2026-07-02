@@ -7,7 +7,7 @@ from importlib.metadata import PackageNotFoundError, version
 try:
     __version__ = version("treepo")
 except PackageNotFoundError:  # pragma: no cover
-    __version__ = "0.1.0"
+    __version__ = "0.1.1"
 
 _LAZY_EXPORTS = {
     "fit": ("treepo.learning", "fit"),

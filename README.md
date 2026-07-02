@@ -94,7 +94,7 @@ Seven families are built in, and each is deliberately small:
 - `learnable_constant` — tiny trainable baseline for tests and API smoke.
 - `classical_sketch` — exact classical sketch adapters (e.g. HLL).
 - `neural_operator` — generic root scorer over embedded leaf sequences with
-  `operator_kind="fno"`/`"fourier"`, `"tfno"`, `"uno"`, and the local
+  `operator_kind="fno"`, `"tfno"`, `"uno"`, and the local
   `"conv1d"` baseline.
 - `fno` — the concrete FNO route over the same runtime.
 - `llm` and `dspy` — provider-neutral wrappers that accept injected

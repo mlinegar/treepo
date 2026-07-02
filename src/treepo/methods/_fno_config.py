@@ -12,11 +12,6 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any, Mapping, TypeVar
 
 _LOCAL_OPERATOR_KINDS = frozenset({"conv1d"})
-_OPERATOR_KIND_ALIASES = {
-    "fourier": "fno",
-    "fourier_neural_operator": "fno",
-    "fourier_operator": "fno",
-}
 
 
 @dataclass
@@ -107,8 +102,7 @@ def _tensor_payload(value: Any) -> list[float] | None:
 
 
 def _normalize_operator_kind(value: Any) -> str:
-    normalized = str(value or "fno").strip().lower().replace("-", "_")
-    return _OPERATOR_KIND_ALIASES.get(normalized, normalized)
+    return str(value or "fno").strip().lower().replace("-", "_")
 
 
 def _clamp(value: float, lower: float | None, upper: float | None) -> float:

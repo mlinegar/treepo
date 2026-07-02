@@ -246,7 +246,7 @@ def _coerce_policy_state(value: Any) -> TaskState:
 
 def _root_label(tree: Any) -> float | None:
     meta = dict(getattr(tree, "metadata", None) or {})
-    for key in ("root_label", "teacher_score_native", "teacher_score_1_7"):
+    for key in ("root_label", "teacher_score_native"):
         value = meta.get(key)
         parsed = _optional_float(value)
         if parsed is not None:

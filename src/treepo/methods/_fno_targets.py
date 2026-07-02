@@ -76,15 +76,7 @@ def _target_score(tree: Any, target_key: str | None) -> float | None:
     meta = getattr(tree, "metadata", None)
     meta = meta if isinstance(meta, Mapping) else {}
     keys = [target_key] if target_key else []
-    keys.extend(
-        [
-            "teacher_score_native",
-            "teacher_score_1_7",
-            "expert_score_for_objective",
-            "expert_score_native",
-            "expert_score_1_7",
-        ]
-    )
+    keys.extend(["teacher_score_native", "expert_score_for_objective"])
     for key in keys:
         if not key:
             continue

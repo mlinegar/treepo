@@ -8,7 +8,7 @@ from typing import Any, Mapping
 def manifesto_oracle_predict_fn(*, tree: Any, **kwargs: Any) -> Mapping[str, float]:
     del kwargs
     meta = getattr(tree, "metadata", None) or {}
-    return {"score": float(meta["teacher_score_1_7"])}
+    return {"score": float(meta["teacher_score_native"])}
 
 
 def manifesto_prompt_template() -> str:
