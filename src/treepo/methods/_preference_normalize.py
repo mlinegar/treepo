@@ -13,6 +13,7 @@ from collections.abc import Mapping as MappingABC
 from collections.abc import Sequence as SequenceABC
 from typing import Any, Mapping, Sequence
 
+from treepo.methods._run_manifest import json_default
 from treepo.state import state_from_value, state_to_dict
 
 _UNIT_FIELDS = (
@@ -196,16 +197,8 @@ def _mean(values: Sequence[float] | Any) -> float | None:
     return float(sum(rows) / len(rows))
 
 
-def _json_default(value: Any) -> Any:
-    state_value = state_to_dict(value)
-    if state_value is not value:
-        return state_value
-    if hasattr(value, "to_dict"):
-        try:
-            return value.to_dict()
-        except Exception:
-            pass
-    return str(value)
+# Canonical JSON fallback shared with the run-manifest writer.
+_json_default = json_default
 
 
 __all__ = [

@@ -1,15 +1,13 @@
 """TreeRecord-derived preference helpers.
 
 Build a ``PreferenceDataset`` of node-level units from tree records (one unit
-per node, gold supervision as the sole candidate) and filter an existing
-dataset down to one tree. Depends on the data model; the ``TreeRecord`` import
-is deferred so importing the preference boundary stays light.
+per node, gold supervision as the sole candidate). Depends on the data model;
+the ``TreeRecord`` import is deferred so importing the preference boundary
+stays light.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping as MappingABC
-from collections.abc import Sequence as SequenceABC
 from typing import Any, Sequence
 
 from treepo.methods._preference_dataset import (
@@ -110,44 +108,9 @@ def _parent_ids_by_node(nodes: Sequence[Any]) -> dict[str, str]:
     return parents
 
 
-def filter_units_for_tree(dataset: Any, tree_id: Any) -> PreferenceDataset:
-    pref = PreferenceDataset.from_value(dataset)
-    tree = str(tree_id)
-    units = [
-        row
-        for row in pref.units
-        if str(row.get("tree_id") or row.get("doc_id") or "").startswith(tree)
-        or str(row.get("tree_id") or row.get("doc_id") or "") == tree
-    ]
-    unit_ids = {str(row["unit_id"]) for row in units}
-    candidates = [row for row in pref.candidates if str(row.get("unit_id")) in unit_ids]
-    return PreferenceDataset(units=units, candidates=candidates)
-
-
-def _tree_nodes(tree: Any) -> list[Any]:
-    raw = getattr(tree, "nodes", None)
-    if isinstance(raw, MappingABC):
-        return list(raw.values())
-    if isinstance(raw, SequenceABC) and not isinstance(raw, (str, bytes)):
-        return list(raw)
-    return []
-
-
-def _is_root_node(tree: Any, node: Any) -> bool:
-    levels = getattr(tree, "levels", None) or []
-    if levels:
-        root_id = str(levels[-1][-1])
-        return str(getattr(node, "node_id", "")) == root_id
-    nodes = _tree_nodes(tree)
-    return bool(nodes and node is nodes[-1])
-
-
 __all__ = [
-    "_is_root_node",
     "_parent_ids_by_node",
     "_supervised_candidates",
-    "_tree_nodes",
-    "filter_units_for_tree",
     "make_unit_id",
     "preference_units_from_trees",
 ]

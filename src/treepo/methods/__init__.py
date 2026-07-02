@@ -8,17 +8,7 @@ register from downstream packages.
 
 from __future__ import annotations
 
-from treepo.local_law import (
-    InfluenceWeightedAuditOverlap,
-    LawKind,
-    LocalLawAuditRow,
-    LocalLawObjectiveSummary,
-    compute_influence_weighted_overlap,
-    corrected_local_law_loss,
-    local_law_objective_summary,
-)
 from treepo.methods.contracts import (
-    CTreePOFitResult,
     CTreePOLearningSpec,
     FamilyRuntime,
     FitResult,
@@ -27,8 +17,6 @@ from treepo.methods.contracts import (
 
 _LAZY_EXPORTS = {
     "canonical_defaults": ("treepo.methods.canonical_defaults", None),
-    "build_lm_config_dict": ("treepo.methods.canonical_defaults", "build_lm_config_dict"),
-    "LmSection": ("treepo.methods.canonical_defaults", "LmSection"),
     "load_dataclass": ("treepo.methods.canonical_defaults", "load_dataclass"),
     "fit": ("treepo.methods.learning", "fit"),
     "Candidate": ("treepo.methods.preference", "Candidate"),
@@ -38,7 +26,6 @@ _LAZY_EXPORTS = {
     "export_preference_records": ("treepo.methods.preference", "export_preference_records"),
     "make_unit_id": ("treepo.methods.preference", "make_unit_id"),
     "preference_units_from_trees": ("treepo.methods.preference", "preference_units_from_trees"),
-    "filter_units_for_tree": ("treepo.methods.preference", "filter_units_for_tree"),
 }
 
 
@@ -61,23 +48,12 @@ __all__ = [
     "export_preference_records",
     "make_unit_id",
     "preference_units_from_trees",
-    "filter_units_for_tree",
     "fit",
-    "CTreePOFitResult",
     "CTreePOLearningSpec",
     "FitResult",
     "FamilyRuntime",
     "ObjectiveSpec",
-    "InfluenceWeightedAuditOverlap",
-    "LawKind",
-    "LocalLawAuditRow",
-    "LocalLawObjectiveSummary",
-    "compute_influence_weighted_overlap",
-    "corrected_local_law_loss",
-    "local_law_objective_summary",
     # Canonical defaults (see docs/training_defaults.md).
     "canonical_defaults",
-    "build_lm_config_dict",
-    "LmSection",
     "load_dataclass",
 ]

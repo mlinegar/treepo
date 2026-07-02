@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-import math
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from treepo.local_law import (
@@ -446,145 +445,6 @@ def local_law_objective_target_mse(
     )
 
 
-def sampled_uniform_node_ipw_mean_loss(
-    losses: "torch.Tensor",
-    *,
-    rate: float,
-    node_weights: Optional["torch.Tensor"] = None,
-    min_propensity: float = 1e-12,
-) -> "torch.Tensor":
-    """Sample nodes uniformly and return the master sampled-IPW objective.
-
-    ``losses`` is a realized node-population loss tensor with shape
-    ``[batch, nodes]`` or ``[nodes]``. The sampling mask and propensity are
-    derived from the actual node width and draw count; no caller-supplied
-    propensity constants are needed. ``node_weights`` optionally changes the
-    target node-population measure, while the default is the unweighted node
-    mean.
-    """
-
-    _require_torch()
-    values = losses
-    if values.ndim == 1:
-        values = values.reshape(1, -1)
-    elif values.ndim != 2:
-        raise ValueError("sampled_uniform_node_ipw_mean_loss expects [batch, nodes] losses")
-    batch = int(values.shape[0])
-    width = int(values.shape[1])
-    if batch <= 0 or width <= 0:
-        return torch.zeros((), dtype=values.dtype, device=values.device)
-    if float(rate) <= 0.0:
-        return torch.zeros((), dtype=values.dtype, device=values.device)
-
-    if float(rate) >= 1.0:
-        observed = torch.ones_like(values, dtype=torch.bool, device=values.device)
-        propensity = torch.ones_like(values, dtype=values.dtype, device=values.device)
-    else:
-        q = max(1, min(width, int(math.ceil(float(rate) * float(width)))))
-        scores = torch.rand((batch, width), device=values.device)
-        idx = torch.topk(scores, k=q, dim=1).indices
-        observed = torch.zeros((batch, width), dtype=torch.bool, device=values.device)
-        observed = observed.scatter(1, idx, True)
-        propensity = torch.full(
-            (batch, width),
-            float(q) / float(width),
-            dtype=values.dtype,
-            device=values.device,
-        )
-
-    proxy = torch.zeros_like(values, dtype=values.dtype, device=values.device)
-    depths = torch.zeros_like(values, dtype=torch.float32, device=values.device)
-    weights = (
-        None
-        if node_weights is None
-        else node_weights.to(device=values.device, dtype=values.dtype).reshape_as(values)
-    )
-    return local_law_objective_from_losses(
-        proxy_loss=proxy,
-        oracle_loss=values,
-        observed=observed,
-        propensity=propensity,
-        depths=depths,
-        node_weights=weights,
-        gamma_depth=1.0,
-        objective_mode=LOCAL_LAW_OBJECTIVE_SAMPLED_IPW,
-        min_propensity=float(min_propensity),
-    )
-
-
-def observed_uniform_node_ipw_mean_loss(
-    losses: "torch.Tensor",
-    *,
-    observed: "torch.Tensor",
-    propensity: float | "torch.Tensor",
-    node_weights: Optional["torch.Tensor"] = None,
-    min_propensity: float = 1e-12,
-) -> "torch.Tensor":
-    """Return the sampled-IPW objective for an already-realized node mask.
-
-    ``observed`` is a fixed mask over the same node population as ``losses``.
-    ``propensity`` is the actual per-node inclusion probability from the
-    sampling design; callers must pass it from the design rather than deriving
-    it from the realized mask. This supports persistent Bernoulli masks where a
-    row can legitimately contain zero observed nodes.
-    """
-
-    _require_torch()
-    values = losses
-    if values.ndim == 1:
-        values = values.reshape(1, -1)
-    elif values.ndim != 2:
-        raise ValueError("observed_uniform_node_ipw_mean_loss expects [batch, nodes] losses")
-    batch = int(values.shape[0])
-    width = int(values.shape[1])
-    if batch <= 0 or width <= 0:
-        return torch.zeros((), dtype=values.dtype, device=values.device)
-
-    obs = observed.to(device=values.device, dtype=torch.bool)
-    if obs.ndim == 1:
-        obs = obs.reshape(1, -1)
-    if tuple(obs.shape) != tuple(values.shape):
-        raise ValueError(
-            "observed mask shape must match losses shape; "
-            f"got {tuple(obs.shape)} vs {tuple(values.shape)}"
-        )
-    if not bool(obs.any().detach().cpu()):
-        return torch.zeros((), dtype=values.dtype, device=values.device)
-
-    if isinstance(propensity, (float, int)):
-        pi = torch.full(
-            values.shape,
-            float(propensity),
-            dtype=values.dtype,
-            device=values.device,
-        )
-    else:
-        pi = propensity.to(device=values.device, dtype=values.dtype)
-        if pi.ndim == 0:
-            pi = torch.full(values.shape, float(pi.detach().cpu()), dtype=values.dtype, device=values.device)
-        elif pi.ndim == 1:
-            pi = pi.reshape(1, -1)
-        pi = pi.expand_as(values)
-    proxy = torch.zeros_like(values, dtype=values.dtype, device=values.device)
-    depths = torch.zeros_like(values, dtype=torch.float32, device=values.device)
-    weights = (
-        None
-        if node_weights is None
-        else node_weights.to(device=values.device, dtype=values.dtype).reshape_as(values)
-    )
-    return local_law_objective_from_losses(
-        proxy_loss=proxy,
-        oracle_loss=values,
-        observed=obs,
-        propensity=pi,
-        depths=depths,
-        node_weights=weights,
-        gamma_depth=1.0,
-        objective_mode=LOCAL_LAW_OBJECTIVE_SAMPLED_IPW,
-        min_propensity=float(min_propensity),
-    )
-
-
 __all__ = [
     "LOCAL_LAW_OBJECTIVE_CORRECTED",
     "LOCAL_LAW_OBJECTIVE_MODES",
@@ -601,6 +461,4 @@ __all__ = [
     "local_law_objective_target_mse",
     "local_law_training_objective_mean",
     "normalize_local_law_objective_mode",
-    "observed_uniform_node_ipw_mean_loss",
-    "sampled_uniform_node_ipw_mean_loss",
 ]

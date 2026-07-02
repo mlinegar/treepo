@@ -10,18 +10,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-try:
-    import datasketches as _ds
-except ImportError:  # pragma: no cover
-    _ds = None  # type: ignore[assignment]
-
-
-def _require_datasketches() -> None:
-    if _ds is None:
-        raise ImportError(
-            "datasketches is required for official sketch benchmarks. "
-            "Install with: uv sync --extra sketches"
-        )
+from treepo.bench.sketches.adapters._datasketches import _ds, _require_datasketches
 
 
 def _rel_close(a: float, b: float, *, tol: float) -> bool:
@@ -29,29 +18,26 @@ def _rel_close(a: float, b: float, *, tol: float) -> bool:
     return abs(float(a) - float(b)) / scale <= float(tol)
 
 
-@dataclass(frozen=True)
-class CPCDatasketchesAdapter:
-    """Apache DataSketches CPC distinct-count adapter."""
+class _CardinalityAdapterBase:
+    """Shared union-object merge surface for CPC/Theta adapters."""
 
-    lg_k: int = 10
+    is_commutative = True
+    is_associative = True
+    is_idempotent = True
+    is_byte_deterministic = False
 
-    name: str = "cpc_datasketches"
-    is_commutative: bool = True
-    is_associative: bool = True
-    is_idempotent: bool = True
-    is_byte_deterministic: bool = False
+    def _new_sketch(self) -> Any:
+        raise NotImplementedError
 
-    @property
-    def config(self) -> dict:
-        return {"backend": "datasketches", "family": "cpc", "lg_k": int(self.lg_k)}
+    def _new_union(self) -> Any:
+        raise NotImplementedError
+
+    def _state_tolerance(self, a: Any, b: Any) -> float:
+        raise NotImplementedError
 
     def empty(self) -> Any:
         _require_datasketches()
-        return _ds.cpc_sketch(int(self.lg_k))
-
-    def update(self, s: Any, item: int | str) -> Any:
-        s.update(item)
-        return s
+        return self._new_sketch()
 
     def encode(self, items: Iterable[int | str]) -> Any:
         sk = self.empty()
@@ -61,7 +47,7 @@ class CPCDatasketchesAdapter:
 
     def merge(self, a: Any, b: Any) -> Any:
         _require_datasketches()
-        union = _ds.cpc_union(int(self.lg_k))
+        union = self._new_union()
         union.update(a)
         union.update(b)
         return union.get_result()
@@ -78,38 +64,58 @@ class CPCDatasketchesAdapter:
     def state_equal(self, a: Any, b: Any) -> bool:
         if self.serialize(a) == self.serialize(b):
             return True
-        # CPC has an internal HIP estimator and merged-state flag, so compare
-        # functional cardinality rather than byte layout after unions.
-        tol = 2.0 / math.sqrt(float(1 << int(self.lg_k)))
-        return _rel_close(float(a.get_estimate()), float(b.get_estimate()), tol=tol)
+        return _rel_close(
+            float(a.get_estimate()),
+            float(b.get_estimate()),
+            tol=self._state_tolerance(a, b),
+        )
 
     def memory_bytes(self, s: Any) -> float:
         return self.serialized_size_bytes(s)
 
 
 @dataclass(frozen=True)
-class ThetaDatasketchesAdapter:
+class CPCDatasketchesAdapter(_CardinalityAdapterBase):
+    """Apache DataSketches CPC distinct-count adapter."""
+
+    lg_k: int = 10
+
+    name: str = "cpc_datasketches"
+
+    @property
+    def config(self) -> dict:
+        return {"backend": "datasketches", "family": "cpc", "lg_k": int(self.lg_k)}
+
+    def _new_sketch(self) -> Any:
+        return _ds.cpc_sketch(int(self.lg_k))
+
+    def _new_union(self) -> Any:
+        return _ds.cpc_union(int(self.lg_k))
+
+    def _state_tolerance(self, a: Any, b: Any) -> float:
+        # CPC has an internal HIP estimator and merged-state flag, so compare
+        # functional cardinality rather than byte layout after unions.
+        del a, b
+        return 2.0 / math.sqrt(float(1 << int(self.lg_k)))
+
+
+@dataclass(frozen=True)
+class ThetaDatasketchesAdapter(_CardinalityAdapterBase):
     """Apache DataSketches Theta/KMV distinct-count adapter."""
 
     lg_k: int = 12
 
     name: str = "theta_datasketches"
-    is_commutative: bool = True
-    is_associative: bool = True
-    is_idempotent: bool = True
-    is_byte_deterministic: bool = False
 
     @property
     def config(self) -> dict:
         return {"backend": "datasketches", "family": "theta", "lg_k": int(self.lg_k)}
 
-    def empty(self) -> Any:
-        _require_datasketches()
+    def _new_sketch(self) -> Any:
         return _ds.update_theta_sketch(int(self.lg_k))
 
-    def update(self, s: Any, item: int | str) -> Any:
-        s.update(item)
-        return s
+    def _new_union(self) -> Any:
+        return _ds.theta_union(int(self.lg_k))
 
     def encode(self, items: Iterable[int | str]) -> Any:
         sk = self.empty()
@@ -117,31 +123,9 @@ class ThetaDatasketchesAdapter:
             sk.update(item)
         return sk.compact()
 
-    def merge(self, a: Any, b: Any) -> Any:
-        _require_datasketches()
-        union = _ds.theta_union(int(self.lg_k))
-        union.update(a)
-        union.update(b)
-        return union.get_result()
-
-    def query(self, s: Any, q: None = None) -> float:
-        return float(s.get_estimate())
-
-    def serialize(self, s: Any) -> bytes:
-        return bytes(s.serialize())
-
-    def serialized_size_bytes(self, s: Any) -> float:
-        return float(len(self.serialize(s)))
-
-    def state_equal(self, a: Any, b: Any) -> bool:
-        if self.serialize(a) == self.serialize(b):
-            return True
+    def _state_tolerance(self, a: Any, b: Any) -> float:
         retained = max(1.0, float(getattr(a, "num_retained", 1)), float(getattr(b, "num_retained", 1)))
-        tol = 2.0 / math.sqrt(retained)
-        return _rel_close(float(a.get_estimate()), float(b.get_estimate()), tol=tol)
-
-    def memory_bytes(self, s: Any) -> float:
-        return self.serialized_size_bytes(s)
+        return 2.0 / math.sqrt(retained)
 
 
 def theta_union_estimate(a: Any, b: Any, *, lg_k: int = 12) -> float:

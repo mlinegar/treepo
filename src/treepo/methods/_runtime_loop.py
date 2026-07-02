@@ -1,21 +1,72 @@
-"""Alternating f/g runtime orchestration."""
+"""Alternating f/g runtime orchestration, schedule, and statistic payloads."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Sequence
 
+from treepo.local_law import local_law_objective_summary
 from treepo.methods._runtime_evaluation import evaluate_splits
-from treepo.methods._runtime_schedule import (
-    stage_label_for_iteration,
-    stage_name_for_iteration,
-    stage_powers_for_iteration,
-    trains_f_at_iteration,
-    trains_g_at_iteration,
-)
-from treepo.methods._runtime_statistics import statistic_payload
 from treepo.methods._runtime_types import IterationRecord
 from treepo.methods.contracts import FamilyRuntime
+from treepo.statistic import family_statistic
+
+
+def stage_powers_for_iteration(k: int) -> tuple[int, int]:
+    if k < 0:
+        raise ValueError(f"iteration must be >= 0, got {k}")
+    f_degree = 1
+    g_degree = 1
+    side = "f"
+    for _ in range(int(k)):
+        if side == "f":
+            f_degree += 1
+            side = "g"
+        else:
+            g_degree += 1
+            side = "f"
+    return f_degree, g_degree
+
+
+def stage_name_for_iteration(k: int) -> str:
+    if k == 0:
+        return "fg"
+    return "fg" + "".join("f" if i % 2 == 0 else "g" for i in range(k))
+
+
+def stage_label_for_iteration(k: int) -> str:
+    f_degree, g_degree = stage_powers_for_iteration(k)
+    return f"f^{f_degree} g^{g_degree}"
+
+
+def trains_f_at_iteration(k: int) -> bool:
+    return k >= 1 and k % 2 == 1
+
+
+def trains_g_at_iteration(k: int) -> bool:
+    return k >= 1 and k % 2 == 0
+
+
+def statistic_payload(
+    *,
+    family: FamilyRuntime,
+    f_artifact: Any,
+    g_artifact: Any,
+    eval_trees: Sequence[Any],
+) -> dict[str, Any]:
+    statistic = family_statistic(family, f=f_artifact, g=g_artifact)
+    if statistic is None:
+        return {}
+    payload: dict[str, Any] = {"info": statistic.info.to_dict()}
+    try:
+        rows = list(statistic.local_law_rows(list(eval_trees or ())))
+    except Exception as exc:  # pragma: no cover - defensive metadata path
+        payload["local_law_error"] = f"{type(exc).__name__}: {exc}"
+        return payload
+    if rows:
+        payload["local_law_summary"] = local_law_objective_summary(rows).to_dict()
+        payload["local_law_row_count"] = int(len(rows))
+    return payload
 
 
 def run_alternating_family(
@@ -109,4 +160,12 @@ def run_alternating_family(
     return records
 
 
-__all__ = ["run_alternating_family"]
+__all__ = [
+    "run_alternating_family",
+    "stage_label_for_iteration",
+    "stage_name_for_iteration",
+    "stage_powers_for_iteration",
+    "statistic_payload",
+    "trains_f_at_iteration",
+    "trains_g_at_iteration",
+]

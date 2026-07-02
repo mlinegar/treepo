@@ -1,8 +1,7 @@
-"""Lightweight defaults and dataclass loading for :mod:`treepo.methods`.
+"""Generic dataclass-from-TOML loading for :mod:`treepo.methods`.
 
-`treepo` keeps only dependency-light defaults. Application families can define
-their richer defaults in their own package and still use the generic loader
-here.
+Application families define their own defaults in their own package and use
+the generic loader here.
 
 ``load_dataclass(path, cls, section=...)``
    hydrates any dataclass from a TOML, with optional dotted-key
@@ -20,7 +19,7 @@ Usage::
 from __future__ import annotations
 
 import typing
-from dataclasses import dataclass, field, fields, is_dataclass, replace
+from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Optional, Type, TypeVar
 
@@ -28,40 +27,6 @@ try:  # Python 3.11+ stdlib
     import tomllib as _toml_loader
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as _toml_loader  # type: ignore[no-redef]
-
-# ===========================================================================
-# Defaults
-# ===========================================================================
-
-DEFAULT_BATCH_MAX_CONCURRENT = 512
-DEFAULT_BATCH_SIZE = 64
-DEFAULT_BATCH_TIMEOUT_SECONDS = 0.02
-DEFAULT_BATCH_REQUEST_TIMEOUT_SECONDS = 300.0
-DEFAULT_BATCH_ROUTING_POLICY = "affinity_load_aware"
-BATCH_DEFAULTS: dict[str, Any] = {
-    "batch_size": DEFAULT_BATCH_SIZE,
-    "batch_max_concurrent": DEFAULT_BATCH_MAX_CONCURRENT,
-    "batch_timeout": DEFAULT_BATCH_TIMEOUT_SECONDS,
-    "batch_request_timeout": DEFAULT_BATCH_REQUEST_TIMEOUT_SECONDS,
-    "batch_routing_policy": DEFAULT_BATCH_ROUTING_POLICY,
-}
-
-CONCAT_RATIO: float = 2.0
-DEFAULT_TARGET_RATIO: float = 0.15
-DEFAULT_PROMPT_OVERHEAD_TOKENS: int = 1500
-DEFAULT_MANIFESTO_WORKERS: int = 4
-DEFAULT_SUMMARY_WORKERS: int = 4
-DEFAULT_SCORING_WORKERS: int = 4
-DEFAULT_SCORER_MAX_TOKENS: int = 256
-GEPA_STRONG_DEFAULTS: dict[str, Any] = {
-    "use_merge": True,
-    "max_merge_invocations": 5,
-    "track_stats": True,
-    "reflection_minibatch_size": 8,
-    "use_wandb": False,
-    "use_mlflow": False,
-}
-
 
 # ===========================================================================
 # Generic loader
@@ -154,52 +119,6 @@ def _clone(obj: Any) -> Any:
     return replace(obj, **{f.name: _clone(getattr(obj, f.name)) for f in fields(obj)})
 
 
-# ===========================================================================
-# Scenario wrappers — only the knobs upstream classes DON'T carry
-# ===========================================================================
-
-
-@dataclass
-class LmSection:
-    """LM endpoint config (shared across LLM-driven families)."""
-
-    model: str = "nvidia/Gemma-4-31B-IT-NVFP4"
-    endpoints: list[str] = field(
-        default_factory=lambda: ["http://localhost:8000/v1"]
-    )
-    temperature: float = 0.0
-    cache: bool = False
-
-
-# ===========================================================================
-# DSPy: just an LM-config helper. Strong GEPA defaults are now baked into
-# ``DSPyFamilyConfig.gepa_kwargs`` (a field default factory); no monkey-patch.
-# ===========================================================================
-
-
-def build_lm_config_dict(lm: LmSection, *, max_tokens: int) -> dict[str, Any]:
-    """Build the ``lm_config`` dict that ``DSPyFamilyConfig.lm_config`` expects."""
-    return {
-        "model": f"openai/{lm.model}",
-        "api_bases": list(lm.endpoints),
-        "api_key": "EMPTY",
-        "temperature": float(lm.temperature),
-        "max_tokens": int(max_tokens),
-        "cache": bool(lm.cache),
-    }
-
-
 __all__ = [
-    # Constants
-    "GEPA_STRONG_DEFAULTS", "BATCH_DEFAULTS",
-    "CONCAT_RATIO", "DEFAULT_TARGET_RATIO", "DEFAULT_SCORER_MAX_TOKENS",
-    "DEFAULT_PROMPT_OVERHEAD_TOKENS", "DEFAULT_MANIFESTO_WORKERS",
-    "DEFAULT_SUMMARY_WORKERS", "DEFAULT_SCORING_WORKERS",
-    # Generic loader
     "load_dataclass",
-    # Cross-family scenario wrappers
-    "LmSection",
-    # DSPy LM-config helper (strong GEPA defaults are now field defaults on
-    # DSPyFamilyConfig — no monkey-patch needed).
-    "build_lm_config_dict",
 ]

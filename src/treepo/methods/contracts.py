@@ -7,24 +7,13 @@ these records at the package boundary.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
 
+from treepo.common import jsonable
 from treepo.objective import ObjectiveSpec
 
 JsonDict = dict[str, Any]
-
-
-def jsonable(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(k): jsonable(v) for k, v in value.items()}
-    if isinstance(value, tuple):
-        return [jsonable(v) for v in value]
-    if isinstance(value, list):
-        return [jsonable(v) for v in value]
-    if hasattr(value, "to_dict") and callable(value.to_dict):
-        return value.to_dict()
-    return value
 
 
 @runtime_checkable
@@ -82,15 +71,6 @@ class CTreePOLearningSpec:
     backend_config: Mapping[str, Any] = field(default_factory=dict)
     axis: Mapping[str, Any] = field(default_factory=dict)
 
-    def with_schedule(self, schedule: str) -> "CTreePOLearningSpec":
-        return replace(self, schedule=str(schedule))
-
-    def with_initial_artifacts(
-        self,
-        artifacts: Mapping[str, Any],
-    ) -> "CTreePOLearningSpec":
-        return replace(self, initial_artifacts=dict(artifacts))
-
     def to_dict(self) -> JsonDict:
         return {
             "space_kind": str(self.space_kind),
@@ -141,11 +121,7 @@ class FitResult:
         }
 
 
-CTreePOFitResult = FitResult
-
-
 __all__ = [
-    "CTreePOFitResult",
     "FitResult",
     "CTreePOLearningSpec",
     "FamilyRuntime",

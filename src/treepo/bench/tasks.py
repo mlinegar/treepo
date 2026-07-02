@@ -69,11 +69,6 @@ def list_task_benchmarks() -> tuple[str, ...]:
     return tuple(sorted(_REGISTRY))
 
 
-def task_benchmark_config_keys(task: str) -> set[str]:
-    _lookup(task)
-    return {field.name for field in dataclasses.fields(TaskBenchmarkConfig)}
-
-
 def run_task_benchmark(
     task: str,
     config: TaskBenchmarkConfig,
@@ -122,10 +117,8 @@ def run_task_benchmark(
     )
 
 
-def experiment_rows(summary: TaskBenchmarkSummary | Mapping[str, Any]) -> list[dict[str, Any]]:
-    if isinstance(summary, TaskBenchmarkSummary):
-        return [dict(row) for row in summary.rows]
-    return [dict(row) for row in list(summary.get("rows") or [])]
+def experiment_rows(summary: TaskBenchmarkSummary) -> list[dict[str, Any]]:
+    return [dict(row) for row in summary.rows]
 
 
 def _lookup(task: str) -> TaskBenchmarkSpec:
@@ -252,5 +245,4 @@ __all__ = [
     "list_task_benchmarks",
     "register_task_benchmark",
     "run_task_benchmark",
-    "task_benchmark_config_keys",
 ]

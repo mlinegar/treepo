@@ -36,40 +36,17 @@ class TaskState:
         }
 
 
-@dataclass(frozen=True)
-class TreeUnitRef:
-    """Stable identity for a tree unit without imposing a concrete tree class."""
-
-    tree_id: str
-    node_id: str
-    unit_id: str
-    unit_type: str
-    level: int | None = None
-    position: int | None = None
-    parent_id: str | None = None
-    left_child_id: str | None = None
-    right_child_id: str | None = None
-    metadata: Mapping[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "tree_id": str(self.tree_id),
-            "node_id": str(self.node_id),
-            "unit_id": str(self.unit_id),
-            "unit_type": str(self.unit_type),
-            "level": self.level,
-            "position": self.position,
-            "parent_id": self.parent_id,
-            "left_child_id": self.left_child_id,
-            "right_child_id": self.right_child_id,
-            "metadata": {str(k): jsonable(v) for k, v in dict(self.metadata or {}).items()},
-        }
-
-
 def make_unit_id(tree_id: Any, node_id: Any) -> str:
     """Return the package-wide deterministic unit id spelling."""
 
     return f"{str(tree_id)}:{str(node_id)}"
+
+
+def split_unit_id(unit_id: str) -> tuple[str, str]:
+    """Split a ``make_unit_id`` spelling back into ``(tree_id, node_id)``."""
+
+    tree_id, _, node_id = str(unit_id).partition(":")
+    return tree_id, node_id
 
 
 def state_from_value(value: Any, *, default_kind: str | None = None) -> TaskState | Any:
@@ -99,72 +76,10 @@ def state_to_dict(value: Any) -> Any:
     return jsonable(coerced)
 
 
-def unit_ref_from(
-    value: Any,
-    *,
-    tree_id: Any | None = None,
-    node_id: Any | None = None,
-    unit_id: Any | None = None,
-    unit_type: str | None = None,
-    metadata: Mapping[str, Any] | None = None,
-) -> TreeUnitRef:
-    """Build a ``TreeUnitRef`` from an object or mapping plus overrides."""
-
-    row = dict(value) if isinstance(value, Mapping) else {}
-    meta = dict(row.get("metadata") or getattr(value, "metadata", {}) or {})
-    if metadata:
-        meta.update(dict(metadata))
-    resolved_tree = str(
-        tree_id
-        or row.get("tree_id")
-        or row.get("doc_id")
-        or meta.get("tree_id")
-        or meta.get("doc_id")
-        or getattr(value, "tree_id", "")
-        or getattr(value, "doc_id", "")
-        or "tree"
-    )
-    resolved_node = str(
-        node_id
-        or row.get("node_id")
-        or getattr(value, "node_id", "")
-        or ("root" if str(unit_type or row.get("unit_type") or "") == "root" else "")
-        or "unit"
-    )
-    resolved_unit = str(unit_id or row.get("unit_id") or make_unit_id(resolved_tree, resolved_node))
-    return TreeUnitRef(
-        tree_id=resolved_tree,
-        node_id=resolved_node,
-        unit_id=resolved_unit,
-        unit_type=str(unit_type or row.get("unit_type") or row.get("kind") or "unit"),
-        level=_optional_int(row.get("level", getattr(value, "level", None))),
-        position=_optional_int(row.get("position", getattr(value, "position", None))),
-        parent_id=_optional_str(row.get("parent_id", getattr(value, "parent_id", None))),
-        left_child_id=_optional_str(row.get("left_child_id", getattr(value, "left_child_id", None))),
-        right_child_id=_optional_str(row.get("right_child_id", getattr(value, "right_child_id", None))),
-        metadata=meta,
-    )
-
-
-def _optional_int(value: Any) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _optional_str(value: Any) -> str | None:
-    return None if value is None else str(value)
-
-
 __all__ = [
     "TaskState",
-    "TreeUnitRef",
-    "jsonable",
     "make_unit_id",
+    "split_unit_id",
     "state_from_value",
     "state_to_dict",
-    "unit_ref_from",
 ]

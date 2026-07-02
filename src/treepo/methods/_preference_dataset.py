@@ -29,7 +29,6 @@ from treepo.methods._preference_normalize import (
     _is_flat_candidate_mapping,
     _is_pairwise_mapping,
     _json_default,
-    _json_text,
     _maybe_json,
     _mean,
     _normalize_candidate_row,
@@ -183,13 +182,6 @@ class PreferenceRecord:
         if max_weight is not None:
             value = min(value, float(max_weight))
         return float(value)
-
-    def context_text(self) -> str:
-        if isinstance(self.context, str):
-            return self.context
-        if isinstance(self.context, MappingABC) and self.context.get("prompt"):
-            return str(self.context["prompt"])
-        return _json_text(self.context)
 
     def to_unit_row(self) -> dict[str, Any]:
         row = {
@@ -398,11 +390,6 @@ class PreferenceDataset:
         ]
         return PreferenceDataset(units=unit_rows, candidates=candidate_rows)
 
-    def filter_tree(self, tree_id: str) -> "PreferenceDataset":
-        from treepo.methods._preference_tree import filter_units_for_tree
-
-        return filter_units_for_tree(self, tree_id)
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": "2.0",
@@ -411,7 +398,6 @@ class PreferenceDataset:
             "n_candidates": len(self.candidates),
             "units": [dict(row) for row in self.units],
             "candidates": [dict(row) for row in self.candidates],
-            "records": self.to_records("general"),
         }
 
     def summary(self) -> dict[str, Any]:
@@ -437,9 +423,6 @@ class PreferenceDataset:
                 ),
             }
         )
-
-    def to_hf_dataset(self) -> Any:
-        return self.to_hf_dataset_dict()
 
     def to_records(self, format: PreferenceFormat = "general") -> list[dict[str, Any]]:
         if format == "general":

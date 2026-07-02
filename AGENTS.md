@@ -8,7 +8,7 @@ This checkout is the standalone `treepo` package. For detailed guidance, read `d
 - Use `rg` for search and inspect nearby tests before changing behavior.
 - Keep the package boundary small. Large application workflows, model-serving orchestration, publication grids, and private datasets belong downstream.
 - Preserve the single public learning surface: `treepo.fit(...)`.
-- Use existing public records before creating new shapes: `TaskState`, `TreeRecord`, `TreeUnitRef`, `PreferenceDataset`, `LocalLawAuditRow`, `ObjectiveSpec`, and `FitResult`.
+- Use existing public records before creating new shapes: `TaskState`, `TreeRecord`, `PreferenceDataset`, `LocalLawAuditRow`, `ObjectiveSpec`, and `FitResult`.
 - Keep top-level `import treepo` light. Heavy optional stacks must remain behind extras and lazy imports.
 - Keep examples small, provider-neutral, and runnable without model servers unless explicitly documented as downstream-owned.
 

@@ -1,42 +1,90 @@
 from __future__ import annotations
 
-import json
-from dataclasses import fields
+import traceback
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from treepo.bench.classical_sketches import (
     ClassicalSketchComparisonConfig,
     run_classical_sketch_comparison,
 )
 from treepo.bench.env import apply_cpu_thread_limits
-from treepo.bench.grid import (
-    BenchmarkDefinition,
-    BenchmarkResult,
-    run_benchmark_cell,
-    validate_benchmark_config,
-)
 from treepo.bench.io import (
+    add_runtime_meta,
+    atomic_write_text,
+    dump_json,
     summary_to_csv_rows_classical_sketches,
-    summary_to_csv_rows_task,
+    write_csv_rows,
 )
 from treepo.bench.tasks import (
     TaskBenchmarkConfig,
     list_task_benchmarks,
     run_task_benchmark,
-    task_benchmark_config_keys,
+)
+from treepo.bench.tasks import (
+    experiment_rows as task_experiment_rows,
 )
 
 ExperimentName = str
-EXPERIMENT_CLASSICAL_SKETCHES = "classical-sketches"
-BASE_EXPERIMENTS: tuple[ExperimentName, ...] = (
-    EXPERIMENT_CLASSICAL_SKETCHES,
-)
+_EXPERIMENT_CLASSICAL_SKETCHES = "classical-sketches"
+
+
+@dataclass(frozen=True)
+class BenchmarkResult:
+    payload: Mapping[str, Any]
+    rows: Sequence[Mapping[str, object]]
+
+
+@dataclass(frozen=True)
+class BenchmarkDefinition:
+    name: str
+    allowed_config_keys: frozenset[str]
+    run: Callable[[Mapping[str, object], Path], BenchmarkResult]
+
+
+def validate_benchmark_config(
+    definition: BenchmarkDefinition,
+    config: Mapping[str, object],
+) -> None:
+    unknown = sorted(str(key) for key in config if str(key) not in definition.allowed_config_keys)
+    if unknown:
+        raise ValueError(f"unknown config keys for {definition.name}: {unknown}")
+
+
+def run_benchmark_cell(
+    definition: BenchmarkDefinition,
+    config: Mapping[str, object],
+    *,
+    json_out: str | Path,
+    csv_out: str | Path,
+    print_json: bool = False,
+) -> dict[str, object]:
+    json_path = Path(json_out)
+    csv_path = Path(csv_out)
+    validate_benchmark_config(definition, config)
+
+    try:
+        result = definition.run(dict(config), json_path.parent / f"{definition.name}_work")
+        payload = add_runtime_meta(dict(result.payload))
+        atomic_write_text(json_path, dump_json(payload))
+        write_csv_rows(csv_path, [dict(row) for row in result.rows])
+    except Exception:
+        err_path = (
+            json_path.parent / "error.txt"
+            if json_path.name == "summary.json"
+            else json_path.with_suffix(".error.txt")
+        )
+        atomic_write_text(err_path, traceback.format_exc())
+        raise
+
+    if print_json:
+        print(json_path.read_text(encoding="utf-8"))
+    return {"status": "ok", "json_out": str(json_path), "csv_out": str(csv_path)}
 
 
 def _dataclass_keys(cls: type[object]) -> frozenset[str]:
     return frozenset(field.name for field in fields(cls))
-
 
 
 def _run_classical_sketches(
@@ -47,7 +95,7 @@ def _run_classical_sketches(
     cfg = ClassicalSketchComparisonConfig(**dict(config))
     summary = run_classical_sketch_comparison(cfg)
     return BenchmarkResult(
-        payload=json.loads(summary.to_json()),
+        payload=summary.to_dict(),
         rows=summary_to_csv_rows_classical_sketches(summary),
     )
 
@@ -58,20 +106,20 @@ def _make_task_definition(experiment: ExperimentName) -> BenchmarkDefinition:
         summary = run_task_benchmark(experiment, cfg, output_dir=output_dir)
         return BenchmarkResult(
             payload=summary.to_dict(),
-            rows=summary_to_csv_rows_task(summary),
+            rows=[dict(row) for row in task_experiment_rows(summary)],
         )
 
     return BenchmarkDefinition(
         name=experiment,
-        allowed_config_keys=frozenset(task_benchmark_config_keys(experiment)),
+        allowed_config_keys=_dataclass_keys(TaskBenchmarkConfig),
         run=_run_task,
     )
 
 
 def _build_benchmarks() -> dict[ExperimentName, BenchmarkDefinition]:
     benchmarks: dict[ExperimentName, BenchmarkDefinition] = {
-        EXPERIMENT_CLASSICAL_SKETCHES: BenchmarkDefinition(
-            name=EXPERIMENT_CLASSICAL_SKETCHES,
+        _EXPERIMENT_CLASSICAL_SKETCHES: BenchmarkDefinition(
+            name=_EXPERIMENT_CLASSICAL_SKETCHES,
             allowed_config_keys=_dataclass_keys(ClassicalSketchComparisonConfig),
             run=_run_classical_sketches,
         ),
@@ -83,13 +131,6 @@ def _build_benchmarks() -> dict[ExperimentName, BenchmarkDefinition]:
 
 BENCHMARKS: dict[ExperimentName, BenchmarkDefinition] = _build_benchmarks()
 VALID_EXPERIMENTS: tuple[ExperimentName, ...] = tuple(BENCHMARKS)
-
-
-def allowed_config_keys(experiment: ExperimentName) -> set[str]:
-    try:
-        return set(BENCHMARKS[str(experiment)].allowed_config_keys)
-    except KeyError as exc:
-        raise ValueError(f"unknown experiment: {experiment!r}") from exc
 
 
 def validate_config_dict(experiment: ExperimentName, config: Mapping[str, object]) -> None:
@@ -123,11 +164,12 @@ def run_single(
 
 
 __all__ = [
-    "BASE_EXPERIMENTS",
     "BENCHMARKS",
-    "EXPERIMENT_CLASSICAL_SKETCHES",
+    "BenchmarkDefinition",
+    "BenchmarkResult",
     "VALID_EXPERIMENTS",
-    "allowed_config_keys",
+    "run_benchmark_cell",
     "run_single",
+    "validate_benchmark_config",
     "validate_config_dict",
 ]

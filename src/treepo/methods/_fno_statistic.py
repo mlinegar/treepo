@@ -15,6 +15,7 @@ from treepo.methods._fno_config import _clamp
 from treepo.methods._fno_encoding import _leaf_token_groups
 from treepo.methods._fno_transition import (
     _numeric_transition_state_targets,
+    _pairwise_merge_depths,
     _tree_row_id,
 )
 from treepo.statistic import StatisticInfo
@@ -87,7 +88,7 @@ class _NeuralOperatorStatistic:
         with family._torch.no_grad():
             leaf_states = family._model.leaf_operator(x)
             length = max(1, int(lengths[0].detach().cpu().item()))
-            root, _trace = family._model._compose_with_trace(leaf_states[0, :length, :])
+            root, _ = family._model._compose(leaf_states[0, :length, :], collect_trace=False)
         return root.detach().clone()
 
     def predict_tree(self, tree: Any) -> Any:
@@ -122,7 +123,18 @@ class _NeuralOperatorStatistic:
         rows: list[LocalLawAuditRow] = []
         for tree_idx, (tree, pred_trace, target_trace) in enumerate(zip(trees, traces, targets)):
             leaf_count = len(_leaf_token_groups(tree) or ())
-            n_rows = min(int(pred_trace.shape[0]), int(target_trace.shape[0]))
+            if int(pred_trace.shape[0]) != int(target_trace.shape[0]):
+                raise ValueError(
+                    "local-law state audit node count mismatch: model trace has "
+                    f"{int(pred_trace.shape[0])} nodes, targets have {int(target_trace.shape[0])}"
+                )
+            n_rows = int(pred_trace.shape[0])
+            if n_rows != max(1, 2 * leaf_count - 1):
+                raise ValueError(
+                    f"local-law state audit expected {max(1, 2 * leaf_count - 1)} trace rows "
+                    f"for {leaf_count} leaves, model trace has {n_rows}"
+                )
+            depths = _pairwise_merge_depths(leaf_count)
             for node_idx in range(n_rows):
                 d = min(int(pred_trace.shape[1]), int(target_trace.shape[1]))
                 if d <= 0:
@@ -142,6 +154,7 @@ class _NeuralOperatorStatistic:
                         oracle_loss=loss,
                         observed=True,
                         propensity=1.0,
+                        depth=depths[node_idx] if node_idx < len(depths) else 0,
                         metadata={
                             "statistic": self.info.name,
                             "state_kind": self.info.state_kind,

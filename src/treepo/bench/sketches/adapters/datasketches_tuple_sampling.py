@@ -5,18 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
-try:
-    import datasketches as _ds
-except ImportError:  # pragma: no cover
-    _ds = None  # type: ignore[assignment]
-
-
-def _require_datasketches() -> None:
-    if _ds is None:
-        raise ImportError(
-            "datasketches is required for official sketch benchmarks. "
-            "Install with: uv sync --extra sketches"
-        )
+from treepo.bench.sketches.adapters._datasketches import (
+    _ds,
+    _require_datasketches,
+    _split_weighted_item,
+)
 
 
 @dataclass(frozen=True)
@@ -54,24 +47,13 @@ class TupleAccumulatorDatasketchesAdapter:
         _require_datasketches()
         return _ds.update_tuple_sketch(self._policy(), int(self.lg_k)).compact()
 
-    def update(self, s: Any, item: Any) -> Any:
-        _require_datasketches()
-        sk = _ds.update_tuple_sketch(self._policy(), int(self.lg_k))
-        sk.update(*self._coerce_item(item))
-        return self.merge(s, sk.compact())
-
     def encode(self, items: Iterable[Any]) -> Any:
         _require_datasketches()
         sk = _ds.update_tuple_sketch(self._policy(), int(self.lg_k))
         for item in items:
-            sk.update(*self._coerce_item(item))
+            key, value = _split_weighted_item(item)
+            sk.update(key, int(value))
         return sk.compact()
-
-    def _coerce_item(self, item: Any) -> tuple[Any, int]:
-        if isinstance(item, tuple) and len(item) == 2:
-            key, value = item
-            return key, int(value)
-        return item, 1
 
     def merge(self, a: Any, b: Any) -> Any:
         _require_datasketches()
@@ -122,18 +104,14 @@ class VarOptStringsDatasketchesAdapter:
         _require_datasketches()
         return _ds.var_opt_sketch(int(self.k))
 
-    def update(self, s: Any, item: str | tuple[str, float]) -> Any:
-        if isinstance(item, tuple) and len(item) == 2:
-            key, weight = item
-            s.update(str(key), float(weight))
-        else:
-            s.update(str(item))
-        return s
-
     def encode(self, items: Iterable[str | tuple[str, float]]) -> Any:
         sk = self.empty()
         for item in items:
-            self.update(sk, item)
+            if isinstance(item, tuple) and len(item) == 2:
+                key, weight = item
+                sk.update(str(key), float(weight))
+            else:
+                sk.update(str(item))
         return sk
 
     def merge(self, a: Any, b: Any) -> Any:

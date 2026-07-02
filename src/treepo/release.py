@@ -140,13 +140,8 @@ def _is_core_light_path(path: Path) -> bool:
         "__init__.py",
         "certificate.py",
         "common.py",
-        "core",
-        "hll.py",
-        "honesty.py",
         "local_law.py",
-        "manifest.py",
         "objective.py",
-        "paths.py",
         "sampling.py",
         "statistic.py",
         "state.py",
@@ -199,7 +194,7 @@ import json
 import sys
 import treepo
 heavy = ["datasets", "dspy", "openai", "pandas", "peft", "sentence_transformers", "torch", "transformers", "trl", "vllm"]
-from treepo import Candidate, ComposableStatistic, PreferenceDataset, PreferenceRecord, StatisticInfo, TaskState, TreeNode, TreeRecord, TreeUnitRef, family_statistic, fit
+from treepo import Candidate, ComposableStatistic, PreferenceDataset, PreferenceRecord, TaskState, TreeNode, TreeRecord, family_statistic, fit
 print(json.dumps({
     "heavy": {name: name in sys.modules for name in heavy},
     "has_run": hasattr(treepo, "run"),
@@ -208,11 +203,9 @@ print(json.dumps({
     "candidate_module": Candidate.__module__,
     "record_module": PreferenceRecord.__module__,
     "statistic_module": ComposableStatistic.__module__,
-    "statistic_info_module": StatisticInfo.__module__,
     "task_state_module": TaskState.__module__,
     "tree_node_module": TreeNode.__module__,
     "tree_record_module": TreeRecord.__module__,
-    "tree_unit_ref_module": TreeUnitRef.__module__,
     "family_statistic_module": family_statistic.__module__,
     "fit_module": fit.__module__,
 }, sort_keys=True))
@@ -401,6 +394,7 @@ __all__ = [
     "check_hygiene",
     "check_inventory",
     "check_release",
+    "main",
     "read_inventory",
 ]
 

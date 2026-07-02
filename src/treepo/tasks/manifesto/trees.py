@@ -98,20 +98,26 @@ def manifesto_tree_records(trees: Sequence[ManifestoReplicationTree]) -> list[Tr
                     },
                 )
             )
+        # The record stores observation granularity: leaves plus a root, with
+        # parent_id edges carrying the topology. The binary child-id slots are
+        # filled only when they describe the whole tree (one or two leaves);
+        # wider trees list every child in root metadata, and the composition
+        # order over leaves is the position order.
         root = TreeNode(
             node_id="root",
             unit_type="root",
             text=str(tree.text),
             level=1 if leaves else 0,
             position=0,
-            left_child_id=(leaves[0].node_id if len(leaves) >= 1 else None),
-            right_child_id=(leaves[1].node_id if len(leaves) >= 2 else None),
+            left_child_id=(leaves[0].node_id if 1 <= len(leaves) <= 2 else None),
+            right_child_id=(leaves[1].node_id if len(leaves) == 2 else None),
             label=root_label(tree),
             metadata={
                 "target": "f",
                 "doc_id": str(tree.doc_id),
                 "unit_id": make_unit_id(tree.doc_id, "root"),
                 "root_label_name": "rile",
+                "child_node_ids": [str(leaf.node_id) for leaf in leaves],
             },
         )
         records.append(

@@ -10,16 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from treepo.common import finite_float, jsonable
-from treepo.manifest import stable_digest
+from treepo.common import finite_float, jsonable, stable_digest
 
 
 OBJECTIVE_SCHEMA_VERSION = "treepo.objective.v1"
-THEOREM_BOUND_LIMITATION = (
-    "v0.1 objective metadata records root/local-law training weights only. "
-    "Lipschitz readout and measurement-error constants must be included by "
-    "callers in supplied certificate radii; first-class components are v0.2 work."
-)
 OBJECTIVE_TERM_ROOT = "root"
 OBJECTIVE_TERM_LOCAL_LAW_CORRECTED = "local_law_corrected"
 LOCAL_LAW_ESTIMATOR_NONE = "none"
@@ -328,16 +322,6 @@ def normalize_objective_spec(payload: Mapping[str, Any]) -> dict[str, Any]:
     return ObjectiveSpec.from_mapping(payload).to_dict()
 
 
-def objective_spec_digest(payload: Mapping[str, Any]) -> str:
-    """Return the stable SHA-256 digest of the normalized objective spec."""
-    return stable_digest(normalize_objective_spec(payload))
-
-
-def objective_metadata(**kwargs: Any) -> dict[str, Any]:
-    """Build an ``ObjectiveSpec`` from keyword fields and return its dict."""
-    return ObjectiveSpec(**kwargs).to_dict()
-
-
 __all__ = [
     "CANONICAL_LAW_COMPONENTS",
     "LOCAL_LAW_ESTIMATOR_CORRECTED",
@@ -351,10 +335,7 @@ __all__ = [
     "OBJECTIVE_TERM_ROOT",
     "ObjectiveSpec",
     "ResolvedObjectiveWeights",
-    "THEOREM_BOUND_LIMITATION",
     "canonical_law_component_weights",
     "normalize_objective_spec",
-    "objective_metadata",
-    "objective_spec_digest",
     "resolve_root_local_objective_weights",
 ]

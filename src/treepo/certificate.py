@@ -23,11 +23,6 @@ CERTIFICATE_COMPONENTS = (
     COMPONENT_ESTIMATION,
     COMPONENT_CLIPPING,
 )
-CERTIFICATE_LIMITATION = (
-    "v0.1 certificates are component-radius ledgers. They do not separately "
-    "instantiate the Lean Lipschitz-readout or measurement-error terms; include "
-    "those constants in the supplied component radius when they are needed."
-)
 
 
 @dataclass(frozen=True)
@@ -153,7 +148,6 @@ def build_error_certificate(
 
 __all__ = [
     "CERTIFICATE_COMPONENTS",
-    "CERTIFICATE_LIMITATION",
     "COMPONENT_CALIBRATION",
     "COMPONENT_CLIPPING",
     "COMPONENT_ESTIMATION",

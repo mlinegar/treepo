@@ -2,8 +2,7 @@
 
 The evidence artifact is a compact JSONable view over data that a run already
 produces: root metrics, preference exports, statistic metadata, local-law
-summaries, and prediction files. It does not introduce a trainer, selector, or
-new dataset type.
+summaries, and prediction files. It reuses objects the run already produced.
 """
 
 from __future__ import annotations
@@ -115,8 +114,8 @@ def _mapping(value: Any) -> dict[str, Any]:
 
 def _jsonable(value: Any) -> Any:
     # Kept local rather than delegating to ``treepo.common.jsonable``: this
-    # helper intentionally does NOT convert Enums to ``.value`` and expands
-    # dataclasses before ``to_dict``, so it is not byte-equivalent on the
+    # helper preserves Enum objects as-is and expands dataclasses before
+    # ``to_dict``, so it differs from ``treepo.common.jsonable`` on the
     # arbitrary external metrics/artifacts payloads passed to ``build_evidence``.
     if isinstance(value, Path):
         return str(value)

@@ -48,12 +48,26 @@ def _numeric_transition_state_loss(
     device: Any,
     dtype: Any,
 ) -> Any | None:
-    if traces and targets and len(traces) == len(targets):
+    # The model trace and the target rows are built over the same pairwise
+    # merge topology, so their node counts must agree exactly; a mismatch
+    # means the two topology definitions have drifted. The state dimension may
+    # legitimately differ: the first target-width dims of the learned state
+    # carry the supervised transition vector.
+    if len(traces) != len(targets):
+        raise ValueError(
+            f"transition-state supervision got {len(traces)} traces for {len(targets)} targets"
+        )
+    for pred, target in zip(traces, targets):
+        if int(pred.shape[0]) != int(target.shape[0]):
+            raise ValueError(
+                "transition-state node count mismatch: model trace has "
+                f"{int(pred.shape[0])} nodes, targets have {int(target.shape[0])}"
+            )
+    if traces and targets:
         first_trace_shape = tuple(int(x) for x in traces[0].shape)
         first_target_shape = tuple(int(x) for x in targets[0].shape)
         if (
-            first_trace_shape[0] == first_target_shape[0]
-            and all(tuple(int(x) for x in trace.shape) == first_trace_shape for trace in traces)
+            all(tuple(int(x) for x in trace.shape) == first_trace_shape for trace in traces)
             and all(tuple(int(x) for x in target.shape) == first_target_shape for target in targets)
         ):
             pred = torch.stack(list(traces), dim=0)
@@ -67,7 +81,7 @@ def _numeric_transition_state_loss(
     losses = []
     for pred, target in zip(traces, targets):
         target = target.to(device=device, dtype=dtype)
-        n = min(int(pred.shape[0]), int(target.shape[0]))
+        n = int(pred.shape[0])
         d = min(int(pred.shape[1]), int(target.shape[1]))
         if n <= 0 or d <= 0:
             continue
@@ -115,6 +129,58 @@ def _numeric_transition_rows(
             next_level.append(cur[-1])
         cur = next_level
     return rows
+
+
+def _pairwise_merge_children(leaf_count: int) -> dict[int, tuple[int, int]]:
+    """Return each merge node's ``(left, right)`` children by trace index.
+
+    This is the shared definition of the family merge schedule for trace
+    bookkeeping: leaves are indices ``0..L-1`` in position order, merges take
+    the next indices level by level (adjacent pairs, odd leftover carried to
+    the next level), and the final index ``2L-2`` is the root. Depth helpers
+    and the tree visualization both read the topology from here.
+    """
+
+    n = int(leaf_count)
+    merge_children: dict[int, tuple[int, int]] = {}
+    if n <= 0:
+        return merge_children
+    current = list(range(n))
+    next_index = n
+    while len(current) > 1:
+        next_level: list[int] = []
+        for idx in range(0, len(current) - 1, 2):
+            merge_children[next_index] = (current[idx], current[idx + 1])
+            next_level.append(next_index)
+            next_index += 1
+        if len(current) % 2:
+            next_level.append(current[-1])
+        current = next_level
+    return merge_children
+
+
+def _pairwise_merge_depths(leaf_count: int) -> list[int]:
+    """Return the depth of every node in trace order, root at depth 0.
+
+    Reads each node's depth off its real parent edge in the shared merge
+    schedule, so a carried node sits one level below the node that finally
+    consumes it.
+    """
+
+    n = int(leaf_count)
+    if n <= 0:
+        return []
+    merge_children = _pairwise_merge_children(n)
+    total = n + len(merge_children)
+    parents: list[int | None] = [None] * total
+    for node, (left, right) in merge_children.items():
+        parents[left] = node
+        parents[right] = node
+    depths = [0] * total
+    for node in range(total - 2, -1, -1):
+        parent = parents[node]
+        depths[node] = 0 if parent is None else depths[parent] + 1
+    return depths
 
 
 def _numeric_transition_leaf_state(
@@ -179,6 +245,8 @@ def _tree_row_id(tree: Any, idx: int) -> str:
 
 __all__ = [
     "_numeric_transition_leaf_state",
+    "_pairwise_merge_children",
+    "_pairwise_merge_depths",
     "_numeric_transition_merge_state",
     "_numeric_transition_rows",
     "_numeric_transition_spec",

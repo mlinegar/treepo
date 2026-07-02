@@ -13,7 +13,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from treepo.state import TaskState, jsonable, make_unit_id, state_from_value, state_to_dict
+from treepo.common import jsonable
+from treepo.state import TaskState, make_unit_id, state_from_value, state_to_dict
 
 
 @dataclass(frozen=True)
@@ -178,21 +179,35 @@ class TreeRecord:
         roots = [node for node in self.nodes if str(node.unit_type) == "root"]
         if roots:
             return roots[-1]
-        parent_ids = {str(node.parent_id) for node in self.nodes if node.parent_id is not None}
         child_ids = {
             child
             for node in self.nodes
             for child in (_optional_str(node.left_child_id), _optional_str(node.right_child_id))
             if child is not None
         }
-        candidates = [node for node in self.nodes if str(node.node_id) not in child_ids]
+        candidates = [
+            node
+            for node in self.nodes
+            if str(node.node_id) not in child_ids and node.parent_id is None
+        ]
+        if not candidates:
+            candidates = [node for node in self.nodes if str(node.node_id) not in child_ids]
         if candidates:
             return sorted(candidates, key=lambda node: (-1 if node.level is None else int(node.level), node.position or 0))[-1]
-        lv = self.levels()
-        return self.get_node(lv[-1][-1]) if lv and lv[-1] else None
+        return None
 
     def leaves(self) -> tuple[TreeNode, ...]:
-        return tuple(node for node in self.nodes if not node.has_children())
+        # A node is internal if it points at children or if any node names it
+        # as parent; parent_id edges carry topology even when a wide node has
+        # more children than the two child-id slots.
+        parent_ids = {
+            str(node.parent_id) for node in self.nodes if node.parent_id is not None
+        }
+        return tuple(
+            node
+            for node in self.nodes
+            if not node.has_children() and str(node.node_id) not in parent_ids
+        )
 
     def unit_id(self, node_id: Any) -> str:
         return make_unit_id(self.tree_id, node_id)
@@ -242,11 +257,9 @@ def _with_tree_position(node: TreeNode, *, level: int, position: int) -> TreeNod
     )
 
 
-def tree_record_from_value(value: Any) -> TreeRecord:
-    return TreeRecord.from_value(value)
-
-
 def load_tree_records(path: Path | str) -> list[TreeRecord]:
+    """Load tree records from a JSON file, JSONL file, or directory of both."""
+
     root = Path(path)
     if root.is_dir():
         out: list[TreeRecord] = []
@@ -283,8 +296,8 @@ def iter_tree_units(
 ) -> tuple[TreeNode, ...]:
     """Return nodes from a tree in a stable order.
 
-    This is a convenience helper for examples and adapters. It does not impose a
-    runtime tree class; inputs are normalized through ``TreeRecord`` first.
+    This is a convenience helper for examples and adapters. Inputs are
+    normalized through ``TreeRecord``, so any tree-like value works.
     """
 
     record = TreeRecord.from_value(tree)
@@ -298,12 +311,13 @@ def iter_tree_units(
         leaf_ids = {str(node.node_id) for node in leaves}
         nodes = leaves + [node for node in record.nodes if str(node.node_id) not in leaf_ids]
     elif order == "levels":
-        nodes = []
-        for level in record.levels():
-            for node_id in level:
-                node = record.get_node(node_id)
-                if node is not None:
-                    nodes.append(node)
+        by_id = {str(node.node_id): node for node in record.nodes}
+        nodes = [
+            by_id[node_id]
+            for level in record.levels()
+            for node_id in level
+            if node_id in by_id
+        ]
     else:
         raise ValueError("order must be 'levels', 'nodes', 'root_first', or 'leaves_first'")
 
@@ -333,6 +347,7 @@ def validate_tree_record(tree: Any) -> tuple[str, ...]:
             errors.append(f"duplicate node_id: {node_id}")
         seen.add(node_id)
     node_set = set(node_ids)
+    by_id = {str(node.node_id): node for node in record.nodes}
     for node in record.nodes:
         node_id = str(node.node_id)
         if node.parent_id is not None and str(node.parent_id) not in node_set:
@@ -340,7 +355,7 @@ def validate_tree_record(tree: Any) -> tuple[str, ...]:
         for child_key, child_id in (("left_child_id", node.left_child_id), ("right_child_id", node.right_child_id)):
             if child_id is not None and str(child_id) not in node_set:
                 errors.append(f"node {node_id} {child_key} does not exist: {child_id}")
-            child = record.get_node(child_id) if child_id is not None else None
+            child = by_id.get(str(child_id)) if child_id is not None else None
             if child is not None and child.parent_id is not None and str(child.parent_id) != node_id:
                 errors.append(f"node {child.node_id} parent_id disagrees with parent {node_id}")
     if record.nodes and record.root() is None:
@@ -381,8 +396,8 @@ def local_law_rows_from_tree_records(
     Nodes opt in by placing ``proxy_loss`` or ``local_law_proxy_loss`` in their
     metadata. Optional metadata keys include ``oracle_loss``, ``observed``,
     ``propensity``, ``node_weight``, ``law_kind``, and ``row_id``. This helper
-    standardizes row identity and tree metadata; it deliberately does not invent
-    task-specific losses from labels or states.
+    standardizes row identity and tree metadata; losses come only from explicit
+    node metadata.
     """
 
     from treepo.local_law import LawKind, LocalLawAuditRow
@@ -390,6 +405,13 @@ def local_law_rows_from_tree_records(
     rows: list[LocalLawAuditRow] = []
     for tree_idx, raw_tree in enumerate(trees):
         record = TreeRecord.from_value(raw_tree)
+        # TreeRecord levels count up from the leaves (leaf level 0, root
+        # highest); the local-law depth convention puts the root at depth 0
+        # with weight gamma^depth. Convert here so gamma discounts deep nodes.
+        max_level = max(
+            (int(node.level) for node in record.nodes if node.level is not None),
+            default=0,
+        )
         for node in iter_tree_units(record, order="levels"):
             node_meta = dict(node.metadata or {})
             proxy_loss = _first_present(node_meta, "proxy_loss", "local_law_proxy_loss")
@@ -426,7 +448,7 @@ def local_law_rows_from_tree_records(
                     observed=observed,
                     propensity=float(propensity),
                     node_weight=float(node_weight),
-                    depth=0 if node.level is None else int(node.level),
+                    depth=0 if node.level is None else max_level - int(node.level),
                     metadata={
                         "tree_index": tree_idx,
                         "tree_id": str(record.tree_id),
@@ -507,7 +529,6 @@ __all__ = [
     "iter_tree_units",
     "load_tree_records",
     "local_law_rows_from_tree_records",
-    "tree_record_from_value",
     "tree_summary",
     "validate_tree_record",
     "write_tree_records_jsonl",

@@ -15,10 +15,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from treepo.common import finite_float
+from treepo.common import MIN_PROPENSITY, finite_float
 
 
-MIN_PROPENSITY = 1e-12
 LOCAL_LAW_OBJECTIVE_CORRECTED = "corrected_local_law"
 LOCAL_LAW_OBJECTIVE_SAMPLED_IPW = "sampled_ipw"
 LOCAL_LAW_OBJECTIVE_MODES = (
@@ -59,11 +58,6 @@ LAW_KIND_ALIASES: dict[str, LawKind] = {
     "c3_merge": LawKind.C3_MERGE,
     "merge_preservation": LawKind.C3_MERGE,
 }
-
-LAW_KIND_CANONICAL_NAMES: dict[str, str] = {
-    alias: kind.value for alias, kind in LAW_KIND_ALIASES.items()
-}
-
 
 def normalize_local_law_objective_mode(mode: str) -> str:
     aliases = {
@@ -295,7 +289,7 @@ def local_law_objective_summary(
     )
 
 
-def local_law_objective_summary_by_law_kind(
+def _local_law_objective_summary_by_law_kind(
     rows: Sequence[LocalLawAuditRow] | Iterable[LocalLawAuditRow],
     *,
     gamma_depth: float = 1.0,
@@ -336,12 +330,12 @@ def audit_local_laws(
         raise ValueError("audit_local_laws requires at least one row")
     summary = local_law_objective_summary(row_list, objective_mode=objective_mode, gamma_depth=gamma_depth)
     overlap = compute_influence_weighted_overlap(row_list)
-    by_kind_summaries = local_law_objective_summary_by_law_kind(
+    by_kind_summaries = _local_law_objective_summary_by_law_kind(
         row_list,
         objective_mode=objective_mode,
         gamma_depth=gamma_depth,
     )
-    by_kind_overlaps = compute_influence_weighted_overlap_by_law_kind(row_list)
+    by_kind_overlaps = _compute_influence_weighted_overlap_by_law_kind(row_list)
     payload = {
         "status": "success",
         "local_law_objective": summary.to_dict(),
@@ -407,7 +401,7 @@ def compute_influence_weighted_overlap(
     )
 
 
-def compute_influence_weighted_overlap_by_law_kind(
+def _compute_influence_weighted_overlap_by_law_kind(
     rows: Sequence[LocalLawAuditRow] | Iterable[LocalLawAuditRow],
     *,
     min_propensity: float = MIN_PROPENSITY,
@@ -420,10 +414,6 @@ def compute_influence_weighted_overlap_by_law_kind(
         kind: compute_influence_weighted_overlap(kind_rows, min_propensity=min_propensity)
         for kind, kind_rows in by_kind.items()
     }
-
-
-def corrected_losses_from_rows(rows: Sequence[LocalLawAuditRow]) -> list[float]:
-    return [_coerce_row(row).corrected_loss() for row in rows]
 
 
 def _kish_ess(ratios: Sequence[float]) -> float:
@@ -443,7 +433,6 @@ def _coerce_row(row: LocalLawAuditRow | Mapping[str, Any]) -> LocalLawAuditRow:
 __all__ = [
     "InfluenceWeightedAuditOverlap",
     "LAW_KIND_ALIASES",
-    "LAW_KIND_CANONICAL_NAMES",
     "LOCAL_LAW_OBJECTIVE_CORRECTED",
     "LOCAL_LAW_OBJECTIVE_MODES",
     "LOCAL_LAW_OBJECTIVE_SAMPLED_IPW",
@@ -453,10 +442,7 @@ __all__ = [
     "MIN_PROPENSITY",
     "compute_influence_weighted_overlap",
     "audit_local_laws",
-    "compute_influence_weighted_overlap_by_law_kind",
     "corrected_local_law_loss",
-    "corrected_losses_from_rows",
     "local_law_objective_summary",
-    "local_law_objective_summary_by_law_kind",
     "normalize_local_law_objective_mode",
 ]

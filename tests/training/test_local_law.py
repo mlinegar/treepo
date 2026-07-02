@@ -10,8 +10,6 @@ from treepo.training.local_law import (
     local_law_objective_from_losses,
     local_law_objective_target_mse,
     local_law_training_objective_mean,
-    observed_uniform_node_ipw_mean_loss,
-    sampled_uniform_node_ipw_mean_loss,
 )
 from treepo.local_law import LocalLawAuditRow
 
@@ -150,32 +148,3 @@ def test_training_aggregate_rejects_invalid_local_law_weight() -> None:
             [LocalLawTrainingRow(proxy_loss=0.0, observed=False, propensity=0.0)],
             local_law_weight=1.5,
         )
-
-
-def test_sampled_uniform_node_ipw_mean_loss_full_rate_uses_node_weights() -> None:
-    torch = _torch_or_skip()
-    objective = sampled_uniform_node_ipw_mean_loss(
-        torch.tensor([[1.0, 9.0, 16.0]]),
-        rate=1.0,
-        node_weights=torch.tensor([[1.0, 2.0, 1.0]]),
-    )
-    assert float(objective) == pytest.approx((1.0 + 2.0 * 9.0 + 16.0) / 4.0)
-
-
-def test_sampled_uniform_node_ipw_mean_loss_zero_rate_returns_zero() -> None:
-    torch = _torch_or_skip()
-    objective = sampled_uniform_node_ipw_mean_loss(
-        torch.tensor([[1.0, 9.0, 16.0]]),
-        rate=0.0,
-    )
-    assert float(objective) == pytest.approx(0.0)
-
-
-def test_observed_uniform_node_ipw_mean_loss_allows_empty_sample() -> None:
-    torch = _torch_or_skip()
-    objective = observed_uniform_node_ipw_mean_loss(
-        torch.tensor([[1.0, 9.0, 16.0]]),
-        observed=torch.tensor([[False, False, False]]),
-        propensity=0.1,
-    )
-    assert float(objective) == pytest.approx(0.0)

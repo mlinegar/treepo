@@ -31,8 +31,7 @@ from typing import Any, List, Optional, Sequence
 
 import pytest
 
-from treepo.methods import LocalLawAuditRow
-from treepo.local_law import audit_local_laws
+from treepo.local_law import LocalLawAuditRow, audit_local_laws
 from treepo import fit
 
 

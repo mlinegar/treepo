@@ -46,30 +46,47 @@ class _TreeFGModel:
                     torch.nn.Linear(max(1, int(config.head_hidden_dim)), max(1, int(output_dim))),
                 )
 
+            # Merge topology: adjacent leaf states pair up as (0,1), (2,3), ...
+            # in leaf order; an odd leftover state joins the next level after
+            # the merged states. The node trace lists every logical node once,
+            # leaves first, then each merge level bottom-up, root last —
+            # ``_numeric_transition_rows`` in ``_fno_transition`` builds its
+            # supervision targets in exactly this order.
+
             def forward(self, x: Any, lengths: Any) -> Any:
-                return self.forward_with_trace(x, lengths)[0]
+                return self._forward(x, lengths, collect_trace=False)[0]
 
             def forward_with_trace(self, x: Any, lengths: Any) -> tuple[Any, list[Any]]:
+                return self._forward(x, lengths, collect_trace=True)
+
+            def _forward(self, x: Any, lengths: Any, *, collect_trace: bool) -> tuple[Any, list[Any]]:
                 leaf_states = self.leaf_operator(x)
                 if int(leaf_states.shape[0]) > 0 and bool(torch.all(lengths == lengths[0]).detach().cpu().item()):
                     length = max(1, int(lengths[0].detach().cpu().item()))
-                    roots, trace = self._compose_batch_with_trace(leaf_states[:, :length, :])
-                    return self.readout(roots), [trace[idx] for idx in range(int(trace.shape[0]))]
+                    roots, trace = self._compose_batch(
+                        leaf_states[:, :length, :], collect_trace=collect_trace
+                    )
+                    traces = (
+                        [trace[idx] for idx in range(int(trace.shape[0]))]
+                        if collect_trace
+                        else []
+                    )
+                    return self.readout(roots), traces
                 roots = []
                 traces = []
                 raw_lengths = lengths.detach().cpu().tolist()
                 for idx, raw_length in enumerate(raw_lengths):
                     length = max(1, int(raw_length))
-                    root, trace = self._compose_with_trace(leaf_states[idx, :length, :])
+                    root, trace = self._compose(
+                        leaf_states[idx, :length, :], collect_trace=collect_trace
+                    )
                     roots.append(root)
-                    traces.append(trace)
+                    if collect_trace:
+                        traces.append(trace)
                 return self.readout(torch.stack(roots, dim=0)), traces
 
-            def _compose(self, states: Any) -> Any:
-                return self._compose_with_trace(states)[0]
-
-            def _compose_batch_with_trace(self, states: Any) -> tuple[Any, Any]:
-                trace_parts = [states]
+            def _compose_batch(self, states: Any, *, collect_trace: bool) -> tuple[Any, Any]:
+                trace_parts = [states] if collect_trace else None
                 while int(states.shape[1]) > 1:
                     n_states = int(states.shape[1])
                     pair_count = n_states // 2
@@ -81,27 +98,31 @@ class _TreeFGModel:
                         pair_count,
                         -1,
                     )
-                    trace_parts.append(merged)
+                    if trace_parts is not None:
+                        trace_parts.append(merged)
                     if n_states % 2:
-                        states = torch.cat([merged, states[:, -1:, :].clone()], dim=1)
+                        states = torch.cat([merged, states[:, -1:, :]], dim=1)
                     else:
                         states = merged
-                return states[:, 0, :], torch.cat(trace_parts, dim=1)
+                trace = torch.cat(trace_parts, dim=1) if trace_parts is not None else None
+                return states[:, 0, :], trace
 
-            def _compose_with_trace(self, states: Any) -> tuple[Any, Any]:
-                trace_parts = [states]
+            def _compose(self, states: Any, *, collect_trace: bool) -> tuple[Any, Any]:
+                trace_parts = [states] if collect_trace else None
                 while int(states.shape[0]) > 1:
                     n_states = int(states.shape[0])
                     pair_count = n_states // 2
                     left = states[0 : pair_count * 2 : 2]
                     right = states[1 : pair_count * 2 : 2]
                     merged = self.merge(torch.cat([left, right], dim=-1))
-                    trace_parts.append(merged)
+                    if trace_parts is not None:
+                        trace_parts.append(merged)
                     if n_states % 2:
-                        states = torch.cat([merged, states[-1:].clone()], dim=0)
+                        states = torch.cat([merged, states[-1:]], dim=0)
                     else:
                         states = merged
-                return states.squeeze(0), torch.cat(trace_parts, dim=0)
+                trace = torch.cat(trace_parts, dim=0) if trace_parts is not None else None
+                return states.squeeze(0), trace
 
         return _Model()
 

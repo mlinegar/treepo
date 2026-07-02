@@ -199,7 +199,6 @@ def test_finetune_adapter_registry_exposes_builtin_exporters() -> None:
     adapter = get_finetune_adapter("trl_dpo")
     assert adapter.framework == "trl"
     assert adapter.required_views == ("dpo",)
-    assert "train" not in adapter.capabilities
 
 
 def test_trl_adapters_export_framework_ready_rows(tmp_path: Path) -> None:

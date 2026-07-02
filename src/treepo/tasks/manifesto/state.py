@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from treepo.local_law import LawKind, LocalLawAuditRow
-from treepo.state import TaskState, state_from_value, state_to_dict
+from treepo.state import TaskState, state_from_value
 from treepo.statistic import StatisticInfo
 from treepo.tasks.manifesto.rile import clamp_rile
 
@@ -129,10 +129,6 @@ def manifesto_policy_readout(state: Any, query: Any = None) -> Any:
         value = measures[key]
         return clamp_rile(float(value)) if key.startswith("rile") or key == "root_rile" else value
     return measures
-
-
-def state_to_manifesto_policy_dict(state: Any) -> dict[str, Any]:
-    return state_to_dict(_coerce_policy_state(state))
 
 
 class ManifestoPolicyStatistic:
@@ -279,5 +275,4 @@ __all__ = [
     "manifesto_policy_readout",
     "manifesto_policy_state_from_leaf",
     "merge_manifesto_policy_states",
-    "state_to_manifesto_policy_dict",
 ]

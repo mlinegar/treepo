@@ -8,14 +8,13 @@ exports.
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Mapping
 
-from treepo.common import jsonable as _jsonable
+from treepo.common import MIN_PROPENSITY, jsonable as _jsonable
 
 
-MIN_PROPENSITY = 1e-12
 DEFAULT_PROPENSITY = 1.0
 
 
@@ -98,27 +97,8 @@ class SamplingMetadata:
             weight = min(weight, float(max_weight))
         return float(weight)
 
-    def with_updates(self, **kwargs: Any) -> "SamplingMetadata":
-        return replace(self, **kwargs)
-
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(asdict(self))
-
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> "SamplingMetadata":
-        data = dict(payload or {})
-        unit_kind = data.get("unit_kind")
-        return cls(
-            document_propensity=data.get("document_propensity", data.get("doc_propensity", DEFAULT_PROPENSITY)),
-            unit_propensity=data.get("unit_propensity", data.get("node_propensity", DEFAULT_PROPENSITY)),
-            label_propensity=data.get("label_propensity", DEFAULT_PROPENSITY),
-            joint_propensity=data.get("joint_propensity"),
-            sampling_scheme=str(data.get("sampling_scheme") or ""),
-            policy_name=str(data.get("policy_name") or ""),
-            unit_kind=None if unit_kind in ("", None) else ObservationUnitKind(str(unit_kind)),
-            supports_ipw_estimation=bool(data.get("supports_ipw_estimation", True)),
-            metadata=dict(data.get("metadata") or {}),
-        )
 
 
 @dataclass(frozen=True)

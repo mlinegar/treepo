@@ -1,11 +1,11 @@
 # Boundary
 
-`treepo` is the v0.1.0 package for the C-TreePO code.
+`treepo` is the package for the C-TreePO code.
 
 ## Included
 
-- Base install: `numpy`, Hugging Face `datasets`, `torch`, and
-  `neuraloperator` for the built-in neural-operator family.
+- Base install: `numpy`, `scipy`, `scikit-learn`, Hugging Face `datasets`,
+  `torch`, and `neuraloperator` for the built-in neural-operator family.
 - Public modules: `treepo`, `treepo.methods`, `treepo.local_law`,
   `treepo.state`, `treepo.tree`, `treepo.statistic`, `treepo.artifacts`,
   `treepo.bench`, `treepo.llm`, `treepo.training`, and small task fixtures.
@@ -19,11 +19,7 @@
 
 - `bench`: YAML config IO.
 - `sketches`: datasketches-backed sketch adapters.
-- `torch`: explicit selector for torch-backed helpers.
-- `neural`: explicit selector for the built-in neural-operator dependency stack.
-- `llm`: OpenAI-compatible and native-Transformers helpers plus
-  `langextract`, `tiktoken`, and `requests`.
-- `train`: torch local-law training helpers.
+- `llm`: the requests-based OpenAI-compatible client layer.
 - `all`: all optional package stacks.
 
 `uv sync --no-dev` installs the base package. `uv sync` installs contributor
@@ -31,18 +27,18 @@ dependencies too.
 
 ## Extensions
 
-Trainer applications, large manifesto-training campaigns, deployment, and large
-simulation code belongs in packages or workspaces that register with the public
-`treepo` contracts. DSPy and prompted-LLM families are included as
-provider-neutral wrappers; downstream code supplies the actual program or
-callable. Preference data export is included; policy optimization engines
-consume those records downstream.
+Trainer applications, manifesto-training campaigns, deployment, and large
+simulation code register with the public `treepo` contracts from their own
+packages. DSPy and prompted-LLM families are included as provider-neutral
+wrappers; downstream code supplies the actual program or callable. Preference
+data export is included; policy optimization engines consume those records
+downstream.
 
-Additional family runtimes can register with
+Additional family runtimes register with
 `treepo.methods.families.register_family(...)`. Markov has a built-in
 changepoint fixture/oracle task benchmark. LDA and Manifesto/RILE have small
-native fixtures for method examples; full-scale workflows can still live
-downstream.
+native fixtures for method examples; full-scale workflows register from
+downstream packages.
 
 ## Checks
 

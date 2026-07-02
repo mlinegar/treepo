@@ -11,10 +11,27 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 
-def _leaf_token_groups(tree: Any) -> list[Any] | None:
+def _tree_leaves(tree: Any) -> tuple[Any, ...] | None:
+    """Return the leaf sequence of any tree-like value.
+
+    Accepts a ``leaves`` attribute holding a sequence (fixture trees), a
+    callable ``leaves()`` method (``TreeRecord``), or a ``get_leaves()``
+    method. Leaf order is the composition order the family merges in.
+    """
+
     leaves = getattr(tree, "leaves", None)
-    if not leaves and callable(getattr(tree, "get_leaves", None)):
+    if callable(leaves):
+        leaves = leaves()
+    if leaves is None and callable(getattr(tree, "get_leaves", None)):
         leaves = tree.get_leaves()
+    if leaves is None:
+        return None
+    out = tuple(leaves)
+    return out if out else None
+
+
+def _leaf_token_groups(tree: Any) -> list[Any] | None:
+    leaves = _tree_leaves(tree)
     raw_groups = leaves if leaves else (tree,)
     groups: list[Any] = []
     for leaf in raw_groups:
@@ -74,9 +91,7 @@ def _tree_sequence_cache_key(trees: Sequence[Any], *, dim: int, device: str) -> 
 
 
 def _leaf_texts(tree: Any) -> list[str]:
-    leaves = getattr(tree, "leaves", None)
-    if not leaves and callable(getattr(tree, "get_leaves", None)):
-        leaves = tree.get_leaves()
+    leaves = _tree_leaves(tree)
     if leaves:
         return [_object_text(leaf) for leaf in leaves]
     return [_object_text(tree)]
@@ -123,5 +138,6 @@ __all__ = [
     "_leaf_token_groups",
     "_object_text",
     "_text_from_value",
+    "_tree_leaves",
     "_tree_sequence_cache_key",
 ]

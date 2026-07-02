@@ -20,15 +20,15 @@ areas:
   - id: llm
     status: optional
     package: treepo.llm
-    note: OpenAI-compatible, embedding, and native Transformers helpers live behind treepo[llm].
+    note: OpenAI-compatible chat-payload and embedding-client helpers (hashing, HTTP, disk-cached) live behind treepo[llm].
   - id: manifesto_rile
     status: constants
     package: treepo.tasks.manifesto
-    note: Manifesto/RILE constants are packaged; training integrations live outside treepo.
+    note: Manifesto/RILE constants are packaged; training integrations register from downstream packages.
   - id: training
     status: optional
     package: treepo.training
-    note: Lifecycle protocols and local-law tensor helpers.
+    note: Local-law tensor objectives (treepo.training.local_law).
   - id: statistics
     status: ready
     package: treepo.statistic
@@ -43,7 +43,7 @@ areas:
     note: Trainer-neutral embedding and LLM fine-tuning exports over PreferenceDataset.
   - id: neural_operator
     status: ready
-    package: treepo.methods.neural_operator
+    package: treepo.methods.fno
     note: Built-in generic neural-operator family over embedded leaf sequences; FNO and Conv1D are built-in operator kinds.
   - id: app_families
     status: extension
@@ -65,7 +65,7 @@ entries:
   - path: src/treepo/training
     target: treepo.training
     class: package
-    note: Lightweight training protocols and local-law objectives.
+    note: Local-law training objectives.
   - path: src/treepo/statistic.py
     target: treepo.statistic
     class: package
@@ -90,6 +90,10 @@ entries:
     target: scripts/start_engine.py
     class: shim
     note: Small wrapper dispatcher without external registry imports.
+  - path: scripts/run_publication_validation.py
+    target: scripts/run_publication_validation.py
+    class: shim
+    note: Pre-publication validation driver over tests, release gates, and example runs.
   - path: downstream_packages
     target: external packages
     class: extension

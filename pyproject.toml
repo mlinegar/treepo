@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "treepo"
 version = "0.1.0"
-description = "TreePO/C-TreePO core methods and local-law certificates"
+description = "treepo: composable tree operators and local-law certificates for C-TreePO"
 readme = "README.md"
 # LicenseRef- prefix (PEP 639) for custom non-SPDX licenses like PolyForm-NC.
 license = "LicenseRef-PolyForm-Noncommercial-2.0.0-pre.2"
@@ -31,7 +31,13 @@ dependencies = [
   "torch>=2.0.0",
   "neuraloperator>=2.0.0",
   "scikit-learn>=1.4",
+  "scipy>=1.10",
+  "tomli>=1.2; python_version < '3.11'",
 ]
+
+[project.urls]
+Repository = "https://github.com/mlinegar/treepo"
+Issues = "https://github.com/mlinegar/treepo/issues"
 
 [project.optional-dependencies]
 bench = [
@@ -40,65 +46,13 @@ bench = [
 sketches = [
   "datasketches>=5.2.0",
 ]
-torch = [
-  "torch>=2.0.0",
-]
-neural = [
-  "torch>=2.0.0",
-  "neuraloperator>=2.0.0",
-]
-# Full dependency set for FNO-style methods workflows: the built-in neural
-# operator stack plus tokenizer dependencies commonly used by downstream
-# leaf-preparation code.
-fno = [
-  "torch>=2.0.0",
-  "neuraloperator>=2.0.0",
-  "scikit-learn>=1.4",
-  "transformers>=4.40.0",
-  "numpy>=1.23",
-]
 llm = [
-  "langextract>=1.1.1",
-  "tiktoken>=0.12.0",
-  "openai>=1.0.0",
   "requests>=2.31.0",
-  "transformers>=4.40.0",
-]
-train = [
-  "torch>=2.0.0",
-]
-embed-train = [
-  "sentence-transformers>=3.0.0",
-  "accelerate>=0.30.0",
-]
-llm-train = [
-  "trl>=0.8.0",
-  "peft>=0.8.0",
-  "accelerate>=0.30.0",
-]
-dev = [
-  "pytest>=7.0.0",
-  "pytest-cov>=4.0.0",
-  "black>=23.0.0",
-  "isort>=5.0.0",
-  "mypy>=1.0.0",
-  "ruff>=0.1.0",
 ]
 all = [
   "pyyaml>=6.0",
-  "langextract>=1.1.1",
-  "tiktoken>=0.12.0",
   "datasketches>=5.2.0",
-  "torch>=2.0.0",
-  "neuraloperator>=2.0.0",
-  "scikit-learn>=1.4",
-  "openai>=1.0.0",
   "requests>=2.31.0",
-  "transformers>=4.40.0",
-  "sentence-transformers>=3.0.0",
-  "trl>=0.8.0",
-  "peft>=0.8.0",
-  "accelerate>=0.30.0",
 ]
 
 [dependency-groups]
@@ -114,23 +68,19 @@ dev = [
   "mypy>=1.0.0",
   "ruff>=0.1.0",
   # Dev/test deps for optional examples and package integration checks.
-  # Several lightweight packages arrive transitively via transformers.
-  # They do not need to be listed here. If you run into a missing-import
-  # error, add the missing dependency explicitly.
+  # If you run into a missing-import error, add the missing dependency
+  # explicitly.
   "pyyaml>=6.0",
-  "langextract>=1.1.1",
-  "tiktoken>=0.12.0",
   "torch>=2.0.0",
   "neuraloperator>=2.0.0",
   "scikit-learn>=1.4",
-  "transformers>=4.40.0",
+  "scipy>=1.10",
   "datasketches>=5.2.0",
-  "openai>=1.0.0",
   "requests>=2.31.0",
 ]
 
 [project.scripts]
-treepo-bench = "treepo.cli:main"
+treepo-bench = "treepo.bench.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

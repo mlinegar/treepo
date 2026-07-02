@@ -1,4 +1,4 @@
-# `treepo.methods` Example
+# `treepo.methods` Examples
 
 This package keeps small method examples here:
 
@@ -12,9 +12,9 @@ setup live in `example_setup/` so the runnable files stay readable.
 | `run_hll_sketch.py` | DataSketches HLL fixture + classical_sketch family through `treepo.fit(...)`. |
 | `run_fno_markov.py` | Built-in neural_operator family with operator_kind=fno and root/leaf supervision through `PreferenceDataset`. |
 | `run_neural_operator_markov_compare.py` | Compare official dense `neuralop` operator kinds on the same Markov fixture. |
-| `run_neural_operator_markov_leaf_grid.py` | Leaf grouping-size grid for learned neural operators on the Markov fixture. |
+| `run_neural_operator_markov_leaf_grid.py` | Leaf-grouping grid for learned neural operators on the Markov fixture. |
 | `run_neural_operator_lda.py` | Overlapping-topic Dirichlet LDA fixture + official sklearn baseline + built-in `neural_operator` family for full topic-proportion vectors. |
-| `run_neural_operator_lda_leaf_grid.py` | Leaf grouping-size grid for learned neural operators on the overlapping-topic LDA fixture. |
+| `run_neural_operator_lda_leaf_grid.py` | Leaf-grouping grid for learned neural operators on the overlapping-topic LDA fixture. |
 | `run_manifesto_end_to_end.py` | Full Manifesto/RILE package walkthrough: sampled docs/qsentences, `treepo.fit(...)`, evidence JSON, and root/qsentence/both reward exports. |
 | `run_manifesto_replications.py` | Central Manifesto/RILE replication shape: root document labels, sampled document-unit labels, and optional preference exports for DPO/reward/GRPO. |
 | `run_manifesto_reward_mechanisms.py` | Trainer-neutral Manifesto preference exports for root-only, qsentence-only, and combined DPO/reward/GRPO views. |
@@ -38,7 +38,7 @@ programs/callables from downstream code.
 For the complete packaged path, use `run_manifesto_end_to_end.py`:
 
 ```bash
-python examples/methods/run_manifesto_end_to_end.py \
+uv run python examples/methods/run_manifesto_end_to_end.py \
   --output-dir outputs/manifesto_end_to_end_example
 ```
 
@@ -88,8 +88,8 @@ qsentences within sampled documents. Exported preference units use the joint pro
 unit metadata.
 
 The ordinary tests cover the full packaged fixture. A skipped-by-default
-integration test checks the real local Manifesto Project CSVs when the
-companion ThinkingTrees data checkout is present:
+integration test checks the real local Manifesto Project CSVs when a local
+Manifesto Project CSV checkout is present:
 
 ```bash
 TREEPO_RUN_MANIFESTO_PROJECT_FULL=1 \
@@ -99,7 +99,7 @@ TREEPO_RUN_MANIFESTO_PROJECT_FULL=1 \
 For task-neutral fine-tuning exports, use `run_finetune_views.py`:
 
 ```bash
-python examples/methods/run_finetune_views.py \
+uv run python examples/methods/run_finetune_views.py \
   --output-dir outputs/finetune_views_example
 ```
 
@@ -111,7 +111,7 @@ against the generated files.
 For Manifesto/RILE fine-tuning exports, use `run_manifesto_finetune_views.py`:
 
 ```bash
-python examples/methods/run_manifesto_finetune_views.py \
+uv run python examples/methods/run_manifesto_finetune_views.py \
   --output-dir outputs/manifesto_finetune_views_example
 ```
 
@@ -122,21 +122,21 @@ embedding and TRL-compatible workflows.
 For a task-neutral optimizer/DSPy skeleton, use `run_preference_optimizer_views.py`:
 
 ```bash
-python examples/methods/run_preference_optimizer_views.py \
+uv run python examples/methods/run_preference_optimizer_views.py \
   --output-dir outputs/preference_optimizer_views_example
 ```
 
 The example uses one `PreferenceDataset` to write supervised, DPO, reward-model,
 and GRPO rows, then passes that same dataset to `treepo.fit(...)` with
-`family = "dspy"` and an injected predictor. It does not import TRL or require a
-model server; downstream trainers consume the exported rows. The Manifesto
-end-to-end example uses the same pattern on real package fixtures.
+`family = "dspy"` and an injected predictor. It runs fully locally; downstream
+trainers consume the exported rows. The Manifesto end-to-end example uses the
+same pattern on real package fixtures.
 
 For reward-model data, `run_manifesto_reward_mechanisms.py` exports the same
 preference records through trainer-specific projections:
 
 ```bash
-python examples/methods/run_manifesto_reward_mechanisms.py \
+uv run python examples/methods/run_manifesto_reward_mechanisms.py \
   --output-dir outputs/manifesto_reward_mechanisms_example
 ```
 
@@ -145,8 +145,9 @@ pairwise and ranked preferences. Each cell includes `preference_dpo.jsonl`,
 `preference_reward.jsonl`, `preference_grpo.json`, the general preference
 dataset, and a Hugging Face `DatasetDict`.
 
-A combined grid is also valid. It runs root-only cells at the requested leaf
-grouping sizes and one unit-supervised cell with one document unit per leaf:
+A combined grid is also valid. It runs root-only cells at the requested
+leaf-grouping sizes and one unit-supervised cell with one document unit per
+leaf:
 
 ```toml
 doc_unit_kind = "qsentence"
@@ -154,32 +155,32 @@ leaf_unit_counts = [1, 2]
 supervision_grid = ["none", "scores"]
 ```
 
-When document-unit supervision is requested, the supervised cell is built with `leaf_unit_count = 1` because the gold labels attach to individual document units. Grouped leaves remain a root-only axis.
+When document-unit supervision is requested, the supervised cell is built with `leaf_unit_count = 1` because the gold labels attach to individual document units. Grouped leaves apply to root-only cells.
 
-Leaf grouping-grid examples use `treepo.methods.grid` for cell enumeration and JSON/CSV output.
+Leaf-grouping grid examples use `treepo.methods.grid` for cell enumeration and JSON/CSV output.
 
 ## Evidence and Local-Law Certificate Example
 
 `run_local_law_certificate.py` is the smallest end-to-end evidence artifact
-walkthrough. It does not train a model; it builds the evidence objects a real
-run should emit:
+walkthrough. It builds the evidence objects a real run emits, directly from
+sampled rows:
 
 ```bash
-python examples/methods/run_local_law_certificate.py \
+uv run python examples/methods/run_local_law_certificate.py \
   --output-dir outputs/local_law_certificate_example
 ```
 
 The output directory contains sampled local-law rows, an audit summary,
 preference exports, `evidence.json`, and `certificate.json`. The certificate is
 a component-radius ledger for the artifact shape; the toy estimation radius is
-illustrative and should be replaced by the task's finite-sample bound in a
-publication run.
+illustrative, and a publication run supplies the task's finite-sample bound.
 
 ## Family Axis
 
 `treepo.fit(...)` selects one family with the `family` key. Family-specific
 choices live in `backend_config`; for example, `family = "neural_operator"`
-uses `operator_kind = "fno"` for the FNO route. Built-in families include
-`neural_operator`, `fno`, `llm`, and `dspy`. The LLM/DSPy
-families are provider-neutral and accept injected `predict_fn`, `program`, or
-`dspy_program` hooks. Local-law penalties remain objective terms, not families.
+uses `operator_kind = "fno"` for the FNO route. The built-in families are
+`oracle`, `learnable_constant`, `classical_sketch`, `neural_operator`, `fno`,
+`llm`, and `dspy`. The LLM/DSPy families are provider-neutral and accept
+injected `predict_fn`, `program`, or `dspy_program` hooks. Local-law penalties
+are objective terms.

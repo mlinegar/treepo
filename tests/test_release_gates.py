@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from treepo.cli import main as cli_main
+from treepo.bench.cli import main as cli_main
 from treepo.release import check_hygiene, check_inventory, check_release
 
 

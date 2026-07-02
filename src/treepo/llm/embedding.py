@@ -12,7 +12,6 @@ or from their runtime context.
 from __future__ import annotations
 
 from array import array
-from dataclasses import dataclass
 import hashlib
 import os
 from pathlib import Path
@@ -73,43 +72,6 @@ class HashingEmbeddingClient:
                 vec[bucket] += 1.0 + float(idx % 7) * 0.01
             vectors.append(vec)
         return vectors
-
-
-class DenseHashEmbeddingClient:
-    """Deterministic dense hash embedding for real-document smoke paths."""
-
-    def __init__(self, embedding_dim: int = 64, *, salt: str = "unified_g_v1") -> None:
-        self.embedding_dim = int(max(1, embedding_dim))
-        self.salt = str(salt or "")
-
-    def resolve_model(self) -> str:
-        return f"dense_hash:{self.embedding_dim}:{self.salt}"
-
-    def embed_texts(self, texts: Sequence[str]) -> List[List[float]]:
-        return [
-            self._hash_embedding_vector(text, embedding_dim=self.embedding_dim, salt=self.salt)
-            for text in texts
-        ]
-
-    @staticmethod
-    def _hash_embedding_vector(text: str, *, embedding_dim: int, salt: str) -> List[float]:
-        values: List[float] = []
-        counter = 0
-        encoded_text = str(text or "").encode("utf-8")
-        encoded_salt = str(salt or "").encode("utf-8")
-        while len(values) < int(embedding_dim):
-            digest = hashlib.sha256(
-                encoded_salt + b"||" + encoded_text + b"||" + str(counter).encode("ascii")
-            ).digest()
-            for byte in digest:
-                values.append((float(byte) / 127.5) - 1.0)
-                if len(values) >= int(embedding_dim):
-                    break
-            counter += 1
-        return values
-
-
-HashEmbeddingClient = DenseHashEmbeddingClient
 
 
 def _disk_cache_key(model_id: str, text: str) -> str:
@@ -376,97 +338,6 @@ class OpenAICompatibleEmbeddingClient:
         return finalized
 
 
-VLLMEmbeddingClient = OpenAICompatibleEmbeddingClient
-OpenAIEmbeddingClient = OpenAICompatibleEmbeddingClient
-
-
-class TransformersEmbeddingClient:
-    """Native Hugging Face transformers embedding client.
-
-    Dependencies are imported lazily so the base package can still be used
-    without installing torch/transformers.
-    """
-
-    def __init__(
-        self,
-        *,
-        model_name_or_path: str,
-        device: Optional[str] = None,
-        batch_size: int = 16,
-        max_length: int = 512,
-        normalize: bool = True,
-        pooling: str = "mean",
-    ) -> None:
-        self.model_name_or_path = str(model_name_or_path or "").strip()
-        if not self.model_name_or_path:
-            raise ValueError("TransformersEmbeddingClient requires model_name_or_path.")
-        self.device = device
-        self.batch_size = max(1, int(batch_size))
-        self.max_length = max(1, int(max_length))
-        self.normalize = bool(normalize)
-        self.pooling = str(pooling or "mean").strip().lower()
-        if self.pooling not in {"mean", "cls"}:
-            raise ValueError("TransformersEmbeddingClient pooling must be 'mean' or 'cls'.")
-        self._tokenizer = None
-        self._model = None
-
-    def resolve_model(self) -> str:
-        return self.model_name_or_path
-
-    def _ensure_loaded(self) -> tuple[Any, Any, Any]:
-        import torch
-        from transformers import AutoModel, AutoTokenizer
-
-        if self._tokenizer is None:
-            self._tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path)
-        if self._model is None:
-            self._model = AutoModel.from_pretrained(self.model_name_or_path)
-            resolved_device = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
-            self._model.to(resolved_device)
-            self._model.eval()
-        return torch, self._tokenizer, self._model
-
-    def embed_texts(self, texts: Sequence[str]) -> List[List[float]]:
-        if not texts:
-            return []
-        torch, tokenizer, model = self._ensure_loaded()
-        vectors: List[List[float]] = []
-        device = next(model.parameters()).device
-        for start in range(0, len(texts), self.batch_size):
-            batch = [str(text or "") for text in texts[start : start + self.batch_size]]
-            encoded = tokenizer(
-                batch,
-                padding=True,
-                truncation=True,
-                max_length=self.max_length,
-                return_tensors="pt",
-            )
-            encoded = {key: value.to(device) for key, value in encoded.items()}
-            with torch.no_grad():
-                output = model(**encoded)
-                hidden = output.last_hidden_state
-                if self.pooling == "cls":
-                    pooled = hidden[:, 0, :]
-                else:
-                    mask = encoded["attention_mask"].unsqueeze(-1).to(hidden.dtype)
-                    pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
-                if self.normalize:
-                    pooled = torch.nn.functional.normalize(pooled, p=2, dim=-1)
-            vectors.extend([[float(v) for v in row] for row in pooled.detach().cpu().tolist()])
-        return vectors
-
-
-@dataclass(frozen=True)
-class EmbeddingClientConfig:
-    engine: str = "openai_compatible"
-    api_base: str = ""
-    model: Optional[str] = None
-    api_key: str = "EMPTY"
-    timeout_seconds: float = 60.0
-    batch_size: int = 32
-    cache_enabled: bool = True
-
-
 def build_embedding_client(
     engine: str = "openai_compatible",
     *,
@@ -483,11 +354,6 @@ def build_embedding_client(
     verify_model: bool = True,
     embedding_dim: int = 32,
     salt: str = "",
-    model_name_or_path: Optional[str] = None,
-    device: Optional[str] = None,
-    max_length: int = 512,
-    normalize: bool = True,
-    pooling: str = "mean",
 ) -> EmbeddingClient:
     """Build a concrete embedding client while keeping the call protocol stable."""
 
@@ -495,17 +361,6 @@ def build_embedding_client(
     engine_name = engine_name.strip().lower().replace("-", "_")
     if engine_name in {"hash", "hashing", "mock", "deterministic"}:
         return HashingEmbeddingClient(dim=int(embedding_dim), salt=salt)
-    if engine_name in {"dense_hash", "hash_dense", "unified_g_hash"}:
-        return DenseHashEmbeddingClient(embedding_dim=int(embedding_dim), salt=salt or "unified_g_v1")
-    if engine_name in {"transformers", "hf", "huggingface", "native_transformers"}:
-        return TransformersEmbeddingClient(
-            model_name_or_path=str(model_name_or_path or model or ""),
-            device=device,
-            batch_size=batch_size,
-            max_length=max_length,
-            normalize=normalize,
-            pooling=pooling,
-        )
 
     resolved_base = str(api_base or base_url or "").strip()
     if not resolved_base:
@@ -525,15 +380,9 @@ def build_embedding_client(
 
 
 __all__ = [
-    "DenseHashEmbeddingClient",
     "DiskCachedEmbeddingClient",
     "EmbeddingClient",
-    "EmbeddingClientConfig",
-    "HashEmbeddingClient",
     "HashingEmbeddingClient",
     "OpenAICompatibleEmbeddingClient",
-    "OpenAIEmbeddingClient",
-    "TransformersEmbeddingClient",
-    "VLLMEmbeddingClient",
     "build_embedding_client",
 ]

@@ -8,7 +8,7 @@ from typing import Any, Mapping, Sequence
 
 from treepo.local_law import LocalLawAuditRow, audit_local_laws
 from treepo.methods.preference import PreferenceDataset, export_preference_records
-from treepo.state import jsonable
+from treepo.common import jsonable
 from treepo.tree import (
     TreeRecord,
     local_law_rows_from_tree_records,
@@ -27,9 +27,9 @@ def write_artifact_bundle(
 ) -> dict[str, Any]:
     """Write a compact bundle using treepo's canonical artifact shapes.
 
-    The helper is intentionally small and example-oriented. It does not run a
-    trainer or scorer; it only serializes tree records, preference projections,
-    annotated local-law rows, and a manifest that points at those files.
+    The helper is intentionally small and example-oriented. It serializes tree
+    records, preference projections, annotated local-law rows, and a manifest
+    pointing at those files.
     """
 
     out = Path(output_dir)

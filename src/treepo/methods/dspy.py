@@ -12,7 +12,6 @@ from treepo.methods.llm import PromptedLLMFamily, PromptedLLMFamilyConfig
 @dataclass(frozen=True)
 class DSPyFamilyConfig:
     lm_config: Mapping[str, Any] = field(default_factory=dict)
-    gepa_kwargs: Mapping[str, Any] = field(default_factory=dict)
     prompt_template: str = (
         "Estimate the document-level score. Return only one number.\n\n"
         "Document:\n{text}\n\nSupervised examples:\n{supervised_examples}\n\nScore:"
@@ -92,7 +91,6 @@ class DSPyFamily(PromptedLLMFamily):
         trained = str(out.get("trained", "g"))
         out["kind"] = f"treepo_dspy_{trained}"
         out["lm_config"] = dict(self.dspy_config.lm_config or {})
-        out["gepa_kwargs"] = dict(self.dspy_config.gepa_kwargs or {})
         out["dspy_config"] = asdict(self.dspy_config)
         out["has_program"] = self.program is not None
         return out
@@ -105,14 +103,12 @@ def build_dspy_family(backend_config: Mapping[str, Any]) -> DSPyFamily:
         if backend_config.get("model") is not None:
             lm_config.setdefault("model", backend_config["model"])
         raw_config["lm_config"] = lm_config
-    if "gepa_kwargs" in backend_config:
-        raw_config["gepa_kwargs"] = dict(backend_config["gepa_kwargs"] or {})
     for key in ("prompt_template", "system_prompt", "score_regex", "default_prediction", "min_score", "max_score", "metadata"):
         if key in backend_config:
             raw_config[key] = backend_config[key]
     config = DSPyFamilyConfig(**raw_config)
     program = backend_config.get("dspy_program") or backend_config.get("program")
-    predict_fn = backend_config.get("predict_fn") or backend_config.get("dspy_predict_fn")
+    predict_fn = backend_config.get("predict_fn")
     if predict_fn is not None and not callable(predict_fn):
         raise TypeError("dspy predict_fn must be callable")
     return DSPyFamily(config=config, program=program, predict_fn=predict_fn)

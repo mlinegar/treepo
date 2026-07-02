@@ -16,15 +16,16 @@ from treepo.methods._fno_config import (
     _normalize_operator_kind,
 )
 
+# Kinds that work with the leaf-sequence adapter, plus the explicitly rejected
+# geometry/query kinds (kept so their rejection message names the real class).
 _NEURALOP_KIND_ALIASES = {
-    "codano": "CODANO",
     "fno": "FNO",
+    "tfno": "TFNO",
+    "uno": "UNO",
+    "codano": "CODANO",
     "fno_gno": "FNOGNO",
     "fnogno": "FNOGNO",
     "gino": "GINO",
-    "tfno": "TFNO",
-    "uno": "UNO",
-    "uqno": "UQNO",
 }
 _SEQUENCE_INCOMPATIBLE_NEURALOP_KINDS = frozenset({"codano", "fno_gno", "fnogno", "gino"})
 _SEQUENCE_COMPATIBLE_NEURALOP_KINDS = frozenset({"fno", "tfno", "uno"})

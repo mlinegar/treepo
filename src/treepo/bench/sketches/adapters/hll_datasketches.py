@@ -14,18 +14,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-try:
-    import datasketches as _ds
-except ImportError:  # pragma: no cover
-    _ds = None  # type: ignore[assignment]
-
-
-def _require_datasketches() -> None:
-    if _ds is None:
-        raise ImportError(
-            "datasketches is required for HLL parity benchmarks. "
-            "Install with: uv sync --extra sketches"
-        )
+from treepo.bench.sketches.adapters._datasketches import _ds, _require_datasketches
 
 
 def _hll_rse(precision: int) -> float:
@@ -44,10 +33,10 @@ class HLLDatasketchesAdapter:
     union-merged result always transitions to dense. Their serialized bytes
     differ even though both faithfully represent the same multiset. We
     therefore set `is_byte_deterministic=False` and define `state_equal` as
-    functional (estimate) equivalence within a tight relative tolerance. This
+    functional (estimate) equivalence: two states compare equal when their
+    cardinality estimates agree within two HLL relative standard errors. This
     is what Proposition 1 actually claims — oracle-equivalence of summaries,
-    not byte-identity of representations. Byte-identity is the stronger
-    property held by the native adapter.
+    not byte-identity of representations.
     """
 
     precision: int  # datasketches `lg_config_k`
@@ -68,10 +57,6 @@ class HLLDatasketchesAdapter:
     def empty(self) -> Any:
         _require_datasketches()
         return _ds.hll_sketch(int(self.precision))
-
-    def update(self, s: Any, item: int) -> Any:
-        s.update(int(item))
-        return s
 
     def encode(self, items: Iterable[int]) -> Any:
         _require_datasketches()

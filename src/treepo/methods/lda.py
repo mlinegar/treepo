@@ -11,8 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-LDA_RECOVERY_CONFIG_FIELDS: tuple[str, ...] = ()
-
 
 @dataclass(frozen=True)
 class SklearnLDABaselineResult:
@@ -111,22 +109,6 @@ def fit_sklearn_lda_baseline(
     )
 
 
-def run_lda_recovery(
-    *,
-    config: Any | None = None,
-    config_path: str | None = None,
-    output_dir: str | None = None,
-    overrides: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    del config, config_path, output_dir, overrides
-    raise ImportError(
-        "run_lda_recovery is application code and is not included in "
-        "treepo. Use treepo.methods.fixtures.make_lda_topic_trees and "
-        "treepo.methods.lda.fit_sklearn_lda_baseline for the small synthetic "
-        "fixture, or register a downstream LDA runner."
-    )
-
-
 def _count_matrix(trees: Sequence[Any], vocabulary_size: int) -> Any:
     import numpy as np
 
@@ -182,8 +164,6 @@ def _align_components(components: Any, true_topic_words: Any, linear_sum_assignm
 
 
 __all__ = [
-    "LDA_RECOVERY_CONFIG_FIELDS",
     "SklearnLDABaselineResult",
     "fit_sklearn_lda_baseline",
-    "run_lda_recovery",
 ]

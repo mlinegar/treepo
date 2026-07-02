@@ -3,13 +3,13 @@ from __future__ import annotations
 import csv
 import json
 import os
-from pathlib import Path
 import platform
 import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Union
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
 import numpy as np
 
@@ -112,9 +112,3 @@ def summary_to_csv_rows_classical_sketches(summary: Any) -> List[Dict[str, objec
     for row in rows:
         row["experiment"] = "classical_sketches"
     return rows
-
-
-def summary_to_csv_rows_task(summary: Any) -> List[Dict[str, object]]:
-    from treepo.bench.tasks import experiment_rows
-
-    return [dict(row) for row in experiment_rows(summary)]

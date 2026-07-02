@@ -7,12 +7,16 @@ structures before ``json.dumps`` or digesting.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from dataclasses import asdict, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, Mapping, Tuple
 
+
+MIN_PROPENSITY = 1e-12
 
 ScheduleName = Literal["balanced", "left_to_right", "right_to_left"]
 VALID_SCHEDULES: Tuple[ScheduleName, ...] = ("balanced", "left_to_right", "right_to_left")
@@ -60,6 +64,12 @@ def jsonable(value: Any) -> Any:
     return value
 
 
+def stable_digest(payload: Mapping[str, Any]) -> str:
+    """Return a deterministic SHA-256 digest over the JSONable ``payload``."""
+    rendered = json.dumps(jsonable(payload), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
 def audit_sample_count(
     internal_nodes: int,
     *,
@@ -92,10 +102,12 @@ def audit_sample_count(
 
 __all__ = [
     "AuditPolicyName",
+    "MIN_PROPENSITY",
     "ScheduleName",
     "VALID_AUDIT_POLICIES",
     "VALID_SCHEDULES",
     "audit_sample_count",
     "finite_float",
     "jsonable",
+    "stable_digest",
 ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, Mapping
 
+from treepo.methods._coerce import float_vector as _as_float_vector, safe_float as _as_float
 from treepo.methods.preference import PreferenceDataset
 from treepo.state import state_from_value, state_to_dict
 
@@ -94,25 +95,6 @@ def _supervised_text(row: Mapping[str, Any]) -> str:
     if prompt and completion:
         return f"{prompt}\n{completion}"
     return prompt or completion or str(row.get("unit_id") or "")
-
-
-def _as_float(value: Any) -> float | None:
-    try:
-        if value is None or isinstance(value, (list, tuple, Mapping)):
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _as_float_vector(value: Any) -> list[float] | None:
-    if value is None or isinstance(value, (str, bytes, Mapping)):
-        return None
-    try:
-        out = [float(item) for item in value]
-    except (TypeError, ValueError):
-        return None
-    return out if out else None
 
 
 __all__ = ["preference_training_rows"]

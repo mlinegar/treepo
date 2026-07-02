@@ -1,9 +1,9 @@
 """`SketchAdapter` Protocol — uniform surface over classical mergeable sketches.
 
-Concrete adapters (HLL-native, HLL/CPC/Theta/Count-Min/FrequentItems/KLL/REQ/
-t-digest/Tuple/VarOpt from Apache DataSketches) implement this Protocol. The
-tree reducer and benchmark runners operate against the Protocol only; neither
-imports a concrete adapter or the `datasketches` library directly.
+Concrete adapters (HLL/CPC/Theta/Count-Min/FrequentItems/KLL/REQ/t-digest/
+Tuple/VarOpt from Apache DataSketches) implement this Protocol. The tree
+reducer and benchmark runners operate against the Protocol; concrete adapters
+gate the `datasketches` import.
 
 The `state` type parameter is the sketch's internal representation (register
 array, bitmap, centroid list, etc.). `Item` is the type fed per leaf (int
@@ -47,8 +47,6 @@ class SketchAdapter(Protocol[StateT, ItemT, QueryT, ResultT]):
     is_byte_deterministic: bool
 
     def empty(self) -> StateT: ...
-
-    def update(self, s: StateT, item: ItemT) -> StateT: ...
 
     def encode(self, items: Iterable[ItemT]) -> StateT: ...
 

@@ -8,10 +8,12 @@ registered by the package that owns their runtime dependencies.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
-FamilyRuntime = Any
-FamilyFactory = Callable[[Mapping[str, Any]], FamilyRuntime]
+if TYPE_CHECKING:
+    from treepo.methods.contracts import FamilyRuntime
+
+FamilyFactory = Callable[[Mapping[str, Any]], "FamilyRuntime"]
 
 _REGISTRY: dict[str, FamilyFactory] = {}
 

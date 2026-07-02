@@ -192,13 +192,12 @@ class PromptedLLMFamily:
 def _select_kwargs(predict_fn: PredictFn, available: Mapping[str, Any]) -> dict[str, Any]:
     """Pick the ``available`` arguments a ``predict_fn`` actually accepts.
 
-    Detection is signature-based rather than exception-based so a genuine
-    ``TypeError`` raised *inside* the callable propagates instead of being
-    swallowed by arity retries. A callable with ``**kwargs`` receives every
+    Detection is signature-based, so a ``TypeError`` raised inside the callable
+    propagates to the caller. A callable with ``**kwargs`` receives every
     available argument; otherwise only its named parameters (``prompt``,
-    ``tree``, ``messages``, ``config``) are forwarded. If the signature cannot
-    be introspected (e.g. a builtin/C callable), fall back to the historical
-    ``prompt``-only contract.
+    ``tree``, ``messages``, ``config``) are forwarded. When the signature
+    cannot be introspected (e.g. a builtin/C callable), the callable receives
+    the ``prompt``-only contract.
     """
     try:
         params = inspect.signature(predict_fn).parameters
@@ -234,11 +233,7 @@ def build_llm_family(backend_config: Mapping[str, Any]) -> PromptedLLMFamily:
         if key in backend_config:
             raw_config[key] = backend_config[key]
     config = PromptedLLMFamilyConfig(**raw_config)
-    predict_fn = (
-        backend_config.get("predict_fn")
-        or backend_config.get("llm_predict_fn")
-        or backend_config.get("scorer")
-    )
+    predict_fn = backend_config.get("predict_fn")
     if predict_fn is not None and not callable(predict_fn):
         raise TypeError("llm predict_fn must be callable")
     return PromptedLLMFamily(config=config, predict_fn=predict_fn)

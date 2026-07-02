@@ -66,8 +66,11 @@ class ClassicalSketchComparisonSummary:
     config: Dict[str, object]
     rows: Tuple[Dict[str, object], ...]
 
+    def to_dict(self) -> Dict[str, object]:
+        return {"config": dict(self.config), "rows": [dict(row) for row in self.rows]}
+
     def to_json(self) -> str:
-        return json.dumps({"config": self.config, "rows": list(self.rows)}, indent=2, sort_keys=True)
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True)
 
 
 def _chunks(xs: Sequence, leaf_unit_count: int) -> List[List]:
@@ -101,19 +104,9 @@ def _leaf_count_stats(config: ClassicalSketchComparisonConfig, docs: Sequence[Se
 
 def _row_axes(
     config: ClassicalSketchComparisonConfig,
-    docs: Sequence[Sequence] | None = None,
+    docs: Sequence[Sequence],
 ) -> Dict[str, object]:
-    if docs is None:
-        leaf_stats = {
-            "leaf_count_min": -1,
-            "leaf_count_mean": float("nan"),
-            "leaf_count_max": -1,
-            "tokens_per_leaf_min": float(config.leaf_unit_count),
-            "tokens_per_leaf_mean": float(config.leaf_unit_count),
-            "tokens_per_leaf_max": float(config.leaf_unit_count),
-        }
-    else:
-        leaf_stats = _leaf_count_stats(config, docs)
+    leaf_stats = _leaf_count_stats(config, docs)
     return {
         "seed": int(config.seed),
         "capacity_label": str(config.capacity_label),
@@ -220,36 +213,21 @@ def _attach_official_floors(rows: List[Dict[str, object]]) -> List[Dict[str, obj
     return out
 
 
-def _attach_tree_bundle_contract(
-    row: Mapping[str, object],
-    *,
-    config: ClassicalSketchComparisonConfig,
-    state_contract: str = "oracle_state",
-    f_init: str = "official_oracle",
-    g_init: str = "official_merge",
-    schedule: str = "balanced",
-    summary_dim: int | None = None,
-    state_dim: int | None = None,
-) -> Dict[str, object]:
-    out = dict(row)
-    leaf_policy = {
-        "leaf_unit_count": int(config.leaf_unit_count),
-        "min_tokens": int(config.min_tokens),
-        "max_tokens": int(config.max_tokens),
+def _tree_bundle_contract(config: ClassicalSketchComparisonConfig) -> Dict[str, object]:
+    return {
+        "f_init": "official_oracle",
+        "g_init": "official_merge",
+        "fg_schedule": "balanced",
+        "reducer_contract": "bottom_up",
+        "tree_bundle_leaf_policy": {
+            "leaf_unit_count": int(config.leaf_unit_count),
+            "min_tokens": int(config.min_tokens),
+            "max_tokens": int(config.max_tokens),
+        },
+        "tree_bundle_state_contract": "oracle_state",
+        "tree_bundle_summary_dim": None,
+        "tree_bundle_state_dim": None,
     }
-    out.update(
-        {
-            "f_init": str(f_init),
-            "g_init": str(g_init),
-            "fg_schedule": str(schedule),
-            "reducer_contract": "bottom_up",
-            "tree_bundle_leaf_policy": leaf_policy,
-            "tree_bundle_state_contract": str(state_contract),
-            "tree_bundle_summary_dim": summary_dim,
-            "tree_bundle_state_dim": state_dim,
-        }
-    )
-    return out
 
 
 def _token_docs(config: ClassicalSketchComparisonConfig) -> List[List[int]]:
@@ -596,25 +574,13 @@ def run_classical_sketch_comparison(config: ClassicalSketchComparisonConfig) -> 
         rows.extend(_run_sampling(config, token_docs))
     rows = _attach_official_floors(rows)
     axes = _row_axes(config, list(token_docs) + list(float_docs))
-    rows = [dict(row, **axes) for row in rows]
-    rows = [
-        _attach_tree_bundle_contract(
-            row,
-            config=config,
-            state_contract="oracle_state",
-            f_init="official_oracle",
-            g_init="official_merge",
-            schedule="balanced",
-        )
-        for row in rows
-    ]
+    contract = _tree_bundle_contract(config)
+    rows = [dict(row, **axes, **contract) for row in rows]
     return ClassicalSketchComparisonSummary(config=asdict(config), rows=tuple(rows))
 
 
-def experiment_rows(summary: ClassicalSketchComparisonSummary | Sequence[Mapping[str, object]]) -> List[Dict[str, object]]:
-    if isinstance(summary, ClassicalSketchComparisonSummary):
-        return [dict(r) for r in summary.rows]
-    return [dict(r) for r in summary]
+def experiment_rows(summary: ClassicalSketchComparisonSummary) -> List[Dict[str, object]]:
+    return [dict(r) for r in summary.rows]
 
 
 __all__ = [

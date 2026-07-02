@@ -1,5 +1,3 @@
-"""Training lifecycle protocols for package methods."""
+"""Local-law training objectives (see `treepo.training.local_law`)."""
 
-from treepo.training.lifecycle import ExperimentMethod
-
-__all__ = ["ExperimentMethod"]
+__all__: list[str] = []

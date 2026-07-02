@@ -10,24 +10,10 @@ from treepo.local_law import (
     LawKind,
     LocalLawAuditRow,
     compute_influence_weighted_overlap,
-    corrected_losses_from_rows,
 )
 from treepo.certificate import (
     UnifiedLearningComponentEvidence,
     build_error_certificate,
-)
-from treepo.honesty import (
-    ThreeLayerHonestyConfig,
-    assign_three_layer_roles,
-    role_tuple_for_unit,
-)
-from treepo.manifest import (
-    ArtifactLineage,
-    ArtifactRef,
-    ManifestRow,
-    RunManifestContract,
-    Span,
-    TopLevelUnit,
 )
 from treepo.objective import (
     ObjectiveSpec,
@@ -35,87 +21,6 @@ from treepo.objective import (
     resolve_root_local_objective_weights,
 )
 from treepo.sampling import ObservationUnitKind, SamplingMetadata
-
-
-def _lineage() -> ArtifactLineage:
-    return ArtifactLineage(
-        chunker="chunker:v1",
-        g="g:v1",
-        f="f:v1",
-        oracle_online="oracle:online",
-        oracle_eval="oracle:eval",
-        query_policy="query:v1",
-        proxy="proxy:v1",
-    )
-
-
-def test_manifest_round_trips_and_validates() -> None:
-    manifest = RunManifestContract(
-        run_id="run_1",
-        top_level_units=(TopLevelUnit(unit_id="doc_1", length=100),),
-        artifacts=(
-            ArtifactRef("chunker:v1"),
-            ArtifactRef("g:v1"),
-            ArtifactRef("f:v1"),
-            ArtifactRef("oracle:online"),
-            ArtifactRef("oracle:eval"),
-            ArtifactRef("query:v1"),
-            ArtifactRef("proxy:v1"),
-        ),
-        rows=(
-            ManifestRow(
-                row_id="row_1",
-                top_level_unit_id="doc_1",
-                fold_id="fold_0",
-                split_seed=7,
-                roles=role_tuple_for_unit(
-                    "doc_1",
-                    ThreeLayerHonestyConfig(enabled=True, split_seed=7),
-                ),
-                artifacts=_lineage(),
-                law_kind="c1_leaf",
-                support=Span(0, 50, unit="char"),
-                observed=True,
-                propensity=0.5,
-                truth_source="fixture_oracle",
-                approx_source="fixture_proxy",
-            ),
-        ),
-    )
-
-    report = manifest.validate()
-    assert report.ok, report.to_dict()
-    restored = RunManifestContract.from_dict(json.loads(json.dumps(manifest.to_dict())))
-    assert restored == manifest
-    assert len(restored.digest) == 64
-
-
-def test_manifest_rejects_missing_parent_and_invalid_row_propensity() -> None:
-    with pytest.raises(ValueError, match="propensity"):
-        ManifestRow(
-            row_id="bad",
-            top_level_unit_id="doc_1",
-            support=Span(0, 1),
-            observed=False,
-            propensity=0.0,
-        )
-
-    manifest = RunManifestContract(
-        run_id="run_1",
-        top_level_units=(TopLevelUnit(unit_id="doc_1", length=10),),
-        rows=(
-            ManifestRow(
-                row_id="row_1",
-                top_level_unit_id="missing",
-                support=Span(0, 1),
-                observed=False,
-                propensity=1.0,
-            ),
-        ),
-    )
-    report = manifest.validate(require_artifacts=False)
-    assert not report.ok
-    assert "missing top-level unit" in report.errors[0]
 
 
 def test_objective_rejects_additive_oracle_gap_terms() -> None:
@@ -221,7 +126,6 @@ def test_audit_rows_compute_corrected_losses_and_overlap() -> None:
             node_weight=2.0,
         ),
     ]
-    assert corrected_losses_from_rows(rows) == pytest.approx([0.4, -0.2])
     overlap = compute_influence_weighted_overlap(rows)
     assert overlap.D_lambda == pytest.approx(1.0 / 0.25 + 4.0 / 0.5)
     assert overlap.W_lambda == pytest.approx(4.0)
@@ -243,7 +147,7 @@ def test_certificate_keeps_component_radii_separate() -> None:
     assert cert.local_law_radius == pytest.approx(0.1)
 
 
-def test_sampling_and_honesty_are_deterministic() -> None:
+def test_sampling_metadata_is_deterministic() -> None:
     sampling = SamplingMetadata(
         document_propensity=0.5,
         unit_propensity=0.25,
@@ -252,9 +156,6 @@ def test_sampling_and_honesty_are_deterministic() -> None:
     )
     assert sampling.effective_joint_propensity() == pytest.approx(0.125)
     assert sampling.ipw_weight() == pytest.approx(8.0)
-
-    cfg = ThreeLayerHonestyConfig(enabled=True, split_seed=11)
-    assert assign_three_layer_roles("doc_1", cfg) == assign_three_layer_roles("doc_1", cfg)
 
 
 def test_top_level_fit_learning_routes_through_methods_surface(tmp_path: Path) -> None:
@@ -439,7 +340,7 @@ def test_preference_dataset_exports_optimizer_records(tmp_path: Path) -> None:
 
 
 def test_preference_dataset_round_trips_task_state_values() -> None:
-    from treepo import Candidate, PreferenceDataset, PreferenceRecord, TaskState, TreeUnitRef
+    from treepo import Candidate, PreferenceDataset, PreferenceRecord, TaskState
 
     state = TaskState(
         kind="lda_topics",
@@ -447,25 +348,18 @@ def test_preference_dataset_round_trips_task_state_values() -> None:
         measures={"topic_proportions": [2.0 / 3.0, 1.0 / 3.0]},
         metadata={"source": "unit_test"},
     )
-    unit = TreeUnitRef(
-        tree_id="doc1",
-        node_id="leaf0",
-        unit_id="doc1:leaf0",
-        unit_type="leaf",
-        level=0,
-    )
     dataset = PreferenceDataset(
         [
             PreferenceRecord(
                 record_id="state1",
-                unit_id=unit.unit_id,
-                unit_type=unit.unit_type,
+                unit_id="doc1:leaf0",
+                unit_type="leaf",
                 target="g",
                 context="Infer topic state.",
                 candidates=(Candidate(id="gold", value=state, score=1.0),),
-                tree_id=unit.tree_id,
-                node_id=unit.node_id,
-                level=unit.level,
+                tree_id="doc1",
+                node_id="leaf0",
+                level=0,
             )
         ]
     )
@@ -485,7 +379,6 @@ def test_tree_record_round_trips_and_exports_preference_units(tmp_path: Path) ->
     from treepo.methods.preference import preference_units_from_trees
     from treepo.tree import (
         iter_tree_units,
-        load_tree_records,
         local_law_rows_from_tree_records,
         tree_summary,
         validate_tree_record,
@@ -556,7 +449,11 @@ def test_tree_record_round_trips_and_exports_preference_units(tmp_path: Path) ->
     assert "left_child_id does not exist" in validate_tree_record(bad_tree)[0]
 
     path = write_tree_records_jsonl(tmp_path / "trees.jsonl", [tree])
-    loaded = load_tree_records(path)
+    loaded = [
+        TreeRecord.from_value(json.loads(line))
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     assert len(loaded) == 1
     assert loaded[0].get_node("leaf0").state.kind == "manifesto_policy"
 

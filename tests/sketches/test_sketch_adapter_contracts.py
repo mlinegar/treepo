@@ -1,7 +1,6 @@
 """Adapter-level contract tests (S1/S2/S3/S4) — fast CI gate.
 
-These bypass `fit()` for quick checks; the `fit()`-routed equivalents live
-in `parallel/unified_g_v1/tests/test_classical_hll_parity_fit.py`.
+These bypass `fit()` for quick checks against the DataSketches HLL adapter.
 
 - S1 single-leaf identity: L=1 TreePO state byte-identical to flat state.
 - S2 schedule invariance: balanced / L→R / R→L produce byte-equal states.
@@ -25,7 +24,6 @@ from treepo.methods.fixtures import make_hll_item_trees
 
 pytest.importorskip("datasketches")
 
-BACKENDS = ["datasketches"]
 SCHEDULES = ("balanced", "left_to_right", "right_to_left")
 
 
@@ -39,9 +37,8 @@ def _chunk(xs: list[int], n_chunks: int) -> list[list[int]]:
     return [xs[i : i + k] for i in range(0, len(xs), k)]
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_s1_single_leaf_identity(backend: str) -> None:
-    adapter = make_hll_adapter(backend=backend, precision=10)
+def test_s1_single_leaf_identity() -> None:
+    adapter = make_hll_adapter(precision=10)
     items = _seeded_tokens(500, universe=10_000, seed=0)
 
     tree_state = treepo_reduce([items], adapter, schedule="balanced")
@@ -50,10 +47,9 @@ def test_s1_single_leaf_identity(backend: str) -> None:
     assert adapter.state_equal(tree_state, flat_state)
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("leaf_count", [2, 4, 8, 16])
-def test_s2_schedule_invariance(backend: str, leaf_count: int) -> None:
-    adapter = make_hll_adapter(backend=backend, precision=10)
+def test_s2_schedule_invariance(leaf_count: int) -> None:
+    adapter = make_hll_adapter(precision=10)
     items = _seeded_tokens(2000, universe=20_000, seed=1)
     leaves = _chunk(items, leaf_count)
 
@@ -64,9 +60,8 @@ def test_s2_schedule_invariance(backend: str, leaf_count: int) -> None:
         assert adapter.state_equal(roots[0], other)
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_s3_permutation_invariance(backend: str) -> None:
-    adapter = make_hll_adapter(backend=backend, precision=10)
+def test_s3_permutation_invariance() -> None:
+    adapter = make_hll_adapter(precision=10)
     items = _seeded_tokens(2000, universe=20_000, seed=2)
     leaves = _chunk(items, 8)
 
@@ -80,10 +75,9 @@ def test_s3_permutation_invariance(backend: str) -> None:
     assert adapter.state_equal(original, shuffled)
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("leaf_count", [2, 4, 8, 16])
-def test_s4_reference_agreement(backend: str, leaf_count: int) -> None:
-    adapter = make_hll_adapter(backend=backend, precision=11)
+def test_s4_reference_agreement(leaf_count: int) -> None:
+    adapter = make_hll_adapter(precision=11)
     items = _seeded_tokens(3000, universe=50_000, seed=3)
     leaves = _chunk(items, leaf_count)
 
@@ -97,10 +91,9 @@ def test_s4_reference_agreement(backend: str, leaf_count: int) -> None:
 
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_theoretical_accuracy_floor(backend: str) -> None:
+def test_theoretical_accuracy_floor() -> None:
     precision = 12
-    adapter = make_hll_adapter(backend=backend, precision=precision)
+    adapter = make_hll_adapter(precision=precision)
     m = 1 << precision
 
     rel_errors = []
@@ -113,7 +106,7 @@ def test_theoretical_accuracy_floor(backend: str) -> None:
     rmse_rel = (sum(e * e for e in rel_errors) / len(rel_errors)) ** 0.5
     theoretical_floor = 1.04 / (m ** 0.5)
     assert rmse_rel < 2.5 * theoretical_floor, (
-        f"{backend} rmse_rel={rmse_rel:.4f} exceeds 2.5x floor {theoretical_floor:.4f}"
+        f"rmse_rel={rmse_rel:.4f} exceeds 2.5x floor {theoretical_floor:.4f}"
     )
 
 

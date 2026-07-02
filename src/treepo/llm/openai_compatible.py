@@ -1,18 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 
 ChatMessage = Mapping[str, str]
-
-
-@dataclass(frozen=True)
-class OpenAICompatibleConfig:
-    base_url: str
-    model: str
-    api_key: str = "EMPTY"
-    timeout_s: float = 120.0
 
 
 def render_chat_payload(
@@ -30,4 +21,4 @@ def render_chat_payload(
     }
 
 
-__all__ = ["ChatMessage", "OpenAICompatibleConfig", "render_chat_payload"]
+__all__ = ["ChatMessage", "render_chat_payload"]

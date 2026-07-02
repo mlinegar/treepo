@@ -1,10 +1,10 @@
 # Fit Defaults And Extension Boundary
 
-The v0.1 package keeps the public learning layer deliberately small. It ships
+The package keeps the public learning layer deliberately small. It ships
 `treepo.fit(...)`, lightweight defaults, deterministic oracle families, a
-simple learnable family, generic neural operators, and provider-neutral
-LLM/DSPy wrappers. Heavier paper/application families plug in from a downstream
-workspace or package.
+simple learnable family, a classical-sketch family, generic neural operators,
+and provider-neutral LLM/DSPy wrappers. Heavier paper/application families plug
+in from a downstream workspace or package.
 
 ## Built-In Surface
 
@@ -29,12 +29,13 @@ The built-in families are:
 |---|---|
 | `oracle` | Wraps built-in oracle scorers as a `FamilyRuntime`. |
 | `learnable_constant` | Tiny deterministic trainable baseline for package tests and API smoke. |
+| `classical_sketch` | Exact classical sketch adapters (e.g. HLL) as a composable-statistic family. |
 | `neural_operator` | Generic neural-operator root-score scorer over embedded leaf sequences; supports `operator_kind="fno"`/`"fourier"`, `operator_kind="tfno"`, `operator_kind="uno"`, and the local `operator_kind="conv1d"` baseline. |
 | `fno` | Concrete FNO route over the shared neural-operator runtime. Use `family="neural_operator"` when selecting a non-FNO operator kind explicitly. |
 | `llm` | Provider-neutral prompt wrapper. Pass `predict_fn` for concrete OpenAI-compatible/vLLM calls. |
-| `dspy` | Provider-neutral DSPy wrapper. Pass `dspy_program`, `program`, or `predict_fn`; importing it does not import DSPy. |
+| `dspy` | Provider-neutral DSPy wrapper. Pass `dspy_program`, `program`, or `predict_fn`; DSPy loads only when a program runs. |
 
-The built-in oracle is:
+The built-in oracles are:
 
 | Oracle | Domain | Fixture |
 |---|---|---|
@@ -58,8 +59,8 @@ treepo.fit(
 )
 ```
 
-Downstream code should inject concrete callables/programs or register real
-families instead of adding package-level branches.
+Downstream code injects concrete callables/programs or registers real
+families.
 
 ## Application Families
 
@@ -70,17 +71,12 @@ fixtures plus generic family routes.
 
 ## Package Defaults
 
-`treepo.methods.canonical_defaults` provides small constants and TOML helpers
-used by source examples and downstream packages:
+`treepo.methods.canonical_defaults` provides one generic helper used by source
+examples and downstream packages:
 
 | Name | Current role |
 |---|---|
-| `load_dataclass` | Hydrate a dataclass from TOML without adding a new config layer. |
-| `LmSection` / `build_lm_config_dict` | Lightweight OpenAI-compatible client config helper. |
-| `BATCH_DEFAULTS` | Conservative batch-client defaults for downstream LLM families. |
-| `GEPA_STRONG_DEFAULTS` | Small GEPA defaults for downstream DSPy/GEPA code. |
-
-Those constants are literal package defaults.
+| `load_dataclass` | Hydrate any dataclass from TOML, with optional section selection and dotted-key overrides. Application families define their own default dataclasses in their own package and load them through this helper. |
 
 ## Release Rule
 

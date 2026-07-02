@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Sequence
 
 from treepo.methods.preference import PreferenceDataset
-from treepo.state import jsonable
+from treepo.common import jsonable
 
 
 FineTuneView = Literal[
@@ -41,15 +41,13 @@ DEFAULT_FINETUNE_VIEWS: tuple[FineTuneView, ...] = (
 class FineTuneAdapter:
     """Lightweight framework adapter over fine-tuning row views.
 
-    Adapters in this package only prepare/export rows. Downstream packages can
-    register adapters that also expose explicit training capabilities, but no
-    trainer framework is imported here.
+    Adapters here prepare and export rows; training loops live in downstream
+    packages.
     """
 
     name: str
     framework: str
     required_views: tuple[str, ...]
-    capabilities: tuple[str, ...] = ("prepare", "export")
     description: str = ""
     prepare_fn: Callable[..., dict[str, Any]] | None = None
 
@@ -315,7 +313,6 @@ def _adapter_result(
     return {
         "adapter": adapter.name,
         "framework": adapter.framework,
-        "capabilities": list(adapter.capabilities),
         "views": list(views),
         "counts": dict(counts),
         "files": dict(files),

@@ -1,8 +1,8 @@
 """Scalar and vector target extraction for neural-operator families.
 
 Data-prep: read the supervision target(s) off each training tree, following the
-config's ``target_key`` / ``target_keys`` / ``target_vector_key`` preferences
-with sensible fallbacks. ``_target_rows`` also enforces a uniform target width
+config's ``target_key`` / ``target_vector_key`` preferences with sensible
+fallbacks. ``_target_rows`` also enforces a uniform target width
 across the batch. No torch here — this is pure metadata shaping.
 """
 
@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from treepo.methods._fno_config import NeuralOperatorFamilyConfig, _safe_float
+from treepo.methods._coerce import safe_float as _safe_float
+from treepo.methods._fno_config import NeuralOperatorFamilyConfig
 
 
 def _target_rows(
@@ -26,7 +27,7 @@ def _target_rows(
         raise ValueError(
             "neural-operator families need training trees with scalar or vector "
             "target metadata ('teacher_score_native', backend_config['target_key'], "
-            "backend_config['target_keys'], or backend_config['target_vector_key'])."
+            "or backend_config['target_vector_key'])."
         )
     width = len(rows[0][1])
     if width <= 0:
@@ -38,11 +39,6 @@ def _target_rows(
 
 
 def _target_vector(tree: Any, config: NeuralOperatorFamilyConfig) -> list[float] | None:
-    if config.target_keys:
-        values = [_value_by_key(tree, key) for key in config.target_keys]
-        if any(value is None for value in values):
-            return None
-        return [float(value) for value in values if value is not None]
     if config.target_vector_key:
         values = _vector_by_key(tree, config.target_vector_key)
         if values is None:
@@ -59,16 +55,6 @@ def _target_vector(tree: Any, config: NeuralOperatorFamilyConfig) -> list[float]
             return values
     score = _target_score(tree, config.target_key)
     return None if score is None else [float(score)]
-
-
-def _value_by_key(tree: Any, key: str | None) -> float | None:
-    if not key:
-        return None
-    meta = getattr(tree, "metadata", None)
-    meta = meta if isinstance(meta, Mapping) else {}
-    if key in meta:
-        return _safe_float(meta.get(key))
-    return _safe_float(getattr(tree, str(key), None))
 
 
 def _vector_by_key(tree: Any, key: str | None) -> list[float] | None:
@@ -112,6 +98,5 @@ __all__ = [
     "_target_rows",
     "_target_score",
     "_target_vector",
-    "_value_by_key",
     "_vector_by_key",
 ]

@@ -9,7 +9,7 @@ the bottom of the FNO module DAG and imports nothing from its siblings.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields, is_dataclass
-from typing import Any, Mapping, Sequence, TypeVar
+from typing import Any, Mapping, TypeVar
 
 _LOCAL_OPERATOR_KINDS = frozenset({"conv1d"})
 _OPERATOR_KIND_ALIASES = {
@@ -39,12 +39,10 @@ class NeuralOperatorFamilyConfig:
     normalize_targets: bool = True
     target_key: str | None = None
     target_vector_key: str | None = None
-    target_keys: Sequence[str] | None = None
     target_dim: int | None = None
     target_min: float | None = None
     target_max: float | None = None
     embedding_salt: str = "treepo_neural_operator"
-    use_numeric_leaf_features: bool = True
     numeric_transition_state_weight: float = 0.0
     numeric_transition_count_scale: float | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -113,15 +111,6 @@ def _normalize_operator_kind(value: Any) -> str:
     return _OPERATOR_KIND_ALIASES.get(normalized, normalized)
 
 
-def _safe_float(value: Any) -> float | None:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _clamp(value: float, lower: float | None, upper: float | None) -> float:
     if lower is not None:
         value = max(float(lower), value)
@@ -134,12 +123,10 @@ __all__ = [
     "FNOFamilyConfig",
     "NeuralOperatorFamilyConfig",
     "_LOCAL_OPERATOR_KINDS",
-    "_OPERATOR_KIND_ALIASES",
     "_clamp",
     "_coerce_config",
     "_config_payload",
     "_known_config_keys",
     "_normalize_operator_kind",
-    "_safe_float",
     "_tensor_payload",
 ]

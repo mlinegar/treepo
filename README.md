@@ -4,8 +4,7 @@
 JSONable task states, unit-level supervision/preferences, local-law
 certificates, lightweight LLM helpers, and small runnable benchmarks.
 
-Large application code, model-serving fleets, datasets, launchers, and
-publication-scale experiment grids live outside this package and register
+Downstream packages register their runtimes, datasets, and experiment grids
 through the public APIs.
 
 ## Quick Start
@@ -13,23 +12,23 @@ through the public APIs.
 [uv](https://docs.astral.sh/uv/) is the supported project workflow:
 
 ```bash
-git clone <this-repo-url> treepo
+git clone <this-repo-url> treepo   # replace <this-repo-url> with your checkout URL
 cd treepo
 uv sync
 uv run pytest -q
 ```
 
-The default install includes the small numerical stack, Hugging Face
-`datasets` for preference-data interchange, and the built-in neural-operator
-family:
+The default install includes the numerical stack (`numpy`, `scipy`,
+`scikit-learn`), Hugging Face `datasets` for preference-data interchange, and
+the built-in neural-operator family (`torch`, `neuraloperator`):
 
 ```bash
 uv sync --no-dev
 uv run python -c "import treepo; print(treepo.__version__)"
 ```
 
-PyTorch and `neuraloperator` are installed by default for `family="neural_operator"` / `family="fno"`, but
-`import treepo` does not import them.
+PyTorch and `neuraloperator` install by default; they load only when a
+neural-operator family runs.
 
 Use `uv sync`, `uv run`, `uv lock`, and `uv build` so local checks match the
 checked-in lockfile.
@@ -39,13 +38,17 @@ checked-in lockfile.
 ```text
 treepo/
 ├── src/treepo/
-│   ├── bench/       # treepo-bench run/check implementation
-│   ├── llm/         # OpenAI-compatible and Transformers helper contracts
-│   ├── methods/     # internal fit registry and built-in lightweight families
-│   ├── training/    # optional local-law tensor helpers
-│   └── ...
+│   ├── bench/       # treepo-bench runner, benchmark IO, release checks
+│   ├── llm/         # client-side OpenAI-compatible chat/embedding helpers
+│   ├── methods/     # treepo.fit() registry and built-in families
+│   ├── tasks/       # small task assets (Manifesto/RILE fixtures)
+│   ├── training/    # torch local-law tensor helpers
+│   └── *.py         # value modules: state, tree, statistic, local_law,
+│                    #   evidence, certificate, objective, sampling,
+│                    #   artifacts, finetune, common
 ├── examples/        # small bench and methods examples
-├── docs/            # package boundary and architecture notes
+├── docs/            # architecture, boundary, evidence, module layout,
+│                    #   training defaults, and contributor guides
 ├── tests/
 └── inventory.yaml
 ```
@@ -57,16 +60,12 @@ Core install stays import-light. Add extras for the workflow you are using:
 ```bash
 uv sync --extra bench       # YAML config IO for treepo-bench
 uv sync --extra sketches    # datasketches-backed sketch adapters
-uv sync --extra llm         # OpenAI-compatible and Transformers clients
-uv sync --extra train       # training/local-law helpers
+uv sync --extra llm         # requests-based OpenAI-compatible client layer
 uv sync --extra all         # every optional package stack
 ```
 
-The `torch` and `neural` extras remain as explicit selectors for environments
-that install extras piecemeal; the default package already includes them.
-
-`import treepo` and `treepo.core` do not import PyYAML, langextract, tiktoken,
-DSPy, OpenAI, vLLM, torch, pandas, transformers, or Hugging Face `datasets`.
+`import treepo` loads only the core modules; optional stacks load when the
+workflow that uses them runs.
 
 ## Fit Surface
 
@@ -89,16 +88,22 @@ result = treepo.fit(
 )
 ```
 
-Built-in families are deliberately small: deterministic oracles, a learnable
-constant baseline, a concrete `fno` route, and a generic `neural_operator`
-root scorer with `operator_kind="fno"`/`"fourier"`,
-`operator_kind="tfno"`, `operator_kind="uno"`, and the local
-`operator_kind="conv1d"` baseline. `llm` and `dspy` are provider-neutral
-wrappers that require injected callables/programs. Additional application
-families can register from the package or workspace that owns their runtime.
-The package includes a small synthetic overlapping-topic LDA fixture with an
-official sklearn baseline and leaf grouping-size grid as neural-operator
-methods examples.
+Seven families are built in, and each is deliberately small:
+
+- `oracle` — deterministic built-in oracle scorers.
+- `learnable_constant` — tiny trainable baseline for tests and API smoke.
+- `classical_sketch` — exact classical sketch adapters (e.g. HLL).
+- `neural_operator` — generic root scorer over embedded leaf sequences with
+  `operator_kind="fno"`/`"fourier"`, `"tfno"`, `"uno"`, and the local
+  `"conv1d"` baseline.
+- `fno` — the concrete FNO route over the same runtime.
+- `llm` and `dspy` — provider-neutral wrappers that accept injected
+  callables/programs.
+
+Additional application families register from the package or workspace that
+owns their runtime. The package includes a small synthetic overlapping-topic
+LDA fixture with an official sklearn baseline and a leaf-grouping grid as
+neural-operator methods examples.
 
 `PreferenceDataset` is the unit-level surface for root, node, merge,
 trajectory, or task-unit candidate data. It stores one canonical Hugging Face
@@ -112,10 +117,17 @@ local-law diagnostics.
 
 ## LLM Helpers
 
-`treepo.llm` is a client-side helper layer for OpenAI-compatible chat/text
-generation, embeddings, and native Transformers adapters. vLLM, SGLang,
-OpenAI, and Transformers should feed the same normalized request/response
-shape.
+`treepo.llm` is a client-side helper layer built on `requests`: an
+OpenAI-compatible chat payload helper plus embedding clients behind the
+`EmbeddingClient` protocol —
+
+- `OpenAICompatibleEmbeddingClient` — points at any OpenAI-compatible `/v1`
+  endpoint (vLLM, SGLang, hosted providers).
+- `HashingEmbeddingClient` — deterministic, dependency-free vectors for tests
+  and smoke runs.
+- `DiskCachedEmbeddingClient` — wraps another client with an on-disk cache so
+  repeated sweeps embed each text once.
+- `build_embedding_client(...)` — config-driven construction.
 
 ```python
 lm_config = {
@@ -125,7 +137,7 @@ lm_config = {
 }
 ```
 
-Server orchestration belongs outside `treepo`.
+`treepo.llm` is client-side; the deploying package owns server orchestration.
 
 ## Bench CLI
 
@@ -151,9 +163,10 @@ treepo-bench run markov \
 ```
 
 `markov` is a package-native task benchmark built on the built-in Markov
-changepoint fixture and oracle. Synthetic overlapping-topic LDA is available as a small methods
-example with an official sklearn baseline; manifesto workflows belong in downstream packages until they expose
-the same native task benchmark contract.
+changepoint fixture and oracle, and it shows the native task-benchmark
+contract new tasks implement. Manifesto/RILE runs through the methods
+examples, and synthetic overlapping-topic LDA is a small methods example with
+an official sklearn baseline.
 
 Checks:
 
@@ -172,8 +185,14 @@ Runnable fixtures live under `examples/`:
 | `examples/bench/classical_sketches.yaml` | `treepo-bench run classical-sketches` |
 | `examples/bench/markov.yaml` | `treepo-bench run markov` |
 | `examples/methods/*.toml` | `treepo.fit()` examples, including Markov and overlapping-topic synthetic LDA |
+| `examples/methods/run_tree_visualization.py` | standalone expandable-tree HTML view of sampled trees |
 
 The Manifesto/RILE methods example has two lanes: root-only document labels for `f`, and document-unit `TaskState` labels for guiding `g`. The packaged fixture uses qsentences as document units; the same surface is intended for paragraph, section, or extractor-span units supplied by downstream tasks. Leaves group document units via `leaf_unit_count`.
+
+`treepo.viz.write_tree_visualization_html` renders tree records, sampling
+rows, and local-law audit rows as one self-contained HTML file: an expandable
+tree per document with sampled-leaf markers, propensities/IPW weights, gold
+and prediction labels, and per-node local-law losses.
 
 ## C-TreePO Shape
 
@@ -209,6 +228,9 @@ config validation, and the benchmark CLI surface.
 
 - Package boundary: [`docs/boundary.md`](docs/boundary.md)
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
+- Trees and sampling over leaves: [`docs/tree_and_sampling.md`](docs/tree_and_sampling.md)
 - `treepo.methods` module layout & decomposition convention: [`docs/methods_module_layout.md`](docs/methods_module_layout.md)
+- Anti-pattern catalog for cleanup passes: [`docs/antipatterns.md`](docs/antipatterns.md)
+- Evidence artifact: [`docs/evidence.md`](docs/evidence.md)
 - LLM/code-agent guide: [`docs/llm_guide.md`](docs/llm_guide.md)
 - Training defaults: [`docs/training_defaults.md`](docs/training_defaults.md)

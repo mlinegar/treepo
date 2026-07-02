@@ -19,9 +19,6 @@ build helpers, and delegates the messy work to focused siblings —
 * ``_fno_targets``: supervision target extraction (data-prep).
 * ``_fno_transition``: numeric transition-state supervision (data-prep).
 * ``_fno_statistic``: the composable-statistic adapter.
-
-Those symbols are re-exported here so existing
-``from treepo.methods._neural_operator_core import ...`` call sites stay stable.
 """
 
 from __future__ import annotations
@@ -36,9 +33,7 @@ from treepo.methods._fno_config import (
     _clamp,
     _coerce_config,
     _config_payload,
-    _known_config_keys,
     _normalize_operator_kind,
-    _safe_float,
     _tensor_payload,
 )
 from treepo.methods._fno_encoding import (
@@ -46,42 +41,15 @@ from treepo.methods._fno_encoding import (
     _encode_numeric_leaf_features,
     _leaf_texts,
     _leaf_token_groups,
-    _object_text,
-    _text_from_value,
     _tree_sequence_cache_key,
 )
-from treepo.methods._fno_models import (
-    _build_leaf_operator,
-    _LeafConv1D,
-    _LeafNeuralOp,
-    _odd_kernel_size,
-    _TreeFGModel,
-)
-from treepo.methods._fno_neuralop import (
-    _available_neuralop_kinds,
-    _neuralop_constructor_kwargs,
-    _neuralop_model_class,
-    _require_torch,
-    _validate_operator_kind,
-)
-from treepo.methods._fno_statistic import _LeafOnlyTree, _NeuralOperatorStatistic
-from treepo.methods._fno_targets import (
-    _target_rows,
-    _target_score,
-    _target_vector,
-    _value_by_key,
-    _vector_by_key,
-)
+from treepo.methods._fno_models import _TreeFGModel
+from treepo.methods._fno_neuralop import _require_torch, _validate_operator_kind
+from treepo.methods._fno_statistic import _NeuralOperatorStatistic
+from treepo.methods._fno_targets import _target_rows
 from treepo.methods._fno_transition import (
-    _numeric_transition_leaf_state,
-    _numeric_transition_merge_state,
-    _numeric_transition_rows,
-    _numeric_transition_spec,
     _numeric_transition_state_loss,
     _numeric_transition_state_targets,
-    _numeric_transition_vector,
-    _optional_positive_int,
-    _tree_row_id,
 )
 
 
@@ -110,11 +78,14 @@ class NeuralOperatorFamily:
         self._device = self._torch.device(str(self.config.device))
         self._model = None
         self._output_dim: int | None = None
-        self._target_mean = 0.0
         self._target_center = None
         self._target_scale = None
         self._last_artifact: dict[str, Any] | None = None
-        self._encoding_cache: dict[tuple[Any, ...], tuple[Any, Any]] = {}
+        # Encoding cache keyed by tree identity. Each entry pins the tree
+        # objects it was built from, so the id()-based key stays valid for as
+        # long as the entry lives; the cache is bounded, evicting oldest first.
+        self._encoding_cache: dict[tuple[Any, ...], tuple[Any, Any, tuple[Any, ...]]] = {}
+        self._encoding_cache_max_entries = 16
 
     def train_f(
         self,
@@ -125,27 +96,8 @@ class NeuralOperatorFamily:
         output_dir: Path,
         iteration: int,
     ) -> Mapping[str, Any]:
-        del f_init, g
-        trees, targets = _target_rows(traces, self.config)
-        x, lengths = self._encode_trees(trees)
-        y = self._torch.tensor(targets, dtype=self._torch.float32, device=self._device)
-        self._ensure_model(output_dim=int(y.shape[1]))
-        y_train = self._normalized_targets(y)
-        last_loss = self._train_supervised(
-            x,
-            lengths,
-            y_train,
-            train_f=True,
-            train_g=False,
-        )
-        artifact = self._artifact_payload(
-            kind="f",
-            iteration=iteration,
-            n_train=int(x.shape[0]),
-            loss=last_loss,
-        )
-        self._last_artifact = artifact
-        return artifact
+        del f_init, g, output_dir
+        return self._train_side(kind="f", traces=traces, iteration=iteration)
 
     def train_g(
         self,
@@ -156,7 +108,11 @@ class NeuralOperatorFamily:
         output_dir: Path,
         iteration: int,
     ) -> Mapping[str, Any]:
-        del g_init, f
+        del g_init, f, output_dir
+        return self._train_side(kind="g", traces=traces, iteration=iteration)
+
+    def _train_side(self, *, kind: str, traces: Sequence[Any], iteration: int) -> Mapping[str, Any]:
+        train_g = kind == "g"
         trees, targets = _target_rows(traces, self.config)
         x, lengths = self._encode_trees(trees)
         y = self._torch.tensor(targets, dtype=self._torch.float32, device=self._device)
@@ -166,18 +122,17 @@ class NeuralOperatorFamily:
             x,
             lengths,
             y_train,
-            train_f=False,
-            train_g=True,
-            trees=trees,
+            train_f=not train_g,
+            train_g=train_g,
+            trees=trees if train_g else None,
         )
         artifact = self._artifact_payload(
-            kind="g",
+            kind=kind,
             iteration=iteration,
             n_train=int(x.shape[0]),
             loss=last_loss,
         )
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        self._last_artifact = artifact
         return artifact
 
     def score_roots_with_f(
@@ -239,7 +194,6 @@ class NeuralOperatorFamily:
             "output_dim": int(self._output_dim or 1),
             "target_key": self.config.target_key,
             "target_vector_key": self.config.target_vector_key,
-            "target_keys": list(self.config.target_keys or ()),
             "config": _config_payload(self.config),
         }
 
@@ -265,13 +219,11 @@ class NeuralOperatorFamily:
 
     def _normalized_targets(self, y: Any) -> Any:
         if not bool(self.config.normalize_targets):
-            self._target_mean = float(y.mean().detach().cpu())
             self._target_center = self._torch.zeros((int(y.shape[1]),), dtype=y.dtype, device=y.device)
             self._target_scale = self._torch.ones((int(y.shape[1]),), dtype=y.dtype, device=y.device)
             return y
         center = y.mean(dim=0)
         scale = y.std(dim=0, unbiased=False).clamp_min(1.0e-6)
-        self._target_mean = float(y.mean().detach().cpu())
         self._target_center = center.detach()
         self._target_scale = scale.detach()
         return (y - center) / scale
@@ -351,33 +303,33 @@ class NeuralOperatorFamily:
         cache_key = _tree_sequence_cache_key(trees, dim=int(self.config.embedding_dim), device=str(self._device))
         cached = self._encoding_cache.get(cache_key)
         if cached is not None:
-            return cached
-        if bool(self.config.use_numeric_leaf_features):
-            numeric_groups = [_leaf_token_groups(tree) for tree in trees]
-            if numeric_groups and all(group is not None for group in numeric_groups):
-                encoded = _encode_numeric_leaf_features(
-                    numeric_groups,
-                    dim=int(self.config.embedding_dim),
-                    torch=self._torch,
-                    device=self._device,
-                )
-                self._encoding_cache[cache_key] = encoded
-                return encoded
-        leaf_groups = [_leaf_texts(tree) for tree in trees]
-        lengths = [max(1, len(group)) for group in leaf_groups]
-        max_leaves = max(1, max(lengths))
-        matrices = []
-        for group in leaf_groups:
-            texts = group or [""]
-            vectors = self.embedding_client.embed_texts(texts)
-            matrix = [_coerce_embedding(vec, int(self.config.embedding_dim)) for vec in vectors]
-            while len(matrix) < max_leaves:
-                matrix.append([0.0] * int(self.config.embedding_dim))
-            matrices.append(matrix[:max_leaves])
-        x = self._torch.tensor(matrices, dtype=self._torch.float32, device=self._device)
-        length_tensor = self._torch.tensor(lengths, dtype=self._torch.long, device=self._device)
-        encoded = (x, length_tensor)
-        self._encoding_cache[cache_key] = encoded
+            return cached[0], cached[1]
+        numeric_groups = [_leaf_token_groups(tree) for tree in trees]
+        if numeric_groups and all(group is not None for group in numeric_groups):
+            encoded = _encode_numeric_leaf_features(
+                numeric_groups,
+                dim=int(self.config.embedding_dim),
+                torch=self._torch,
+                device=self._device,
+            )
+        else:
+            leaf_groups = [_leaf_texts(tree) for tree in trees]
+            lengths = [max(1, len(group)) for group in leaf_groups]
+            max_leaves = max(1, max(lengths))
+            matrices = []
+            for group in leaf_groups:
+                texts = group or [""]
+                vectors = self.embedding_client.embed_texts(texts)
+                matrix = [_coerce_embedding(vec, int(self.config.embedding_dim)) for vec in vectors]
+                while len(matrix) < max_leaves:
+                    matrix.append([0.0] * int(self.config.embedding_dim))
+                matrices.append(matrix[:max_leaves])
+            x = self._torch.tensor(matrices, dtype=self._torch.float32, device=self._device)
+            length_tensor = self._torch.tensor(lengths, dtype=self._torch.long, device=self._device)
+            encoded = (x, length_tensor)
+        while len(self._encoding_cache) >= self._encoding_cache_max_entries:
+            self._encoding_cache.pop(next(iter(self._encoding_cache)))
+        self._encoding_cache[cache_key] = (encoded[0], encoded[1], tuple(trees))
         return encoded
 
 
@@ -409,13 +361,6 @@ def build_fno_family(backend_config: Mapping[str, Any]) -> FNOFamily:
     """Build the concrete FNO family from method ``backend_config``."""
 
     payload = dict(backend_config or {})
-    requested = _normalize_operator_kind(payload.get("operator_kind", "fno"))
-    if requested != "fno":
-        raise ValueError(
-            "family='fno' only supports operator_kind='fno'; use "
-            "family='neural_operator' for other operator kinds."
-        )
-    payload.setdefault("embedding_salt", "treepo_fno")
     raw_config = (
         payload.get("fno_config")
         if "fno_config" in payload
@@ -436,52 +381,10 @@ def build_fno_family(backend_config: Mapping[str, Any]) -> FNOFamily:
 
 
 __all__ = [
-    # Public family surface.
     "FNOFamily",
     "FNOFamilyConfig",
     "NeuralOperatorFamily",
     "NeuralOperatorFamilyConfig",
     "build_fno_family",
     "build_neural_operator_family",
-    # Re-exported internals kept stable for existing import sites.
-    "_LeafConv1D",
-    "_LeafNeuralOp",
-    "_LeafOnlyTree",
-    "_NeuralOperatorStatistic",
-    "_TreeFGModel",
-    "_available_neuralop_kinds",
-    "_build_leaf_operator",
-    "_clamp",
-    "_coerce_config",
-    "_coerce_embedding",
-    "_config_payload",
-    "_encode_numeric_leaf_features",
-    "_known_config_keys",
-    "_leaf_texts",
-    "_leaf_token_groups",
-    "_neuralop_constructor_kwargs",
-    "_neuralop_model_class",
-    "_normalize_operator_kind",
-    "_numeric_transition_leaf_state",
-    "_numeric_transition_merge_state",
-    "_numeric_transition_rows",
-    "_numeric_transition_spec",
-    "_numeric_transition_state_loss",
-    "_numeric_transition_state_targets",
-    "_numeric_transition_vector",
-    "_object_text",
-    "_odd_kernel_size",
-    "_optional_positive_int",
-    "_require_torch",
-    "_safe_float",
-    "_target_rows",
-    "_target_score",
-    "_target_vector",
-    "_tensor_payload",
-    "_text_from_value",
-    "_tree_row_id",
-    "_tree_sequence_cache_key",
-    "_validate_operator_kind",
-    "_value_by_key",
-    "_vector_by_key",
 ]

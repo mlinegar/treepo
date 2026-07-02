@@ -1,6 +1,6 @@
 # LLM Guide For treepo
 
-Last audited: 2026-07-01.
+Last audited: 2026-07-02.
 
 This guide is for LLM/code agents working in the standalone `treepo` package. It is the operational companion to `README.md`, `docs/architecture.md`, `docs/boundary.md`, and `docs/training_defaults.md`.
 
@@ -9,14 +9,14 @@ This guide is for LLM/code agents working in the standalone `treepo` package. It
 1. Read `AGENTS.md`, then this file.
 2. Check `git status --short` before editing. The worktree may already contain user changes.
 3. Use `rg` for source search and inspect nearby tests before changing behavior.
-4. Keep the package boundary small: `treepo` is a public package, not the paper workspace, model-serving launcher, or publication-grid repo.
+4. Keep the package boundary small: `treepo` is a public package; the paper workspace, model-serving launchers, and publication grids live in downstream repos.
 5. Prefer public contracts already in `src/treepo/` over adding new ad hoc data shapes.
 
 ## Core Rule
 
 `treepo` owns stable C-TreePO interfaces: JSONable task states, labeled tree records, preference records, local-law rows, evidence artifacts, a small `treepo.fit(...)` learning surface, and small runnable examples.
 
-Downstream workspaces own large datasets, model-serving fleets, concrete DSPy programs, trainer applications, long publication campaigns, and domain-specific orchestration. Those systems should adapt to `treepo` contracts rather than pushing their full runtime into this package.
+Downstream workspaces own large datasets, model-serving fleets, concrete DSPy programs, trainer applications, long publication campaigns, and domain-specific orchestration. Those systems adapt to `treepo` contracts and register through the public APIs.
 
 ## Repo Map
 
@@ -29,15 +29,15 @@ Downstream workspaces own large datasets, model-serving fleets, concrete DSPy pr
 | `src/treepo/methods/families.py` | Small built-in family registry and extension boundary. |
 | `src/treepo/methods/runtime.py` | Alternating f/g runtime and split metrics. |
 | `src/treepo/local_law.py` | Canonical C1/C2/C3 row arithmetic and audit summaries. |
-| `src/treepo/state.py` | `TaskState`, `TreeUnitRef`, and JSON conversion helpers. |
+| `src/treepo/state.py` | `TaskState` and JSON conversion helpers. |
 | `src/treepo/tree.py` | Minimal `TreeNode` / `TreeRecord` artifact shape. |
 | `src/treepo/statistic.py` | Public composable statistic protocol. |
 | `src/treepo/evidence.py` | Unified evidence artifact builder. |
 | `src/treepo/finetune.py` | Trainer-neutral embedding and LLM fine-tuning views. |
 | `src/treepo/bench/` | `treepo-bench` runner, benchmark config IO, checks. |
-| `src/treepo/llm/` | Optional client-side LLM and embedding helpers. No server orchestration. |
-| `src/treepo/training/` | Lightweight local-law tensor helpers and lifecycle protocols. |
-| `src/treepo/tasks/manifesto/` | Small Manifesto/RILE fixture/state helpers, not full campaign code. |
+| `src/treepo/llm/` | Optional client-side LLM and embedding helpers; the deploying package owns server orchestration. |
+| `src/treepo/training/` | Torch tensor layer over `treepo.local_law` training rows. |
+| `src/treepo/tasks/manifesto/` | Small Manifesto/RILE fixture/state helpers. |
 | `examples/` | Small runnable examples only. |
 | `inventory.yaml` | Package boundary inventory checked by release gates. |
 
@@ -47,7 +47,6 @@ Use these before inventing a new structure:
 
 - `TaskState`: JSONable state produced by `g` and read by `f`.
 - `TreeNode` / `TreeRecord`: package-owned tree artifact representation.
-- `TreeUnitRef`: stable identity for root, node, merge, trajectory, or task units.
 - `Candidate`, `PreferenceRecord`, `PreferenceDataset`: the unit-level supervision and preference boundary.
 - `LocalLawAuditRow`: theorem-facing C1/C2/C3 row with observed mask, propensity, node weight, depth, and optional oracle loss.
 - `ObjectiveSpec`: objective metadata for manifests and evidence.
@@ -78,7 +77,7 @@ The path is:
 2. `treepo.methods.contracts.CTreePOLearningSpec` receives the public spec.
 3. `treepo.methods.families.resolve_family(...)` builds a `FamilyRuntime`, unless `backend_config["family_runtime"]` injects one for tests or downstream adapters.
 4. `treepo.methods.runtime.run_alternating_family(...)` alternates f/g training and evaluates splits.
-5. `treepo.methods.learning._build_result(...)` writes manifests, prediction rows, preference exports, statistics, and evidence.
+5. `treepo.methods._fit_result.build_result(...)` writes manifests, prediction rows, preference exports, statistics, and evidence.
 
 ## Family Boundary
 
@@ -89,13 +88,13 @@ A family runtime must implement:
 - `score_roots_with_f(...)`
 - `validate_artifact(...)`
 
-Built-in family names are intentionally few: `oracle`, `learnable_constant`, `classical_sketch`, `neural_operator`, `fno`, `llm`, and `dspy`. Do not add heavyweight runtime branches for application workflows inside `treepo`; register them from the owning downstream package.
+Built-in family names are intentionally few: `oracle`, `learnable_constant`, `classical_sketch`, `neural_operator`, `fno`, `llm`, and `dspy`. Register application workflows from the owning downstream package; `treepo` keeps its family registry small and branch-free.
 
 When adding a built-in family, it should be dependency-light, generally useful, small enough for package tests, and registered in `treepo.methods.families`. Put family-specific knobs in `backend_config`; keep the public fit shape stable.
 
 ## Local-Law Boundary
 
-`treepo.local_law` is canonical for scalar C1/C2/C3 row arithmetic. Do not reimplement IPW, propensity clipping, depth weighting, or corrected local-law losses in examples or families. Build `LocalLawAuditRow` values and call:
+`treepo.local_law` is canonical for scalar C1/C2/C3 row arithmetic: IPW, propensity clipping, depth weighting, and corrected local-law losses all live here, and examples and families route through it. Build `LocalLawAuditRow` values and call:
 
 - `corrected_local_law_loss(...)`
 - `local_law_objective_summary(...)`
@@ -106,7 +105,7 @@ Training code may wrap these operations in tensors, but theorem-facing rows and 
 
 ## Preference And Fine-Tuning Boundary
 
-`PreferenceDataset` is the storage boundary. Pairwise DPO, reward-model, GRPO, SFT, embedding pair/triplet, and ranked-row files are projections of the same dataset, not separate source formats.
+`PreferenceDataset` is the storage boundary. Pairwise DPO, reward-model, GRPO, SFT, embedding pair/triplet, and ranked-row files are all projections of the same dataset.
 
 Use:
 
@@ -114,17 +113,17 @@ Use:
 - `PreferenceDataset.to_records(...)` for `general`, `supervised`, `dpo`, `reward`, and `grpo` views.
 - `treepo.finetune` for trainer-neutral embedding and LLM export views.
 
-Do not make examples train TRL, sentence-transformers, or serving stacks. Examples should export rows that downstream trainers consume.
+Examples export rows that downstream trainers consume; TRL, sentence-transformers, and serving stacks run downstream against the exported files.
 
 ## LLM And Server Boundary
 
-`treepo.llm` provides client-side request/response helpers and optional embedding/chat clients. Server startup, GPU placement, vLLM/SGLang lifecycle, large model downloads, and provider credentials belong outside the package.
+`treepo.llm` provides client-side request/response helpers and optional embedding/chat clients. The deploying package owns server startup, GPU placement, vLLM/SGLang lifecycle, large model downloads, and provider credentials.
 
-The `llm` and `dspy` method families are provider-neutral. They should accept injected callables/programs from downstream code and should not import DSPy or model-serving libraries during `import treepo`.
+The `llm` and `dspy` method families are provider-neutral. They accept injected callables/programs from downstream code; DSPy and model-serving libraries load only when a program runs.
 
 ## Examples Policy
 
-Examples must be small, runnable, and package-native. They should use `treepo.fit(...)`, `PreferenceDataset`, `TreeRecord`, `TaskState`, local-law rows, and evidence artifacts. They should not become publication-grid scripts.
+Examples must be small, runnable, and package-native. They should use `treepo.fit(...)`, `PreferenceDataset`, `TreeRecord`, `TaskState`, local-law rows, and evidence artifacts. Publication grids live in downstream workspaces.
 
 Good examples:
 
@@ -136,13 +135,13 @@ Large real-data preparation, LLM scoring campaigns, and long runs belong in down
 
 ## Dependency Hygiene
 
-Top-level `import treepo` and `treepo.core` must stay light. Release checks reject heavy optional imports in core-light modules. Keep imports lazy for optional stacks such as `datasets`, DSPy, OpenAI, vLLM, torch, pandas, transformers, sentence-transformers, TRL, and PEFT.
+Top-level `import treepo` must stay light. Release checks reject heavy optional imports in core-light modules. Keep imports lazy for optional stacks such as `datasets`, DSPy, OpenAI, vLLM, torch, pandas, transformers, sentence-transformers, TRL, and PEFT.
 
 Other release-hygiene rules:
 
-- Do not commit generated artifacts, caches, logs, or local outputs.
-- Do not add machine-local absolute paths to tracked docs/configs.
-- Do not put environment setup commands in docs that bypass the `uv` workflow.
+- Keep generated artifacts, caches, logs, and local outputs out of the git tree.
+- Use repo-relative paths in tracked docs/configs.
+- Document environment setup through the `uv` workflow.
 - Keep `inventory.yaml` aligned when adding or moving package areas.
 
 ## Change Patterns
@@ -154,8 +153,8 @@ Other release-hygiene rules:
 | Add task labels or structured summaries | Use `TaskState`, `TreeRecord`, and `PreferenceDataset`. |
 | Add local-law supervision | Emit `LocalLawAuditRow`; summarize through `treepo.local_law`. |
 | Add trainer data exports | Project `PreferenceDataset` through `treepo.finetune` or `PreferenceDataset.to_records(...)`. |
-| Add a benchmark | Prefer `treepo.bench.tasks` or `treepo.bench.grid`; validate config keys and write JSON/CSV. |
-| Add docs | Link from `README.md` if user-facing; avoid machine-local paths and non-`uv` setup instructions. |
+| Add a benchmark | Prefer `treepo.bench.tasks`; validate config keys and write JSON/CSV. |
+| Add docs | Link from `README.md` if user-facing; use repo-relative paths and `uv` commands. |
 | Add optional dependencies | Put them behind extras and lazy imports; update release tests if the public boundary changes. |
 
 ## Tests To Run
@@ -194,7 +193,7 @@ Before handing work back:
 - `treepo.fit(...)` call shape is unchanged unless the user explicitly asked for a breaking change.
 - New data uses existing package records rather than bespoke dicts.
 - Optional/heavy dependencies are behind extras and local imports.
-- Examples are small and do not start servers or assume private datasets.
+- Examples stay small, self-contained, and runnable from packaged fixtures.
 - Release checks that cover the touched area have run, or failures are reported clearly.
 
 ## Existing Docs
@@ -203,4 +202,5 @@ Before handing work back:
 - `docs/architecture.md`: layer and experiment-contract overview.
 - `docs/boundary.md`: package inclusion/exclusion policy.
 - `docs/training_defaults.md`: fit defaults, built-in families, and extension boundary.
-- `docs/evidence_unification_plan.md`: evidence artifact design and open questions.
+- `docs/methods_module_layout.md`: internal `treepo.methods` decomposition convention.
+- `docs/evidence.md`: the per-run evidence artifact shape and semantics.

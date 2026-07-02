@@ -28,8 +28,8 @@ jobs:
       - name: Run all tests
         run: uv run pytest tests/
 
-  launch-gate:
-    # Smoke-checks the treepo-bench CLI runs end-to-end with frozen deps.
+  release-gate:
+    # Runs the package release checks with frozen deps.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,15 +40,17 @@ jobs:
           version: latest
           enable-cache: true
 
+      - name: Lockfile matches pyproject
+        run: uv lock --check
+
       - name: Sync (frozen)
         run: uv sync --frozen
 
-      - name: Launch gate
-        run: uv run treepo-bench check launch --json
+      - name: Release checks
+        run: uv run treepo-bench check release --json
 
-      - name: Paper smoke enumerates
-        run: |
-          uv run treepo-bench suite paper-smoke \
-            --out-root /tmp/treepo_paper_smoke \
-            --jobs 1 \
-            --commands-only
+      - name: Release gate
+        run: uv run python -m treepo.release
+
+      - name: Build wheel and sdist
+        run: uv build --wheel --sdist --out-dir /tmp/treepo_release_artifacts

@@ -1,7 +1,7 @@
 """Minimal demonstrative family that uses local-law math as a training signal.
 
-The point is to prove the local-law arithmetic *drives a training step*, not
-just sits as post-hoc audit. The family is a single learnable scalar ``c``
+The point is to prove the local-law arithmetic *drives a training step*
+directly. The family is a single learnable scalar ``c``
 (the predicted root score for every tree). ``train_f`` builds
 :class:`LocalLawAuditRow` objects from training trees and calls
 :func:`local_law_objective_summary` in ``sampled_ipw`` mode — the
@@ -31,7 +31,7 @@ from treepo.local_law import (
 
 class LearnableConstantFamily:
     """f is a single scalar; trained via IPW-corrected mean over sampled
-    training trees. g is unused.
+    training trees. g passes through unchanged.
 
     Each training tree's ``metadata`` must carry:
 
@@ -80,7 +80,7 @@ class LearnableConstantFamily:
         output_dir: Path,
         iteration: int,
     ) -> Any:
-        return g_init  # g is structural, not trained
+        return g_init  # g passes through unchanged; only f carries state
 
     def score_roots_with_f(
         self,

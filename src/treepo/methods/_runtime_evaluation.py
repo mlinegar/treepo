@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping, Sequence
 
+from treepo.methods._coerce import float_vector as _as_float_vector, safe_float
 from treepo.methods._runtime_types import SplitMetrics
 from treepo.methods.contracts import FamilyRuntime
 
@@ -141,16 +142,6 @@ def _prediction_scalar(value: Any, tree: Any) -> float | None:
     return float(vector[0]) if vector else None
 
 
-def _as_float_vector(value: Any) -> list[float] | None:
-    if value is None or isinstance(value, (str, bytes, Mapping)):
-        return None
-    try:
-        out = [float(item) for item in value]
-    except TypeError:
-        return None
-    return out if out else None
-
-
 def _truth_vector(tree: Any) -> list[float] | None:
     meta = _metadata(tree)
     value = getattr(tree, "topic_proportions", None)
@@ -192,13 +183,7 @@ def _per_dimension_metrics(
 
 
 def _safe_float(value: Any) -> float | None:
-    try:
-        if value is None:
-            return None
-        out = float(value)
-    except (TypeError, ValueError):
-        return None
-    return out if math.isfinite(out) else None
+    return safe_float(value, require_finite=True)
 
 
 def _metadata(tree: Any) -> Mapping[str, Any]:

@@ -77,10 +77,6 @@ ORACLE_CONFIG_KEYS = frozenset(
 )
 
 
-def list_oracle_domains_with_fixtures() -> tuple[str, ...]:
-    return tuple(sorted(_ORACLE_DOMAIN_FIXTURES))
-
-
 def score_oracle(config: Mapping[str, Any] | None = None) -> Any:
     payload = dict(config or {})
     unknown = sorted(str(key) for key in payload if str(key) not in ORACLE_CONFIG_KEYS)
@@ -206,4 +202,4 @@ def _hll_exact(tree: Any) -> float | None:
     return float(value) if value is not None else None
 
 
-__all__ = ["ORACLE_CONFIG_KEYS", "OracleFamilyRuntime", "list_oracle_domains_with_fixtures", "list_oracles", "oracle_domain", "score_oracle"]
+__all__ = ["ORACLE_CONFIG_KEYS", "OracleFamilyRuntime", "list_oracles", "oracle_domain", "score_oracle"]

@@ -1,27 +1,50 @@
-# treepo v0.1.0 Architecture
+# treepo Architecture
 
 `treepo` is organized by package intent.
 
 ## Layers
 
-- `treepo.core`: small dependency-free experiment primitives: refs, roles, sampling plans, and canonical sidecars.
-- `treepo.bench.sketches`: sketch protocols and adapters. Optional third-party sketch backends should fail lazily with an extra hint.
-- `treepo.bench`: benchmark runs, result IO, and release checks.
-- `treepo.llm`: OpenAI-compatible chat/embedding helpers and future batching clients behind `treepo[llm]`.
-- `treepo.training`: lightweight training protocols and torch local-law helpers; richer trainers register from downstream packages.
+- `treepo.methods` plus the top-level value modules: the package's center. See below.
+- `treepo.bench.sketches`: the sketch adapter protocol and tree reducer. Optional third-party sketch backends load lazily and name the extra to install.
+- `treepo.bench`: benchmark runs, result IO, and release checks. `treepo.bench.classical_sketches` is the comparison benchmark that runs adapters from `treepo.bench.sketches` over shared item streams.
+- `treepo.llm`: OpenAI-compatible chat/embedding helpers behind `treepo[llm]`.
+- `treepo.training`: torch local-law tensor helpers layered on `treepo.local_law`; richer trainers register from downstream packages.
 - `treepo.tasks`: small task-specific assets, starting with Manifesto/RILE constants and examples.
 
-## Experiment Contract
+## The Methods Layer
 
-One public noun is used: experiment. An `ExperimentContext` records:
+`treepo.fit(...)` is the single public learning surface. It normalizes a
+mapping spec, resolves one family runtime from the registry in
+`treepo.methods.families`, runs the alternating f/g loop in
+`treepo.methods.runtime`, and assembles a `FitResult` with metrics, artifacts,
+history, and a manifest.
 
-- `experiment_id`
-- `BenchmarkRef`
-- `MethodRef`
-- `SamplingPlan`
-- canonical sidecars: `experiment_manifest.json`, `experiment_status.json`, `artifacts.json`, and `results.jsonl`
+Seven families are built in: `oracle`, `learnable_constant`,
+`classical_sketch`, `neural_operator`, `fno`, `llm`, and `dspy`. Downstream
+packages register additional runtimes with
+`treepo.methods.families.register_family(...)` against the `FamilyRuntime`
+protocol in `treepo.methods.contracts`. Wrappers own the training loop and
+call `module.train()` / `module.eval()` internally, so every family presents
+the same `train_f` / `train_g` / `score_roots_with_f` surface to the runtime.
 
-Methods may expose `train`, `evaluate`, and `predict`. Raw PyTorch modules are not experiment methods; wrappers own the training loop and call `module.train()` / `module.eval()` internally.
+`treepo.methods.preference` holds the unit-level supervision boundary:
+`Candidate`, `PreferenceRecord`, and `PreferenceDataset`, with one canonical
+Hugging Face `DatasetDict` shape and generic/supervised/DPO/reward/GRPO
+projection exports.
+
+The top-level value modules carry the package's data shapes and diagnostics:
+
+- `treepo.state` — `TaskState`, the JSONable state produced by `g` and read by `f`.
+- `treepo.tree` — `TreeNode` / `TreeRecord`, the minimal labeled tree artifact.
+- `treepo.statistic` — the executable `ComposableStatistic` protocol for encode/merge/readout.
+- `treepo.local_law` — canonical, Lean-aligned scalar C1/C2/C3 row arithmetic and audit summaries.
+- `treepo.evidence` — the unified per-run evidence artifact (see [`docs/evidence.md`](evidence.md)).
+- `treepo.certificate` — the component-radius certificate ledger.
+- `treepo.objective` — objective metadata for manifests and evidence.
+- `treepo.sampling` — design-propensity sampling helpers.
+- `treepo.artifacts` — canonical run-artifact bundles.
+- `treepo.finetune` — trainer-neutral embedding and LLM fine-tuning export views.
+- `treepo.common` — small shared utilities such as `stable_digest`.
 
 ## Role Vocabulary
 
@@ -33,7 +56,8 @@ Public role metadata follows the paper language:
 - `embedder`: vector evidence mechanism
 - `state_model`: learned or deterministic state realization
 
-Internal method surfaces may still be chat, embedding, or operator endpoints; those are implementation details.
+Internal method surfaces are implementation details — chat, embedding, or
+operator endpoints all map onto the same public roles.
 
 ## Package Inventory
 
@@ -42,7 +66,7 @@ Internal method surfaces may still be chat, embedding, or operator endpoints; th
 - `package`: importable implementation module
 - `cli`: public `treepo-bench` command
 - `shim`: thin package shim
-- `outside`: code that belongs outside the package
+- `outside`: code owned by downstream packages
 - `extension`: optional family or backend registered by another package
 
 Release checks:
