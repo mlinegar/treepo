@@ -1,10 +1,9 @@
 """Canonical scalar local-law and audit-row arithmetic.
 
-This module is the public, Lean-aligned home for C1/C2/C3 row validation,
-corrected local-law losses, and influence-weighted audit overlap. Training
-modules may wrap these helpers in tensors, but theorem-facing rows should use
-the dataclasses here so that design propensities and all-row overlap semantics
-do not drift across package surfaces.
+This module owns C1/C2/C3 row validation, corrected local-law losses, and
+influence-weighted audit overlap. Training code wraps these in tensors; the
+scalar dataclasses here stay the source of truth, so propensities and
+overlap semantics stay consistent across the package.
 """
 
 from __future__ import annotations

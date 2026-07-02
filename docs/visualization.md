@@ -90,9 +90,9 @@ exactly the shape the corrected objective and the audit panel expect.
 ## The tradeoff panel
 
 `tradeoff=` takes a `treepo.methods.TradeoffCurve.to_dict()` payload and
-renders the package's central empirical object — task error as a function of
-leaf grouping size — as a small line chart with per-point hover values,
-direct end labels, and a table view. Build the curve from grid rows:
+renders task error as a function of leaf grouping size as a small line chart
+with per-point hover values, direct end labels, and a table view. Build the
+curve from grid rows:
 
 ```python
 from treepo.methods.tradeoff import TradeoffCurve

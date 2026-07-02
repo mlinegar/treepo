@@ -1,6 +1,6 @@
 # Boundary
 
-`treepo` is the package for the C-TreePO code.
+`treepo` is the Python package for C-TreePO.
 
 ## Included
 

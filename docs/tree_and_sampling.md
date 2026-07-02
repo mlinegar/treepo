@@ -1,8 +1,8 @@
 # Trees and Sampling Over Leaves
 
-This is the system-level reference for how `treepo` builds trees, composes
-leaf states up to the root, and samples nodes for supervision. It names the
-invariants the code enforces and cites the module that owns each one.
+Reference for how `treepo` builds trees, composes leaf states up to the
+root, and samples nodes for supervision. It names the invariants the code
+enforces and the module that owns each.
 
 ## The pipeline shape
 

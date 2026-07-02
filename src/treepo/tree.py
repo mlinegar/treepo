@@ -288,43 +288,30 @@ def write_tree_records_jsonl(path: Path | str, trees: Sequence[Any]) -> Path:
     return out
 
 
-def iter_tree_units(
-    tree: Any,
-    *,
-    order: str = "levels",
-    unit_types: str | Sequence[str] | None = None,
-) -> tuple[TreeNode, ...]:
+def iter_tree_units(tree: Any, *, order: str = "levels") -> tuple[TreeNode, ...]:
     """Return nodes from a tree in a stable order.
 
-    This is a convenience helper for examples and adapters. Inputs are
-    normalized through ``TreeRecord``, so any tree-like value works.
+    Inputs are normalized through ``TreeRecord``, so any tree-like value
+    works. ``order="levels"`` walks level by level from the leaves;
+    ``order="root_first"`` puts the root ahead of the remaining nodes.
     """
 
     record = TreeRecord.from_value(tree)
-    if order == "nodes":
-        nodes = list(record.nodes)
-    elif order == "root_first":
+    if order == "root_first":
         root = record.root()
-        nodes = ([] if root is None else [root]) + [node for node in record.nodes if root is None or node.node_id != root.node_id]
-    elif order == "leaves_first":
-        leaves = list(record.leaves())
-        leaf_ids = {str(node.node_id) for node in leaves}
-        nodes = leaves + [node for node in record.nodes if str(node.node_id) not in leaf_ids]
-    elif order == "levels":
+        return tuple(
+            ([] if root is None else [root])
+            + [node for node in record.nodes if root is None or node.node_id != root.node_id]
+        )
+    if order == "levels":
         by_id = {str(node.node_id): node for node in record.nodes}
-        nodes = [
+        return tuple(
             by_id[node_id]
             for level in record.levels()
             for node_id in level
             if node_id in by_id
-        ]
-    else:
-        raise ValueError("order must be 'levels', 'nodes', 'root_first', or 'leaves_first'")
-
-    if unit_types is None:
-        return tuple(nodes)
-    allowed = {unit_types} if isinstance(unit_types, str) else {str(item) for item in unit_types}
-    return tuple(node for node in nodes if str(node.unit_type) in allowed)
+        )
+    raise ValueError("order must be 'levels' or 'root_first'")
 
 
 def validate_tree_record(tree: Any) -> tuple[str, ...]:
