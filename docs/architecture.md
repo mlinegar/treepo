@@ -30,7 +30,8 @@ the same `train_f` / `train_g` / `score_roots_with_f` surface to the runtime.
 `treepo.methods.preference` holds the unit-level supervision boundary:
 `Candidate`, `PreferenceRecord`, and `PreferenceDataset`, with one canonical
 Hugging Face `DatasetDict` shape and generic/supervised/DPO/reward/GRPO
-projection exports.
+projection exports. See [`preference_data.md`](preference_data.md) for
+root-level and node-level loading patterns.
 
 The top-level value modules carry the package's data shapes and diagnostics:
 

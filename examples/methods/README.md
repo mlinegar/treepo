@@ -27,10 +27,9 @@ setup live in `example_setup/` so the runnable files stay readable.
 Preference records can be passed to `treepo.fit({"preference_data": ...})` and
 are exported through supervised, DPO, reward-model, and GRPO views.
 `PreferenceDataset` also writes a Hugging Face `DatasetDict` with `units` and
-`candidates` tables for downstream trainers. Specialized training studies
-belong with the packages that own those application layers. DSPy and
-prompted-LLM examples are kept provider-neutral here and accept injected
-programs/callables from downstream code.
+`candidates` tables for trainer adapters. DSPy and prompted-LLM examples are
+kept provider-neutral here and accept injected programs/callables from user
+code.
 
 `run_manifesto_replications.py` accepts `preference_mode = "none" | "scores" |
 "pairwise" | "ranked"` and `preference_scope = "both" | "roots" |
@@ -68,7 +67,7 @@ supervision_grid = ["none"]
 
 Unit-supervised cells add sampled gold labels as structured
 `TaskState(kind="manifesto_policy")` targets for `g`. In this fixture the unit
-kind is `qsentence`; downstream tasks can use the same shape for paragraphs,
+kind is `qsentence`; other tasks can use the same shape for paragraphs,
 sections, or extractor spans:
 
 ```toml
@@ -106,7 +105,7 @@ uv run python examples/methods/run_finetune_views.py \
 
 The example writes embedding pairs, embedding triplets, embedding ranked groups,
 SFT rows, and pass-through DPO/reward/GRPO rows from one `PreferenceDataset`.
-It is export-only; downstream packages can run sentence-transformers or TRL
+It is export-only; external trainer stacks can run sentence-transformers or TRL
 against the generated files.
 
 For Manifesto/RILE fine-tuning exports, use `run_manifesto_finetune_views.py`:
@@ -129,8 +128,8 @@ uv run python examples/methods/run_preference_optimizer_views.py \
 
 The example uses one `PreferenceDataset` to write supervised, DPO, reward-model,
 and GRPO rows, then passes that same dataset to `treepo.fit(...)` with
-`family = "dspy"` and an injected predictor. It runs fully locally; downstream
-trainers consume the exported rows. The Manifesto end-to-end example uses the
+`family = "dspy"` and an injected predictor. It runs fully locally; external
+trainers can consume the exported rows. The Manifesto end-to-end example uses the
 same pattern on real package fixtures.
 
 For reward-model data, `run_manifesto_reward_mechanisms.py` exports the same
