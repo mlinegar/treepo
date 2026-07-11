@@ -21,6 +21,7 @@ def build_result(
     objective: Any | None,
     preference_dataset: PreferenceDataset,
     grid_axes: Mapping[str, Any] | None = None,
+    supervision: Mapping[str, Any] | None = None,
 ) -> Any:
     last = records[-1] if records else None
     error = (last.extra or {}).get("error") if last is not None else None
@@ -55,6 +56,8 @@ def build_result(
     if grid_axes:
         summary["grid_axes"] = dict(grid_axes)
         artifacts["grid_axes"] = dict(grid_axes)
+    if supervision:
+        summary["supervision"] = dict(supervision)
     split_metrics = split_metrics_payload(last)
     if split_metrics:
         summary["split_metrics"] = split_metrics

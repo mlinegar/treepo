@@ -96,8 +96,10 @@ def tree_doc_id(tree: Any, index: int) -> str:
 
 def tree_node_units(tree: Any, index: int) -> list[str]:
     """Stable per-node unit ids (``doc_id::node``) for one tree's leaves."""
+    from treepo.tree import tree_leaves
+
     doc_id = tree_doc_id(tree, index)
-    leaves = getattr(tree, "leaves", None)
+    leaves = tree_leaves(tree)
     if leaves is None and isinstance(tree, Mapping):
         leaves = tree.get("leaves")
     units: list[str] = []

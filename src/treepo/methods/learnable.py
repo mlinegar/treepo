@@ -29,18 +29,21 @@ from treepo.local_law import (
     local_law_objective_summary,
 )
 from treepo.statistic import StatisticInfo
-from treepo.tree import tree_row_id
+from treepo.tree import tree_root_target, tree_row_id
 
 
 class LearnableConstantFamily:
     """f is a single scalar; trained via IPW-corrected mean over sampled
     training trees. g passes through unchanged.
 
-    Each training tree's ``metadata`` must carry:
+    Each training tree carries:
 
-    - ``"teacher_score_native"`` (the oracle root score),
-    - ``"observed"`` (whether the oracle was sampled for this tree),
-    - ``"propensity"`` (the design sampling probability).
+    - a root target, read through the canonical
+      :func:`treepo.tree.tree_root_target` convention
+      (``"teacher_score_native"`` metadata first, then the ``document_score``
+      / ``root_label`` fields bundle trees expose),
+    - ``"observed"`` metadata (whether the oracle was sampled for this tree),
+    - ``"propensity"`` metadata (the design sampling probability).
 
     Test trees only need ``"split"`` metadata for the evaluator.
     """
@@ -123,8 +126,7 @@ class LearnableConstantFamily:
             meta = getattr(tree, "metadata", None) or {}
             observed = bool(meta.get("observed", True))
             propensity = float(meta.get("propensity", 1.0))
-            oracle_value = meta.get("teacher_score_native") if observed else None
-            oracle = float(oracle_value) if oracle_value is not None else None
+            oracle = tree_root_target(tree) if observed else None
             # Sampled-IPW mode only reads oracle_loss / propensity / observed.
             # We use ``oracle_loss`` as the per-tree target value (the loss
             # is min-zero at the trained constant by construction).
@@ -216,7 +218,7 @@ class _ConstantStatistic:
                 )
             )
             meta = getattr(tree, "metadata", None) or {}
-            teacher = meta.get("teacher_score_native")
+            teacher = tree_root_target(tree)
             if teacher is None:
                 continue
             loss = float((self.value - float(teacher)) ** 2)

@@ -10,10 +10,12 @@ train/val/test partition. This module reads that contract into the package-owned
 porting any task into treepo.
 
 The loader is deliberately thin and lossless: the root target becomes the
-tree-level ``root_label`` that ``fit()`` consumes, and *every* per-node field is
-preserved on the node ``metadata`` (an ``extras`` payload) for later phases to
-read. It never resamples splits — when a bundle pins ``split_ids`` those ids are
-authoritative.
+tree-level ``root_label`` that ``fit()`` consumes, each node's score (or the
+selected dimension's score) becomes the node ``label`` that per-node
+supervision consumes (``supervision_level`` on the spec; see
+``treepo.methods._supervision``), and *every* remaining per-node field is
+preserved on the node ``metadata`` (an ``extras`` payload). It never resamples
+splits — when a bundle pins ``split_ids`` those ids are authoritative.
 
 The full field-by-field contract lives in ``docs/bundle_contract.md``.
 """

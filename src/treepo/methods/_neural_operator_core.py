@@ -46,10 +46,11 @@ from treepo.methods._fno_encoding import (
 from treepo.methods._fno_models import _TreeFGModel
 from treepo.methods._fno_neuralop import _require_torch, _validate_operator_kind
 from treepo.methods._fno_statistic import _NeuralOperatorStatistic
-from treepo.methods._fno_targets import _target_rows
+from treepo.methods._fno_targets import _node_supervision_targets, _target_rows
 from treepo.methods._fno_transition import (
     _numeric_transition_law_rows,
     _numeric_transition_state_targets,
+    _pairwise_merge_depths,
 )
 from treepo.local_law import LawKind
 from treepo.objective import LOCAL_LAW_ESTIMATOR_ORACLE_STATE, ObjectiveSpec
@@ -71,6 +72,14 @@ class NeuralOperatorFamily:
         self.config = config or self.config_cls()
         self.operator_kind = _normalize_operator_kind(self.config.operator_kind)
         _validate_operator_kind(self.operator_kind, family_name=self.name)
+        if float(self.config.numeric_transition_state_weight) > 0.0 and (
+            float(self.config.leaf_weight) > 0.0 or float(self.config.merge_weight) > 0.0
+        ):
+            raise ValueError(
+                f"family={self.name!r} got both numeric_transition_state_weight > 0 "
+                "and per-node supervision weights (leaf_weight/merge_weight); the "
+                "two loss shapes are mutually exclusive — pick one"
+            )
         self.embedding_client = embedding_client or HashingEmbeddingClient(
             dim=self.config.embedding_dim,
             salt=self.config.embedding_salt,
@@ -86,6 +95,8 @@ class NeuralOperatorFamily:
         self._objective: ObjectiveSpec | None = None
         self._objective_law_shares: dict[str, float] = {}
         self._objective_gamma_depth: float = 1.0
+        self._node_supervision_counts: dict[str, int] | None = None
+        self._last_law_source: str | None = None
         # Encoding cache keyed by tree identity. Each entry pins the tree
         # objects it was built from, so the id()-based key stays valid for as
         # long as the entry lives; the cache is bounded, evicting oldest first.
@@ -191,6 +202,13 @@ class NeuralOperatorFamily:
                 "numeric_transition_state_weight > 0; the objective is the "
                 "single weight source — drop the legacy knob"
             )
+        if float(self.config.leaf_weight) > 0.0 or float(self.config.merge_weight) > 0.0:
+            raise ValueError(
+                f"family={self.name!r} got both an objective spec and per-node "
+                "supervision weights (leaf_weight/merge_weight); the objective "
+                "is the single weight source — express node supervision through "
+                "its local-law component weights (C1 = leaves, C3 = merges)"
+            )
         shares: dict[str, float] = {}
         gamma = 1.0
         law_weight = float(objective.local_law_weight or 0.0)
@@ -232,6 +250,7 @@ class NeuralOperatorFamily:
         y = self._torch.tensor(targets, dtype=self._torch.float32, device=self._device)
         self._ensure_model(output_dim=int(y.shape[1]))
         y_train = self._normalized_targets(y)
+        node_supervision = self._prepare_node_supervision(trees, width=int(y.shape[1]))
         last_loss = self._train_supervised(
             x,
             lengths,
@@ -239,6 +258,7 @@ class NeuralOperatorFamily:
             train_f=not train_g,
             train_g=train_g,
             trees=trees if (train_g or self._objective_law_shares) else None,
+            node_supervision=node_supervision,
         )
         weights_path: Path | None = None
         if output_dir is not None and self._model is not None:
@@ -345,6 +365,15 @@ class NeuralOperatorFamily:
             "target_center": _tensor_payload(self._target_center),
             "target_scale": _tensor_payload(self._target_scale),
             "numeric_transition_state_weight": float(self.config.numeric_transition_state_weight),
+            "node_supervision": {
+                "root_weight": float(self.config.root_weight),
+                "leaf_weight": float(self.config.leaf_weight),
+                "merge_weight": float(self.config.merge_weight),
+                "n_trees": int((self._node_supervision_counts or {}).get("n_trees", 0)),
+                "n_leaf_rows": int((self._node_supervision_counts or {}).get("n_leaf_rows", 0)),
+                "n_merge_rows": int((self._node_supervision_counts or {}).get("n_merge_rows", 0)),
+                "law_source": self._last_law_source,
+            },
             "objective_executed": self._objective is not None,
             "objective": self._objective.to_dict() if self._objective is not None else None,
             "output_dim": int(self._output_dim or 1),
@@ -398,6 +427,7 @@ class NeuralOperatorFamily:
         train_f: bool,
         train_g: bool,
         trees: Sequence[Any] | None = None,
+        node_supervision: list[tuple[Any, Any]] | None = None,
     ) -> float | None:
         assert self._model is not None
         self._set_trainable(train_f=train_f, train_g=train_g)
@@ -423,37 +453,236 @@ class NeuralOperatorFamily:
             if law_in_loss and trees is not None
             else None
         )
+        # With an ObjectiveSpec, the law channels are fed by exact numeric
+        # transition states when the trees carry them, otherwise by per-node
+        # score targets (labeled bundles). Node terms thereby fold into the
+        # convex corrected term — never a third additive slot.
+        node_law = None
         if self._objective_law_shares and state_targets is None:
-            raise ValueError(
-                f"family={self.name!r} objective declares a local-law weight but "
-                "the training trees carry no numeric transition supervision "
-                "(tree metadata needs n_states and vocabulary_size)"
-            )
+            node_law = node_supervision
+            if node_law is None:
+                raise ValueError(
+                    f"family={self.name!r} objective declares a local-law weight but "
+                    "the training trees carry neither numeric transition supervision "
+                    "(tree metadata needs n_states and vocabulary_size) nor per-node "
+                    "targets (node label / metadata 'score')"
+                )
+        node_weighted = (
+            self._objective is None
+            and node_supervision is not None
+            and (float(self.config.leaf_weight) > 0.0 or float(self.config.merge_weight) > 0.0)
+        )
+        self._last_law_source = (
+            "numeric_transition"
+            if (law_in_loss and state_targets is not None)
+            else ("node_targets" if node_law is not None else None)
+        )
+        need_trace = state_targets is not None or node_law is not None or node_weighted
         for _epoch in range(epochs):
             order = self._torch.randperm(n, device=self._device)
             for start in range(0, n, batch_size):
                 idx = order[start : start + batch_size]
-                if state_targets is None:
+                law_rows = None
+                node_rows = None
+                if not need_trace:
                     pred = self._model(x[idx], lengths[idx])
-                    law_rows = None
                 else:
                     pred, traces = self._model.forward_with_trace(x[idx], lengths[idx])
-                    selected = [state_targets[int(i)] for i in idx.detach().cpu().tolist()]
-                    law_rows = _numeric_transition_law_rows(
-                        traces,
-                        selected,
-                        torch=self._torch,
-                        device=self._device,
-                        dtype=pred.dtype,
-                    )
+                    idx_list = idx.detach().cpu().tolist()
+                    if state_targets is not None:
+                        law_rows = _numeric_transition_law_rows(
+                            traces,
+                            [state_targets[int(i)] for i in idx_list],
+                            torch=self._torch,
+                            device=self._device,
+                            dtype=pred.dtype,
+                        )
+                    else:
+                        assert node_supervision is not None
+                        node_rows = self._node_supervision_rows(
+                            traces,
+                            [node_supervision[int(i)] for i in idx_list],
+                            dtype=pred.dtype,
+                        )
+                        if node_law is not None:
+                            law_rows = node_rows
                 root_loss = self._torch.nn.functional.mse_loss(pred, y[idx])
-                loss = self._assemble_loss(root_loss, law_rows)
+                if node_weighted:
+                    loss = self._node_weighted_loss(
+                        root_loss, node_rows, batch_n=int(idx.shape[0])
+                    )
+                else:
+                    loss = self._assemble_loss(root_loss, law_rows)
                 opt.zero_grad(set_to_none=True)
                 loss.backward()
                 opt.step()
                 last_loss = float(loss.detach().cpu())
         self._set_trainable(train_f=True, train_g=True)
         return last_loss
+
+    def _prepare_node_supervision(
+        self, trees: Sequence[Any], *, width: int
+    ) -> list[tuple[Any, Any]] | None:
+        """Extract normalized per-tree node-target tensors when supervision wants them.
+
+        Returns one ``(targets, observed)`` tensor pair per tree in canonical
+        trace order, normalized with the root-target center/scale so readout
+        predictions and node targets share one space. Tensors are built once
+        per training call — the batch loop only masks and gathers on-device.
+        """
+
+        node_weights_active = self._objective is None and (
+            float(self.config.leaf_weight) > 0.0 or float(self.config.merge_weight) > 0.0
+        )
+        if not node_weights_active and not self._objective_law_shares:
+            self._node_supervision_counts = None
+            return None
+        # Extract only the channels the executed loss will consume, so the
+        # recorded row counts state exactly which loss components activated.
+        if node_weights_active:
+            include_leaves = float(self.config.leaf_weight) > 0.0
+            include_merges = float(self.config.merge_weight) > 0.0
+        else:
+            include_leaves = LawKind.C1_LEAF.value in self._objective_law_shares
+            include_merges = LawKind.C3_MERGE.value in self._objective_law_shares
+        rows = _node_supervision_targets(
+            trees,
+            self.config,
+            width=int(width),
+            include_leaves=include_leaves,
+            include_merges=include_merges,
+        )
+        if rows is None:
+            if node_weights_active:
+                # Single-leaf trees have no non-root node to supervise: the
+                # lone leaf IS the root, fg reduces to f, and the root term
+                # carries the supervision. Only error when nodes exist (or
+                # nothing anchors the loss at all).
+                from treepo.tree import tree_leaves
+
+                has_supervisable_nodes = any(
+                    len(tuple(tree_leaves(tree) or ())) >= 2 for tree in trees
+                )
+                if has_supervisable_nodes or float(self.config.root_weight) <= 0.0:
+                    raise ValueError(
+                        f"family={self.name!r} has leaf_weight/merge_weight > 0 but "
+                        "the training trees carry no per-node targets; nodes need a "
+                        "label (or metadata 'score'/'oracle_score', or the configured "
+                        "node_target_key), and single-leaf trees need root_weight > 0"
+                    )
+            self._node_supervision_counts = None
+            return None
+        torch = self._torch
+        prepared: list[tuple[Any, Any]] = []
+        n_leaf = 0
+        n_merge = 0
+        for targets, observed in rows:
+            target_tensor = torch.tensor(targets, dtype=torch.float32, device=self._device)
+            if self._target_center is not None and self._target_scale is not None:
+                target_tensor = (target_tensor - self._target_center) / self._target_scale
+            mask_tensor = torch.tensor(observed, dtype=torch.bool, device=self._device)
+            prepared.append((target_tensor, mask_tensor))
+            leaf_count = (len(observed) + 1) // 2
+            n_leaf += sum(1 for i, seen in enumerate(observed) if seen and i < leaf_count)
+            n_merge += sum(1 for i, seen in enumerate(observed) if seen and i >= leaf_count)
+        self._node_supervision_counts = {
+            "n_trees": len(rows),
+            "n_leaf_rows": int(n_leaf),
+            "n_merge_rows": int(n_merge),
+        }
+        return prepared
+
+    def _node_supervision_rows(
+        self,
+        traces: Sequence[Any],
+        selected: Sequence[tuple[Any, Any]],
+        *,
+        dtype: Any,
+    ) -> tuple[Any, Any, Any] | None:
+        """Per-node ``(loss, depths, is_leaf)`` rows for one batch, observed only.
+
+        Predictions are the readout applied to every trace state in one call;
+        targets/masks were prepared up front, so this is pure on-device
+        mask-and-gather (no per-node CPU sync).
+        """
+
+        torch = self._torch
+        if len(traces) != len(selected):
+            raise ValueError(
+                f"node supervision got {len(traces)} traces for {len(selected)} target sets"
+            )
+        assert self._model is not None
+        target_chunks = []
+        mask_chunks = []
+        depth_chunks = []
+        leaf_chunks = []
+        for trace, (target, mask) in zip(traces, selected):
+            n_nodes = int(trace.shape[0])
+            if int(target.shape[0]) != n_nodes:
+                raise ValueError(
+                    "node supervision count mismatch: model trace has "
+                    f"{n_nodes} nodes, targets have {int(target.shape[0])}"
+                )
+            target_chunks.append(target)
+            mask_chunks.append(mask)
+            leaf_count = (n_nodes + 1) // 2
+            depth_chunks.append(
+                torch.tensor(
+                    _pairwise_merge_depths(leaf_count)[:n_nodes],
+                    dtype=torch.long,
+                    device=self._device,
+                )
+            )
+            leaf_chunks.append(torch.arange(n_nodes, device=self._device) < leaf_count)
+        states = torch.cat(list(traces), dim=0)
+        preds = self._model.readout(states)
+        targets = torch.cat(target_chunks, dim=0).to(device=preds.device, dtype=dtype)
+        mask = torch.cat(mask_chunks)
+        if not bool(mask.any()):
+            return None
+        losses = ((preds - targets) ** 2).mean(dim=-1)
+        depths = torch.cat(depth_chunks)
+        is_leaf = torch.cat(leaf_chunks)
+        return losses[mask], depths[mask], is_leaf[mask]
+
+    def _node_weighted_loss(self, root_loss: Any, node_rows: Any | None, *, batch_n: int) -> Any:
+        """Weighted node-mean loss: the TT ladder's root/leaf/merge weighting.
+
+        Every supervised row — each batch item's root plus every observed
+        leaf/merge node — enters one weighted mean under the config's
+        ``root_weight`` / ``leaf_weight`` / ``merge_weight``. With
+        leaf/merge weights at 0 this reduces exactly to the historical root
+        MSE; convexity holds by construction (weights normalize to 1).
+        """
+
+        torch = self._torch
+        root_w = float(self.config.root_weight)
+        leaf_w = float(self.config.leaf_weight)
+        merge_w = float(self.config.merge_weight)
+        root_num = root_w * float(batch_n) * root_loss
+        root_den = root_w * float(batch_n)
+        if node_rows is None:
+            if root_w <= 0.0:
+                raise ValueError(
+                    f"family={self.name!r} root_weight is 0 and the training batch "
+                    "produced no supervised node rows; nothing anchors the loss"
+                )
+            return root_loss
+        losses, _depths, is_leaf = node_rows
+        row_weights = torch.where(
+            is_leaf,
+            torch.full_like(losses, leaf_w),
+            torch.full_like(losses, merge_w),
+        )
+        keep = row_weights > 0.0
+        if root_w <= 0.0 and not bool(keep.any()):
+            raise ValueError(
+                f"family={self.name!r} root_weight is 0 and the training batch "
+                "produced no positively weighted node rows; nothing anchors the loss"
+            )
+        node_num = (row_weights * losses * keep.to(losses.dtype)).sum()
+        node_den = (row_weights * keep.to(losses.dtype)).sum()
+        return (root_num + node_num) / (root_den + node_den)
 
     def _assemble_loss(self, root_loss: Any, law_rows: Any | None) -> Any:
         """Combine root and law terms under the executed objective.

@@ -42,6 +42,21 @@ class NeuralOperatorFamilyConfig:
     embedding_salt: str = "treepo_neural_operator"
     numeric_transition_state_weight: float = 0.0
     numeric_transition_count_scale: float | None = None
+    # Per-node supervision weights (fit-grid plan Phase 1). Relative weighting
+    # of the root term vs supervised leaf/merge node terms; defaults preserve
+    # the historical root-only loss exactly. Named levels in
+    # treepo.methods._supervision map onto these three knobs.
+    root_weight: float = 1.0
+    leaf_weight: float = 0.0
+    merge_weight: float = 0.0
+    #: Node metadata key holding the per-node target. When unset, a node's
+    #: ``label`` attribute is read first, then metadata ``score`` /
+    #: ``oracle_score``.
+    node_target_key: str | None = None
+    #: Optional pinned ``doc_id::node_id`` unit ids whose leaf labels may be
+    #: consumed (the gold_fraction grid axis); leaves outside the set are
+    #: treated as unlabeled. ``None`` consumes every labeled leaf.
+    supervised_node_units: Any = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 

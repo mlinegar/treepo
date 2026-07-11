@@ -1,4 +1,4 @@
-# Load an external labeled-tree bundle and (optionally) fit() on it.
+# Load an external labeled-tree bundle and fit() on it.
 #
 # Leave bundle_path empty to run on a tiny synthetic bundle written to the
 # output directory. Point it at a real bundle directory (a leaf-scale run with
@@ -14,5 +14,10 @@ dimension = ""
 family = "learnable_constant"
 leaf_count = 2
 
-# Load-only by default. Set true to train the family on the loaded trees.
-run_fit = false
+# Named per-node supervision cell (default/root/leaf/node/mix). Non-default
+# levels need a family that consumes node labels (neural_operator/fno);
+# "default" keeps root-only training for families like learnable_constant.
+supervision_level = "default"
+
+# Trains the family on the loaded trees. Set false for a load-only walkthrough.
+run_fit = true

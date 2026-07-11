@@ -10,8 +10,10 @@ porting any task into treepo.
 Point it at a real bundle with ``bundle_path`` in the config (or ``--bundle``).
 With no bundle configured it writes a tiny synthetic bundle to the output
 directory and loads that, so the script runs anywhere with no external data.
-Set ``run_fit = true`` to actually train the configured family on the loaded
-trees; the default is load-only so the walkthrough stays dependency-light.
+``run_fit = true`` (the default) trains the configured family on the loaded
+trees; ``supervision_level`` selects a named per-node supervision cell
+(default/root/leaf/node/mix) for families that consume node labels
+(neural_operator/fno).
 """
 
 from __future__ import annotations
@@ -140,14 +142,14 @@ def main() -> int:
         "train_data": train,
         "eval_data": eval_trees,
         "axis": {"axis_kind": "leaf_count", "axis_value": int(cfg.get("leaf_count", 2))},
+        "supervision_level": str(cfg.get("supervision_level", "default")),
     }
 
-    # Root-only training runs today; per-node supervision that consumes the
-    # bundle's node payload lands with Phase 1 of the fit-grid upgrade. When
-    # run_fit is set, invoke fit() and surface its status (or the not-yet
-    # error) rather than crashing the walkthrough.
+    # Per-node supervision consumes the bundle's node labels directly: pick a
+    # named level (root/leaf/node/mix) with a neural_operator/fno family, or
+    # keep the default level for root-only families like learnable_constant.
     fit_result: dict[str, Any] | None = None
-    if bool(cfg.get("run_fit", False)):
+    if bool(cfg.get("run_fit", True)):
         from treepo import fit
 
         try:
@@ -167,7 +169,7 @@ def main() -> int:
         f"bundle={'synthetic' if synthesized else 'external'} "
         f"train={len(train)} eval={len(eval_trees)} "
         f"dimension={dimension or 'default'} "
-        f"run_fit={bool(cfg.get('run_fit', False))} output={result_path}"
+        f"run_fit={bool(cfg.get('run_fit', True))} output={result_path}"
     )
     return 0
 

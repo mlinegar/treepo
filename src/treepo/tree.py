@@ -531,6 +531,48 @@ def tree_leaves(tree: Any) -> tuple[Any, ...] | None:
     return out if out else None
 
 
+def tree_root_target(tree: Any, *, target_key: str | None = None) -> float | None:
+    """Return the scalar root supervision target of any tree-like value.
+
+    The single root-target convention for training families: an explicit
+    ``target_key`` in metadata first, then the teacher/expert metadata keys,
+    then the tree-level ``document_score`` / ``root_label`` fields that bundle
+    trees (:mod:`treepo.bundles`) and ``TreeRecord`` carry.
+    """
+
+    meta = getattr(tree, "metadata", None)
+    meta = meta if isinstance(meta, MappingABC) else {}
+    keys = [target_key] if target_key else []
+    keys.extend(["teacher_score_native", "expert_score_for_objective"])
+    for key in keys:
+        if not key:
+            continue
+        score = _finite_float_or_none(meta.get(key))
+        if score is not None:
+            return score
+    for attr in ("document_score", "root_label"):
+        score = _finite_float_or_none(getattr(tree, attr, None))
+        if score is not None:
+            return score
+    for key in ("document_score", "root_label"):
+        score = _finite_float_or_none(meta.get(key))
+        if score is not None:
+            return score
+    return None
+
+
+def _finite_float_or_none(value: Any) -> float | None:
+    if value is None or isinstance(value, (str, bytes, bool, MappingABC)):
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    if out != out or out in (float("inf"), float("-inf")):
+        return None
+    return out
+
+
 _TREE_ID_KEYS = ("tree_id", "doc_id", "unit_id")
 
 
@@ -565,6 +607,7 @@ __all__ = [
     "load_tree_records",
     "local_law_rows_from_tree_records",
     "tree_leaves",
+    "tree_root_target",
     "tree_row_id",
     "tree_summary",
     "validate_tree_record",

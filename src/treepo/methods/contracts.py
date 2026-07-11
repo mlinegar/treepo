@@ -78,6 +78,16 @@ class CTreePOLearningSpec:
     gold_fraction_p: float = 1.0
     distilled_labels_path: str | None = None
     seed: int = 0
+    # Per-node supervision (fit-grid plan Phase 1). ``supervision_level`` names
+    # a cell with the TT ladder's vocabulary (default/root/leaf/node/mix); the
+    # explicit weights apply only at the ``default`` level. ``local_law_weight``
+    # builds the canonical convex ObjectiveSpec when no explicit objective is
+    # configured. Defaults preserve today's behavior exactly.
+    supervision_level: str = "default"
+    root_weight: float | None = None
+    leaf_weight: float | None = None
+    merge_weight: float | None = None
+    local_law_weight: float | None = None
 
     def to_dict(self) -> JsonDict:
         return {
@@ -95,6 +105,13 @@ class CTreePOLearningSpec:
                 None if self.distilled_labels_path is None else str(self.distilled_labels_path)
             ),
             "seed": int(self.seed),
+            "supervision_level": str(self.supervision_level),
+            "root_weight": (None if self.root_weight is None else float(self.root_weight)),
+            "leaf_weight": (None if self.leaf_weight is None else float(self.leaf_weight)),
+            "merge_weight": (None if self.merge_weight is None else float(self.merge_weight)),
+            "local_law_weight": (
+                None if self.local_law_weight is None else float(self.local_law_weight)
+            ),
         }
 
     @classmethod
@@ -121,6 +138,21 @@ class CTreePOLearningSpec:
                 else str(payload["distilled_labels_path"])
             ),
             seed=int(payload.get("seed") or 0),
+            supervision_level=str(payload.get("supervision_level") or "default"),
+            root_weight=(
+                None if payload.get("root_weight") is None else float(payload["root_weight"])
+            ),
+            leaf_weight=(
+                None if payload.get("leaf_weight") is None else float(payload["leaf_weight"])
+            ),
+            merge_weight=(
+                None if payload.get("merge_weight") is None else float(payload["merge_weight"])
+            ),
+            local_law_weight=(
+                None
+                if payload.get("local_law_weight") is None
+                else float(payload["local_law_weight"])
+            ),
         )
 
 
