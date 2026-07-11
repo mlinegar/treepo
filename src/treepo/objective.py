@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from treepo.common import finite_float, jsonable, stable_digest
+from treepo.local_law import LawKind
 
 
 OBJECTIVE_SCHEMA_VERSION = "treepo.objective.v1"
@@ -22,11 +23,7 @@ LOCAL_LAW_ESTIMATOR_PROXY_ONLY = "proxy_only"
 LOCAL_LAW_ESTIMATOR_ORACLE_EXACT = "oracle_exact"
 LOCAL_LAW_ESTIMATOR_ORACLE_STATE = "oracle_state"
 LOCAL_LAW_ESTIMATOR_EXTERNAL_PASSTHROUGH = "external_passthrough"
-CANONICAL_LAW_COMPONENTS = (
-    "leaf_preservation",
-    "on_range_idempotence",
-    "merge_preservation",
-)
+CANONICAL_LAW_COMPONENTS = tuple(kind.value for kind in LawKind)
 _ALLOWED_LOCAL_LAW_ESTIMATORS = {
     LOCAL_LAW_ESTIMATOR_NONE,
     LOCAL_LAW_ESTIMATOR_CORRECTED,
@@ -45,20 +42,12 @@ _EVIDENCE_ONLY_TERM_NAMES = {"oracle_gap", "gap", "f_star_gap"}
 
 
 def canonical_law_component_weights(weights: Mapping[str, float]) -> dict[str, float]:
-    # Two spellings per law: the paper's C-conditions and the Lean L-numbering.
-    aliases = {
-        "c1": "leaf_preservation",
-        "l1": "leaf_preservation",
-        "c2": "on_range_idempotence",
-        "l3": "on_range_idempotence",
-        "c3": "merge_preservation",
-        "l2": "merge_preservation",
-    }
     out = {name: 0.0 for name in CANONICAL_LAW_COMPONENTS}
     for raw_name, raw_weight in dict(weights or {}).items():
-        name = aliases.get(str(raw_name).strip().lower(), str(raw_name).strip().lower())
-        if name not in out:
-            raise ValueError(f"unknown local-law component weight: {raw_name!r}")
+        try:
+            name = LawKind.from_value(str(raw_name)).value
+        except ValueError:
+            raise ValueError(f"unknown local-law component weight: {raw_name!r}") from None
         out[name] = float(raw_weight)
     return out
 
@@ -309,6 +298,15 @@ class ObjectiveSpec:
             metadata=dict(data.get("metadata") or {}),
             allow_nonconvex_objective=bool(data.get("allow_nonconvex_objective", False)),
         )
+
+    @property
+    def gamma_depth(self) -> float:
+        """Depth-discount factor declared on the ``local_law_corrected`` term."""
+        term = dict(dict(self.terms or {}).get(OBJECTIVE_TERM_LOCAL_LAW_CORRECTED) or {})
+        gamma = finite_float(term.get("gamma_depth", 1.0), name="gamma_depth")
+        if gamma < 0.0 or gamma > 1.0:
+            raise ValueError(f"gamma_depth must be in [0, 1], got {gamma!r}")
+        return gamma
 
     @property
     def digest(self) -> str:

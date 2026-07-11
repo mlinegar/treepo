@@ -5,6 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from treepo.local_law import LawKind, LocalLawAuditRow
+from treepo.schedule import fold, merge_depths
+from treepo.statistic import StatisticInfo
+from treepo.tree import tree_leaves, tree_row_id
+
 _ORACLE_DOMAINS = {
     "hll_exact": "classical_sketch",
     "markov_changepoint_count": "markov",
@@ -165,9 +170,175 @@ class OracleFamilyRuntime:
     def validate_artifact(self, *, kind: str, artifact: Any) -> None:
         return None
 
-    def as_statistic(self, *, f: Any = None, g: Any = None) -> None:
+    def as_statistic(self, *, f: Any = None, g: Any = None) -> Any:
         del f, g
-        return None
+        return _OracleStatistic(self.oracle_name)
+
+
+class _OracleStatistic:
+    """Exact ComposableStatistic surface for the built-in oracles.
+
+    Both oracles are genuinely compositional, so every law channel is an
+    exact check over real code paths: C1 audits each leaf state's readout
+    against a direct recount of that leaf, C3 audits the composed root —
+    joint faithfulness against the whole-tree oracle and compositionality
+    across schedules — and C2 audits the state's on-range self-map
+    (idempotent self-merge for sets; representation round-trip for the
+    changepoint count state, whose merge is deliberately not idempotent).
+    """
+
+    def __init__(self, oracle_name: str) -> None:
+        self.oracle_name = str(oracle_name)
+        self.info = StatisticInfo(
+            name=f"oracle:{self.oracle_name}",
+            state_kind=self.oracle_name,
+            exact=True,
+            supports_local_laws=True,
+            metadata={"oracle": self.oracle_name},
+        )
+
+    def encode_leaf(self, leaf: Any) -> Any:
+        if self.oracle_name == "hll_exact":
+            return frozenset(getattr(leaf, "tokens", None) or ())
+        regimes = [int(x) for x in (getattr(leaf, "regimes", None) or ())]
+        if not regimes:
+            return None
+        count = sum(1 for a, b in zip(regimes, regimes[1:]) if a != b)
+        return (float(count), regimes[0], regimes[-1])
+
+    def merge(self, left: Any, right: Any) -> Any:
+        if left is None or right is None:
+            return None
+        if self.oracle_name == "hll_exact":
+            return frozenset(left) | frozenset(right)
+        l_count, l_first, l_last = left
+        r_count, r_first, r_last = right
+        join = 1.0 if int(l_last) != int(r_first) else 0.0
+        return (float(l_count + r_count + join), int(l_first), int(r_last))
+
+    def readout(self, state: Any, query: Any = None) -> float | None:
+        del query
+        if state is None:
+            return None
+        if self.oracle_name == "hll_exact":
+            return float(len(state))
+        return float(state[0])
+
+    def predict_tree(self, tree: Any) -> float | None:
+        leaves = tree_leaves(tree) or ()
+        states = [self.encode_leaf(leaf) for leaf in leaves]
+        if not states or any(state is None for state in states):
+            return None
+        return self.readout(fold(states, self.merge, schedule="balanced"))
+
+    def _self_check(self, state: Any) -> float:
+        """Return the C2 on-range indicator loss for ``state`` (0 = holds)."""
+
+        if self.oracle_name == "hll_exact":
+            return 0.0 if self.merge(state, state) == state else 1.0
+        count, first, last = state
+        round_trip = (float(count), int(first), int(last))
+        return 0.0 if round_trip == state else 1.0
+
+    def local_law_rows(
+        self,
+        units: Sequence[Any],
+        *,
+        query: Any = None,
+        oracle: Any = None,
+    ) -> Sequence[LocalLawAuditRow]:
+        del query, oracle
+        direct_fn = _hll_exact if self.oracle_name == "hll_exact" else _markov_changepoint_count
+        rows: list[LocalLawAuditRow] = []
+        for idx, tree in enumerate(list(units or ())):
+            leaves = list(tree_leaves(tree) or ())
+            states = [self.encode_leaf(leaf) for leaf in leaves]
+            if not states or any(state is None for state in states):
+                continue
+            tree_id = tree_row_id(tree, idx, fallback_prefix="tree")
+            base_metadata = {"statistic": self.info.name, "state_kind": self.info.state_kind}
+            depths = merge_depths(len(states), schedule="balanced")
+            for leaf_idx, (leaf, state) in enumerate(zip(leaves, states)):
+                leaf_direct = direct_fn(_LeafProxy(leaf))
+                if leaf_direct is None:
+                    continue
+                got = self.readout(state)
+                loss = 0.0 if got is not None and float(got) == float(leaf_direct) else 1.0
+                rows.append(
+                    _exact_row(
+                        row_id=f"{tree_id}:leaf:{leaf_idx}",
+                        law_kind=LawKind.C1_LEAF,
+                        loss=loss,
+                        depth=int(depths[leaf_idx]),
+                        metadata={**base_metadata, "check": "leaf_recount", "law_facet": "c1_sufficiency"},
+                    )
+                )
+            balanced_root = fold(states, self.merge, schedule="balanced")
+            rows.append(
+                _exact_row(
+                    row_id=f"{tree_id}:idempotence",
+                    law_kind=LawKind.C2_IDEMPOTENCE,
+                    loss=self._self_check(balanced_root),
+                    depth=0,
+                    metadata={
+                        **base_metadata,
+                        "check": "self_merge_identity" if self.oracle_name == "hll_exact" else "state_round_trip",
+                        "law_facet": "c2_idempotence",
+                    },
+                )
+            )
+            sequential_root = fold(states, self.merge, schedule="left_to_right")
+            balanced_readout = self.readout(balanced_root)
+            sequential_readout = self.readout(sequential_root)
+            rows.append(
+                _exact_row(
+                    row_id=f"{tree_id}:schedule",
+                    law_kind=LawKind.C3_MERGE,
+                    loss=0.0 if balanced_readout == sequential_readout else 1.0,
+                    depth=0,
+                    metadata={**base_metadata, "check": "schedule_invariance", "law_facet": "c3b_compositionality"},
+                )
+            )
+            direct = direct_fn(tree)
+            if direct is not None and balanced_readout is not None:
+                rows.append(
+                    _exact_row(
+                        row_id=f"{tree_id}:root",
+                        law_kind=LawKind.C3_MERGE,
+                        loss=float((float(balanced_readout) - float(direct)) ** 2),
+                        depth=0,
+                        metadata={**base_metadata, "check": "composed_vs_direct", "law_facet": "c3a_joint_faithfulness"},
+                    )
+                )
+        return tuple(rows)
+
+
+class _LeafProxy:
+    """Present a single leaf as a one-leaf tree to the direct oracle functions."""
+
+    def __init__(self, leaf: Any) -> None:
+        self.leaves = (leaf,)
+        self.metadata: dict[str, Any] = {}
+
+
+def _exact_row(
+    *,
+    row_id: str,
+    law_kind: LawKind,
+    loss: float,
+    depth: int,
+    metadata: Mapping[str, Any],
+) -> LocalLawAuditRow:
+    return LocalLawAuditRow(
+        row_id=row_id,
+        law_kind=law_kind,
+        proxy_loss=float(loss),
+        oracle_loss=float(loss),
+        observed=True,
+        propensity=1.0,
+        depth=int(depth),
+        metadata=dict(metadata),
+    )
 
 
 def _markov_changepoint_count(tree: Any) -> float | None:

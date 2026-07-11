@@ -2,8 +2,9 @@
 
 Data-prep for the optional local-law signal: derive per-node changepoint-count
 transition states from numeric leaf tokens, build the pairwise merge trace, and
-score a trained model's node trace against those targets. Used only when
-``numeric_transition_state_weight > 0``; otherwise inert.
+turn a trained model's node trace into canonical per-node law rows. Active when
+a law-bearing ``ObjectiveSpec`` is configured or the legacy
+``numeric_transition_state_weight`` knob is positive; otherwise inert.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from typing import Any, Mapping, Sequence
 
 from treepo.methods._fno_config import NeuralOperatorFamilyConfig
 from treepo.methods._fno_encoding import _leaf_token_groups
+from treepo.schedule import fold_with_trace, merge_children, merge_depths
+from treepo.tree import tree_row_id
 
 
 def _numeric_transition_state_targets(
@@ -40,19 +43,30 @@ def _numeric_transition_state_targets(
     return out
 
 
-def _numeric_transition_state_loss(
+def _numeric_transition_law_rows(
     traces: Sequence[Any],
     targets: Sequence[Any],
     *,
     torch: Any,
     device: Any,
     dtype: Any,
-) -> Any | None:
-    # The model trace and the target rows are built over the same pairwise
-    # merge topology, so their node counts must agree exactly; a mismatch
-    # means the two topology definitions have drifted. The state dimension may
-    # legitimately differ: the first target-width dims of the learned state
-    # carry the supervised transition vector.
+) -> tuple[Any, Any, Any] | None:
+    """Return per-node ``(proxy_loss, depths, is_leaf)`` law rows for a batch.
+
+    The model trace and the target rows are built over the same pairwise
+    merge topology, so their node counts must agree exactly; a mismatch
+    means the two topology definitions have drifted. The state dimension may
+    legitimately differ: the first target-width dims of the learned state
+    carry the supervised transition vector.
+
+    Each tree contributes ``2L - 1`` rows in trace order (leaves first, then
+    merges level by level). ``proxy_loss`` is the per-node mean squared error
+    over the supervised dims, ``depths`` follows the shared merge schedule
+    with the root at depth 0, and ``is_leaf`` marks the C1 channel (merge
+    rows are the C3 channel) — the same channel split the audit statistic
+    uses. Rows from all trees are concatenated.
+    """
+
     if len(traces) != len(targets):
         raise ValueError(
             f"transition-state supervision got {len(traces)} traces for {len(targets)} targets"
@@ -63,6 +77,18 @@ def _numeric_transition_state_loss(
                 "transition-state node count mismatch: model trace has "
                 f"{int(pred.shape[0])} nodes, targets have {int(target.shape[0])}"
             )
+
+    def _node_meta(n_nodes: int) -> tuple[Any, Any]:
+        # The schedule always yields 2L-1 nodes for L leaves.
+        leaf_count = (int(n_nodes) + 1) // 2
+        depths = torch.tensor(
+            _pairwise_merge_depths(leaf_count)[: int(n_nodes)],
+            dtype=torch.long,
+            device=device,
+        )
+        is_leaf = torch.arange(int(n_nodes), device=device) < leaf_count
+        return depths, is_leaf
+
     if traces and targets:
         first_trace_shape = tuple(int(x) for x in traces[0].shape)
         first_target_shape = tuple(int(x) for x in targets[0].shape)
@@ -76,19 +102,34 @@ def _numeric_transition_state_loss(
                 dim=0,
             )
             d = min(int(pred.shape[-1]), int(target.shape[-1]))
-            if d > 0:
-                return torch.nn.functional.mse_loss(pred[:, :, :d], target[:, :, :d])
-    losses = []
+            if d <= 0:
+                return None
+            losses = ((pred[:, :, :d] - target[:, :, :d]) ** 2).mean(dim=-1).reshape(-1)
+            n_nodes = int(pred.shape[1])
+            depths, is_leaf = _node_meta(n_nodes)
+            batch = int(pred.shape[0])
+            return losses, depths.repeat(batch), is_leaf.repeat(batch)
+
+    loss_chunks = []
+    depth_chunks = []
+    leaf_chunks = []
     for pred, target in zip(traces, targets):
         target = target.to(device=device, dtype=dtype)
         n = int(pred.shape[0])
         d = min(int(pred.shape[1]), int(target.shape[1]))
         if n <= 0 or d <= 0:
             continue
-        losses.append(torch.nn.functional.mse_loss(pred[:n, :d], target[:n, :d]))
-    if not losses:
+        loss_chunks.append(((pred[:n, :d] - target[:n, :d]) ** 2).mean(dim=-1))
+        depths, is_leaf = _node_meta(n)
+        depth_chunks.append(depths)
+        leaf_chunks.append(is_leaf)
+    if not loss_chunks:
         return None
-    return torch.stack(losses).mean()
+    return (
+        torch.cat(loss_chunks),
+        torch.cat(depth_chunks),
+        torch.cat(leaf_chunks),
+    )
 
 
 def _numeric_transition_spec(
@@ -117,70 +158,30 @@ def _numeric_transition_rows(
     bucket: int,
     count_scale: float,
 ) -> list[list[float]]:
-    cur = [_numeric_transition_leaf_state(tokens, n_states=n_states, bucket=bucket) for tokens in groups]
-    rows = [_numeric_transition_vector(state, n_states=n_states, count_scale=count_scale) for state in cur]
-    while len(cur) > 1:
-        next_level = []
-        for idx in range(0, len(cur) - 1, 2):
-            merged = _numeric_transition_merge_state(cur[idx], cur[idx + 1])
-            next_level.append(merged)
-            rows.append(_numeric_transition_vector(merged, n_states=n_states, count_scale=count_scale))
-        if len(cur) % 2:
-            next_level.append(cur[-1])
-        cur = next_level
-    return rows
+    node_states = fold_with_trace(
+        [
+            _numeric_transition_leaf_state(tokens, n_states=n_states, bucket=bucket)
+            for tokens in groups
+        ],
+        _numeric_transition_merge_state,
+        schedule="balanced",
+    )
+    return [
+        _numeric_transition_vector(state, n_states=n_states, count_scale=count_scale)
+        for state in node_states
+    ]
 
 
 def _pairwise_merge_children(leaf_count: int) -> dict[int, tuple[int, int]]:
-    """Return each merge node's ``(left, right)`` children by trace index.
+    """The balanced schedule's children map (see :mod:`treepo.schedule`)."""
 
-    This is the shared definition of the family merge schedule for trace
-    bookkeeping: leaves are indices ``0..L-1`` in position order, merges take
-    the next indices level by level (adjacent pairs, odd leftover carried to
-    the next level), and the final index ``2L-2`` is the root. Depth helpers
-    and the tree visualization both read the topology from here.
-    """
-
-    n = int(leaf_count)
-    merge_children: dict[int, tuple[int, int]] = {}
-    if n <= 0:
-        return merge_children
-    current = list(range(n))
-    next_index = n
-    while len(current) > 1:
-        next_level: list[int] = []
-        for idx in range(0, len(current) - 1, 2):
-            merge_children[next_index] = (current[idx], current[idx + 1])
-            next_level.append(next_index)
-            next_index += 1
-        if len(current) % 2:
-            next_level.append(current[-1])
-        current = next_level
-    return merge_children
+    return merge_children(int(leaf_count), schedule="balanced")
 
 
 def _pairwise_merge_depths(leaf_count: int) -> list[int]:
-    """Return the depth of every node in trace order, root at depth 0.
+    """The balanced schedule's node depths (see :mod:`treepo.schedule`)."""
 
-    Reads each node's depth off its real parent edge in the shared merge
-    schedule, so a carried node sits one level below the node that finally
-    consumes it.
-    """
-
-    n = int(leaf_count)
-    if n <= 0:
-        return []
-    merge_children = _pairwise_merge_children(n)
-    total = n + len(merge_children)
-    parents: list[int | None] = [None] * total
-    for node, (left, right) in merge_children.items():
-        parents[left] = node
-        parents[right] = node
-    depths = [0] * total
-    for node in range(total - 2, -1, -1):
-        parent = parents[node]
-        depths[node] = 0 if parent is None else depths[parent] + 1
-    return depths
+    return merge_depths(int(leaf_count), schedule="balanced")
 
 
 def _numeric_transition_leaf_state(
@@ -235,12 +236,7 @@ def _optional_positive_int(value: Any) -> int | None:
 
 
 def _tree_row_id(tree: Any, idx: int) -> str:
-    metadata = getattr(tree, "metadata", None)
-    if isinstance(metadata, Mapping):
-        for key in ("tree_id", "doc_id", "unit_id"):
-            if metadata.get(key) is not None:
-                return str(metadata[key])
-    return f"tree_{idx}"
+    return tree_row_id(tree, idx, fallback_prefix="tree")
 
 
 __all__ = [
@@ -250,7 +246,7 @@ __all__ = [
     "_numeric_transition_merge_state",
     "_numeric_transition_rows",
     "_numeric_transition_spec",
-    "_numeric_transition_state_loss",
+    "_numeric_transition_law_rows",
     "_numeric_transition_state_targets",
     "_numeric_transition_vector",
     "_optional_positive_int",

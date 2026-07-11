@@ -12,10 +12,12 @@ import json
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
 from treepo.common import MIN_PROPENSITY, finite_float
 
+if TYPE_CHECKING:
+    from treepo.certificate import TwoChannelResidual, UnifiedLearningErrorCertificate
 
 LOCAL_LAW_OBJECTIVE_CORRECTED = "corrected_local_law"
 LOCAL_LAW_OBJECTIVE_SAMPLED_IPW = "sampled_ipw"
@@ -40,16 +42,21 @@ class LawKind(str, Enum):
         return cls(normalized)
 
 
-# Two spellings per law: the paper's C-conditions and the Lean L-numbering
-# (L1=leaf, L2=merge, L3=idempotence). The enum values are the canonical
-# long names.
+# Three spellings per law: the paper's C-conditions, the Lean L-numbering
+# (L1=leaf, L2=merge, L3=idempotence), and the Lean `LocalLawChannel`
+# constructor names (c1_leaf / c2_idempotence / c3_merge). The enum values
+# are the canonical long names. This table is the single alias source;
+# `treepo.objective` routes through it rather than keeping its own copy.
 LAW_KIND_ALIASES: dict[str, LawKind] = {
     "c1": LawKind.C1_LEAF,
     "l1": LawKind.C1_LEAF,
+    "c1_leaf": LawKind.C1_LEAF,
     "c2": LawKind.C2_IDEMPOTENCE,
     "l3": LawKind.C2_IDEMPOTENCE,
+    "c2_idempotence": LawKind.C2_IDEMPOTENCE,
     "c3": LawKind.C3_MERGE,
     "l2": LawKind.C3_MERGE,
+    "c3_merge": LawKind.C3_MERGE,
 }
 
 def normalize_local_law_objective_mode(mode: str) -> str:
@@ -96,6 +103,20 @@ class LocalLawAuditRow:
     ``observed`` is only the realized sampling indicator. ``effective_propensity``
     is the clipped numerical value used in denominators and may differ from the
     logged design value only when clipping metadata is recorded by the caller.
+
+    Cross-family row conventions (every built-in statistic follows these):
+
+    - ``proxy_loss`` is any non-negative violation magnitude — a squared
+      error for regression-style checks, or a 0/1 indicator for exact-state
+      checks (0 = the law holds). ``metadata["check"]`` names the concrete
+      statistic and ``metadata["law_facet"]`` names the paper facet
+      (``c1_sufficiency``, ``c2_idempotence``, ``c3a_joint_faithfulness``,
+      ``c3b_compositionality``).
+    - ``depth`` follows the canonical schedule (:mod:`treepo.schedule`) with
+      the root at 0; root-level checks correctly carry ``depth=0``.
+    - Exact audits (no sampling design) use the degenerate design
+      ``observed=True, propensity=1.0, oracle_loss=proxy_loss``, under which
+      the corrected estimator equals the plain loss.
     """
 
     row_id: str
@@ -310,6 +331,9 @@ def audit_local_laws(
             raise TypeError(f"audit rows must be LocalLawAuditRow or mappings; got {type(item).__name__}")
     if not row_list:
         raise ValueError("audit_local_laws requires at least one row")
+    gamma = finite_float(gamma_depth, name="gamma_depth")
+    if gamma < 0.0 or gamma > 1.0:
+        raise ValueError(f"gamma_depth must be in [0, 1], got {gamma_depth!r}")
     summary = local_law_objective_summary(row_list, objective_mode=objective_mode, gamma_depth=gamma_depth)
     overlap = compute_influence_weighted_overlap(row_list)
     by_kind_summaries = _local_law_objective_summary_by_law_kind(
@@ -322,6 +346,10 @@ def audit_local_laws(
         "status": "success",
         "local_law_objective": summary.to_dict(),
         "influence_weighted_overlap": overlap.to_dict(),
+        "local_law_weighting": _local_law_weighting_summary(
+            row_list,
+            gamma_depth=gamma,
+        ),
         "by_law_kind": {
             kind: {
                 "local_law_objective": by_kind_summaries[kind].to_dict(),
@@ -336,6 +364,151 @@ def audit_local_laws(
         out.mkdir(parents=True, exist_ok=True)
         (out / "audit_summary.json").write_text(json.dumps(payload, indent=2, sort_keys=True))
     return payload
+
+
+def triangle_local_law_residual_from_audit(
+    audit: Mapping[str, Any] | None = None,
+    rows: Sequence[LocalLawAuditRow | Mapping[str, Any]]
+    | Iterable[LocalLawAuditRow | Mapping[str, Any]]
+    | None = None,
+    *,
+    objective_mode: str = LOCAL_LAW_OBJECTIVE_CORRECTED,
+    gamma_depth: float = 1.0,
+    leaf_up_radius: float | None = None,
+    radius_multiplier: float = 1.0,
+    root_down_radius: float = 0.0,
+    overidentification_radius: float = 0.0,
+    delta: float | None = None,
+    source: str = "triangle_local_law_audit",
+    artifact_ids: Sequence[str] = (),
+    metadata: Mapping[str, Any] | None = None,
+) -> "TwoChannelResidual":
+    """Convert a local-law audit into a two-channel transport residual.
+
+    The local-law objective is the Python estimator for the leaf-up/triangle
+    transport premise: if the common ``f,g`` calls satisfy C1/C2/C3 with small
+    audited residual, internal latent states are controlled by the same local
+    law machinery even when internal node labels were not directly observed.
+
+    ``leaf_up_radius`` may be supplied by a finite-sample or concentration
+    bound. If omitted, the audited point objective is used after multiplying by
+    ``radius_multiplier``; a negative corrected estimate is rejected because a
+    radius must be a non-negative bound.
+    """
+
+    from treepo.certificate import TwoChannelResidual
+
+    audit_payload = dict(audit) if audit is not None else _audit_payload_from_rows(
+        rows,
+        objective_mode=objective_mode,
+        gamma_depth=gamma_depth,
+    )
+    local_summary = _audit_local_law_summary(audit_payload)
+    raw_objective = finite_float(local_summary.get("objective", 0.0), name="local_law_objective")
+    multiplier = finite_float(radius_multiplier, name="radius_multiplier")
+    if multiplier < 0.0:
+        raise ValueError("radius_multiplier must be non-negative")
+    if leaf_up_radius is None:
+        derived_leaf_radius = float(multiplier * raw_objective)
+        if derived_leaf_radius < 0.0:
+            raise ValueError(
+                "derived leaf_up_radius is negative; supply an explicit non-negative "
+                "leaf_up_radius from a finite-sample bound"
+            )
+        leaf_radius = derived_leaf_radius
+        leaf_radius_source = "local_law_objective"
+    else:
+        leaf_radius = _nonnegative_radius(leaf_up_radius, name="leaf_up_radius")
+        leaf_radius_source = "explicit_leaf_up_radius"
+
+    residual_metadata = {
+        "transport_source": "merge_triangle_local_laws",
+        "root_control_source": "audit_bound",
+        "local_law_weighting": _audit_weighting_metadata(
+            audit_payload,
+            gamma_depth=gamma_depth,
+        ),
+        "local_law_radius_source": leaf_radius_source,
+        "local_law_radius_multiplier": float(multiplier),
+        "local_law_objective": dict(local_summary),
+        "local_law_objective_mode": str(local_summary.get("objective_mode", "")),
+        "local_law_row_count": int(local_summary.get("row_count", audit_payload.get("n_rows", 0)) or 0),
+        "local_law_observed_count": int(local_summary.get("observed_count", 0) or 0),
+        "by_law_kind": _compact_by_law_kind(audit_payload.get("by_law_kind", {})),
+        "influence_weighted_overlap": dict(audit_payload.get("influence_weighted_overlap", {}) or {}),
+    }
+    residual_metadata.update(dict(metadata or {}))
+    return TwoChannelResidual(
+        leaf_up_radius=leaf_radius,
+        root_down_radius=_nonnegative_radius(root_down_radius, name="root_down_radius"),
+        overidentification_radius=_nonnegative_radius(
+            overidentification_radius,
+            name="overidentification_radius",
+        ),
+        delta=delta,
+        source=str(source),
+        artifact_ids=tuple(str(item) for item in artifact_ids),
+        metadata=residual_metadata,
+    )
+
+
+def build_triangle_local_law_error_certificate(
+    *,
+    reported_estimate: float,
+    audit: Mapping[str, Any] | None = None,
+    rows: Sequence[LocalLawAuditRow | Mapping[str, Any]]
+    | Iterable[LocalLawAuditRow | Mapping[str, Any]]
+    | None = None,
+    objective_mode: str = LOCAL_LAW_OBJECTIVE_CORRECTED,
+    gamma_depth: float = 1.0,
+    leaf_up_radius: float | None = None,
+    radius_multiplier: float = 1.0,
+    root_down_radius: float = 0.0,
+    overidentification_radius: float = 0.0,
+    common_mechanism_envelopes: Sequence[Any | Mapping[str, Any]] = (),
+    conditional_envelopes: Sequence[Any | Mapping[str, Any]] = (),
+    confidence_delta: float | None = None,
+    delta: float | None = None,
+    source: str = "triangle_local_law_audit",
+    artifact_ids: Sequence[str] = (),
+    metadata: Mapping[str, Any] | None = None,
+    residual_metadata: Mapping[str, Any] | None = None,
+    require_common_mechanism_assumptions: bool = True,
+    require_conditional_diagnostics: bool = True,
+) -> "UnifiedLearningErrorCertificate":
+    """Build a unified certificate from audited triangle/local-law evidence."""
+
+    from treepo.certificate import build_two_channel_error_certificate
+
+    residual = triangle_local_law_residual_from_audit(
+        audit=audit,
+        rows=rows,
+        objective_mode=objective_mode,
+        gamma_depth=gamma_depth,
+        leaf_up_radius=leaf_up_radius,
+        radius_multiplier=radius_multiplier,
+        root_down_radius=root_down_radius,
+        overidentification_radius=overidentification_radius,
+        delta=delta,
+        source=source,
+        artifact_ids=artifact_ids,
+        metadata=residual_metadata,
+    )
+    certificate_metadata = {
+        "transport_certificate_kind": "triangle_local_law",
+        "error_estimation_route": "local_law_audit_to_two_channel_certificate",
+    }
+    certificate_metadata.update(dict(metadata or {}))
+    return build_two_channel_error_certificate(
+        reported_estimate=reported_estimate,
+        residual=residual,
+        common_mechanism_envelopes=common_mechanism_envelopes,
+        conditional_envelopes=conditional_envelopes,
+        confidence_delta=confidence_delta,
+        metadata=certificate_metadata,
+        require_common_mechanism_assumptions=require_common_mechanism_assumptions,
+        require_conditional_diagnostics=require_conditional_diagnostics,
+    )
 
 
 def compute_influence_weighted_overlap(
@@ -412,6 +585,132 @@ def _coerce_row(row: LocalLawAuditRow | Mapping[str, Any]) -> LocalLawAuditRow:
     raise TypeError(f"local-law row must be LocalLawAuditRow or mapping, got {type(row).__name__}")
 
 
+def _audit_payload_from_rows(
+    rows: Sequence[LocalLawAuditRow | Mapping[str, Any]]
+    | Iterable[LocalLawAuditRow | Mapping[str, Any]]
+    | None,
+    *,
+    objective_mode: str,
+    gamma_depth: float,
+) -> dict[str, Any]:
+    if rows is None:
+        raise ValueError("provide either an audit payload or local-law rows")
+    return audit_local_laws(rows, objective_mode=objective_mode, gamma_depth=gamma_depth)
+
+
+def _audit_local_law_summary(audit: Mapping[str, Any]) -> Mapping[str, Any]:
+    summary = audit.get("local_law_objective")
+    if not isinstance(summary, Mapping):
+        raise ValueError("audit payload must contain a local_law_objective mapping")
+    return summary
+
+
+def _compact_by_law_kind(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    compact: dict[str, Any] = {}
+    for kind, payload in value.items():
+        if not isinstance(payload, Mapping):
+            continue
+        objective = payload.get("local_law_objective")
+        overlap = payload.get("influence_weighted_overlap")
+        compact[str(kind)] = {
+            "local_law_objective": dict(objective) if isinstance(objective, Mapping) else {},
+            "influence_weighted_overlap": dict(overlap) if isinstance(overlap, Mapping) else {},
+        }
+    return compact
+
+
+def _local_law_weighting_summary(
+    rows: Sequence[LocalLawAuditRow],
+    *,
+    gamma_depth: float,
+) -> dict[str, Any]:
+    by_depth: dict[str, dict[str, float]] = {}
+    by_law_kind: dict[str, dict[str, float]] = {}
+    structural_total = 0.0
+    effective_total = 0.0
+    for row in rows:
+        structural = float(row.node_weight)
+        depth = int(row.depth)
+        discount = _depth_weight(depth, gamma_depth=gamma_depth)
+        effective = float(structural * discount)
+        structural_total += structural
+        effective_total += effective
+        depth_bucket = by_depth.setdefault(
+            str(depth),
+            {
+                "row_count": 0.0,
+                "structural_weight_sum": 0.0,
+                "effective_weight_sum": 0.0,
+            },
+        )
+        depth_bucket["row_count"] += 1.0
+        depth_bucket["structural_weight_sum"] += structural
+        depth_bucket["effective_weight_sum"] += effective
+        kind_bucket = by_law_kind.setdefault(
+            row.law_kind.value,
+            {
+                "row_count": 0.0,
+                "structural_weight_sum": 0.0,
+                "effective_weight_sum": 0.0,
+            },
+        )
+        kind_bucket["row_count"] += 1.0
+        kind_bucket["structural_weight_sum"] += structural
+        kind_bucket["effective_weight_sum"] += effective
+    return {
+        "gamma_depth": float(gamma_depth),
+        "effective_weight_formula": "node_weight * gamma_depth ** depth",
+        "structural_weight_field": "node_weight",
+        "depth_field": "depth",
+        "propensity_role": "sampling_probability_not_weight",
+        "structural_weight_sum": float(structural_total),
+        "effective_weight_sum": float(effective_total),
+        "by_depth": _finalize_weight_buckets(by_depth),
+        "by_law_kind": _finalize_weight_buckets(by_law_kind),
+    }
+
+
+def _finalize_weight_buckets(buckets: Mapping[str, Mapping[str, float]]) -> dict[str, Any]:
+    return {
+        str(key): {
+            "row_count": int(value.get("row_count", 0.0)),
+            "structural_weight_sum": float(value.get("structural_weight_sum", 0.0)),
+            "effective_weight_sum": float(value.get("effective_weight_sum", 0.0)),
+        }
+        for key, value in sorted(buckets.items(), key=lambda item: str(item[0]))
+    }
+
+
+def _audit_weighting_metadata(
+    audit: Mapping[str, Any],
+    *,
+    gamma_depth: float,
+) -> dict[str, Any]:
+    weighting = audit.get("local_law_weighting")
+    if isinstance(weighting, Mapping):
+        return dict(weighting)
+    gamma = finite_float(gamma_depth, name="gamma_depth")
+    if gamma < 0.0 or gamma > 1.0:
+        raise ValueError(f"gamma_depth must be in [0, 1], got {gamma_depth!r}")
+    return {
+        "gamma_depth": float(gamma),
+        "effective_weight_formula": "node_weight * gamma_depth ** depth",
+        "structural_weight_field": "node_weight",
+        "depth_field": "depth",
+        "propensity_role": "sampling_probability_not_weight",
+        "source": "fallback_from_residual_builder_argument",
+    }
+
+
+def _nonnegative_radius(value: float, *, name: str) -> float:
+    radius = finite_float(value, name=name)
+    if radius < 0.0:
+        raise ValueError(f"{name} must be non-negative")
+    return float(radius)
+
+
 __all__ = [
     "InfluenceWeightedAuditOverlap",
     "LAW_KIND_ALIASES",
@@ -422,9 +721,11 @@ __all__ = [
     "LocalLawAuditRow",
     "LocalLawObjectiveSummary",
     "MIN_PROPENSITY",
-    "compute_influence_weighted_overlap",
     "audit_local_laws",
+    "build_triangle_local_law_error_certificate",
+    "compute_influence_weighted_overlap",
     "corrected_local_law_loss",
     "local_law_objective_summary",
     "normalize_local_law_objective_mode",
+    "triangle_local_law_residual_from_audit",
 ]

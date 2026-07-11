@@ -100,8 +100,20 @@ When adding a built-in family, it should be dependency-light, generally useful, 
 - `local_law_objective_summary(...)`
 - `audit_local_laws(...)`
 - `compute_influence_weighted_overlap(...)`
+- `triangle_local_law_residual_from_audit(...)`
+- `build_triangle_local_law_error_certificate(...)`
 
 Training code may wrap these operations in tensors, but theorem-facing rows and reports should round-trip through the dataclasses here.
+
+For error estimation, the audited local-law objective is the Python estimator
+for the leaf-up/triangle transport premise. Use
+`triangle_local_law_residual_from_audit(...)` to turn an `audit_local_laws`
+payload, or raw rows, into the leaf-up channel of a `TwoChannelResidual`; use
+`build_triangle_local_law_error_certificate(...)` when a run also has
+document-level root controls, overidentification residuals, common-mechanism
+root-error envelopes, or external conditional-average envelopes. Propensities
+remain sampling probabilities. Structural identification weights, including
+additive qsentence/CMP weights, belong in `node_weight` and metadata.
 
 ## Preference And Fine-Tuning Boundary
 
@@ -117,9 +129,14 @@ Examples export rows that downstream trainers consume; TRL, sentence-transformer
 
 ## LLM And Server Boundary
 
-`treepo.llm` provides client-side request/response helpers and optional embedding/chat clients. The deploying package owns server startup, GPU placement, vLLM/SGLang lifecycle, large model downloads, and provider credentials.
+`treepo.llm` provides client-side request/response helpers and optional embedding/chat clients. The deploying package owns server startup, GPU placement, vLLM/SGLang lifecycle, Transformers pipeline construction, large model downloads, and provider credentials.
 
-The `llm` and `dspy` method families are provider-neutral. They accept injected callables/programs from downstream code; DSPy and model-serving libraries load only when a program runs.
+The `llm` and `dspy` method families are provider-neutral. Use `api_base` for
+OpenAI-compatible endpoints such as vLLM, SGLang, hosted compatible APIs, TGI,
+or llama.cpp's OpenAI server. Use `predict_fn` for direct local runtimes such as
+Hugging Face Transformers pipelines, custom Python inference functions, or SDKs
+that do not expose `/v1`. DSPy uses an injected callable/program; DSPy and
+model-serving libraries load only when downstream code imports or runs them.
 
 ## Examples Policy
 
@@ -129,6 +146,7 @@ Good examples:
 
 - `examples/bench/*.yaml` for `treepo-bench` runs.
 - `examples/methods/*.toml` plus a small `run_*.py` wrapper.
+- `examples/methods/run_llm_backends.py` for OpenAI-compatible, Transformers-style callable, and DSPy-style backend adapter shapes.
 - Manifesto examples that use packaged fixtures and export trainer-neutral records.
 
 Large real-data preparation, LLM scoring campaigns, and long runs belong in downstream workspaces.

@@ -24,9 +24,12 @@ from pathlib import Path
 from typing import Any, List, Mapping, Optional, Sequence
 
 from treepo.local_law import (
+    LawKind,
     LocalLawAuditRow,
     local_law_objective_summary,
 )
+from treepo.statistic import StatisticInfo
+from treepo.tree import tree_row_id
 
 
 class LearnableConstantFamily:
@@ -101,9 +104,16 @@ class LearnableConstantFamily:
     def validate_artifact(self, *, kind: str, artifact: Any) -> None:
         return None
 
-    def as_statistic(self, *, f: Any = None, g: Any = None) -> None:
-        del f, g
-        return None
+    def as_statistic(self, *, f: Any = None, g: Any = None) -> Any:
+        del g
+        value: float | None
+        try:
+            value = float(f) if f is not None else self.last_trained_f
+        except (TypeError, ValueError):
+            value = self.last_trained_f
+        if value is None:
+            return None
+        return _ConstantStatistic(value=float(value))
 
     # ------------------------------ helpers ------------------------------ #
 
@@ -121,7 +131,7 @@ class LearnableConstantFamily:
             rows.append(
                 LocalLawAuditRow(
                     row_id=f"row_{idx}",
-                    law_kind="c1_leaf",
+                    law_kind=LawKind.C1_LEAF,
                     proxy_loss=0.0,
                     oracle_loss=oracle,
                     observed=observed,
@@ -131,6 +141,98 @@ class LearnableConstantFamily:
                 )
             )
         return rows
+
+
+class _ConstantStatistic:
+    """ComposableStatistic surface for the trained constant.
+
+    The state is the constant itself, so C2 idempotence and C3b merge
+    compositionality hold by construction — the rows certify that with exact
+    0/1 indicator checks. C1 sufficiency is the substantive check: the
+    constant leaf state must carry each tree's score, so its loss is the
+    squared error against the teacher score under the logged sampling design.
+    """
+
+    def __init__(self, *, value: float) -> None:
+        self.value = float(value)
+        self.info = StatisticInfo(
+            name="learnable_constant",
+            state_kind="constant",
+            exact=True,
+            supports_local_laws=True,
+            metadata={"value": float(value)},
+        )
+
+    def encode_leaf(self, leaf: Any) -> float:
+        del leaf
+        return self.value
+
+    def merge(self, left: Any, right: Any) -> float:
+        del left, right
+        return self.value
+
+    def readout(self, state: Any, query: Any = None) -> float:
+        del query
+        return float(state)
+
+    def predict_tree(self, tree: Any) -> float:
+        del tree
+        return self.value
+
+    def local_law_rows(
+        self,
+        units: Sequence[Any],
+        *,
+        query: Any = None,
+        oracle: Any = None,
+    ) -> Sequence[LocalLawAuditRow]:
+        del query, oracle
+        rows: list[LocalLawAuditRow] = []
+        for idx, tree in enumerate(list(units or ())):
+            tree_id = tree_row_id(tree, idx, fallback_prefix="tree")
+            base_metadata = {"statistic": self.info.name, "state_kind": "constant"}
+            merged = self.merge(self.value, self.value)
+            rows.append(
+                LocalLawAuditRow(
+                    row_id=f"{tree_id}:idempotence",
+                    law_kind=LawKind.C2_IDEMPOTENCE,
+                    proxy_loss=0.0 if merged == self.value else 1.0,
+                    oracle_loss=0.0 if merged == self.value else 1.0,
+                    observed=True,
+                    propensity=1.0,
+                    metadata={**base_metadata, "check": "self_merge_identity", "law_facet": "c2_idempotence"},
+                )
+            )
+            composed = self.readout(self.merge(self.encode_leaf(None), self.encode_leaf(None)))
+            rows.append(
+                LocalLawAuditRow(
+                    row_id=f"{tree_id}:composition",
+                    law_kind=LawKind.C3_MERGE,
+                    proxy_loss=0.0 if composed == self.value else 1.0,
+                    oracle_loss=0.0 if composed == self.value else 1.0,
+                    observed=True,
+                    propensity=1.0,
+                    metadata={**base_metadata, "check": "composed_readout_identity", "law_facet": "c3b_compositionality"},
+                )
+            )
+            meta = getattr(tree, "metadata", None) or {}
+            teacher = meta.get("teacher_score_native")
+            if teacher is None:
+                continue
+            loss = float((self.value - float(teacher)) ** 2)
+            observed = bool(meta.get("observed", True))
+            rows.append(
+                LocalLawAuditRow(
+                    row_id=f"{tree_id}:sufficiency",
+                    law_kind=LawKind.C1_LEAF,
+                    proxy_loss=loss,
+                    oracle_loss=loss if observed else None,
+                    observed=observed,
+                    propensity=float(meta.get("propensity", 1.0)),
+                    metadata={**base_metadata, "check": "teacher_agreement", "law_facet": "c1_sufficiency"},
+                )
+            )
+        return tuple(rows)
 
 
 __all__ = ["LearnableConstantFamily"]

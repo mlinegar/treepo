@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "treepo"
-version = "0.1.1"
+version = "0.2.0"
 description = "treepo: composable tree operators and local-law certificates for C-TreePO"
 readme = "README.md"
 # LicenseRef- prefix (PEP 639) for custom non-SPDX licenses like PolyForm-NC.
@@ -25,13 +25,11 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+# Core stays slim (the law/objective/schedule/tree surface needs only
+# numpy). Neural-operator, LDA, and HF-dataset stacks are extras; every
+# heavy import in-package is lazy and errors with the extra to install.
 dependencies = [
-  "datasets>=2.14.0",
   "numpy>=1.24",
-  "torch>=2.0.0",
-  "neuraloperator>=2.0.0",
-  "scikit-learn>=1.4",
-  "scipy>=1.10",
   "tomli>=1.2; python_version < '3.11'",
 ]
 
@@ -40,6 +38,17 @@ Repository = "https://github.com/mlinegar/treepo"
 Issues = "https://github.com/mlinegar/treepo/issues"
 
 [project.optional-dependencies]
+torch = [
+  "torch>=2.0.0",
+  "neuraloperator>=2.0.0",
+]
+lda = [
+  "scikit-learn>=1.4",
+  "scipy>=1.10",
+]
+hf = [
+  "datasets>=2.14.0",
+]
 bench = [
   "pyyaml>=6.0",
 ]
@@ -50,6 +59,11 @@ llm = [
   "requests>=2.31.0",
 ]
 all = [
+  "torch>=2.0.0",
+  "neuraloperator>=2.0.0",
+  "scikit-learn>=1.4",
+  "scipy>=1.10",
+  "datasets>=2.14.0",
   "pyyaml>=6.0",
   "datasketches>=5.2.0",
   "requests>=2.31.0",
@@ -75,6 +89,7 @@ dev = [
   "neuraloperator>=2.0.0",
   "scikit-learn>=1.4",
   "scipy>=1.10",
+  "datasets>=2.14.0",
   "datasketches>=5.2.0",
   "requests>=2.31.0",
 ]

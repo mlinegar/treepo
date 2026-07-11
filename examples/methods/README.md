@@ -21,15 +21,17 @@ setup live in `example_setup/` so the runnable files stay readable.
 | `run_finetune_views.py` | Task-neutral fine-tuning export skeleton: one `PreferenceDataset` feeds embedding pairs/triplets/ranked rows plus SFT/DPO/reward/GRPO rows. |
 | `run_manifesto_finetune_views.py` | Manifesto/RILE fine-tuning exports: root `f` rows, qsentence `g` rows, and qsentence pairwise/ranked candidate views. |
 | `run_preference_optimizer_views.py` | Task-neutral optimizer-view skeleton: one `PreferenceDataset` feeds supervised DSPy prompts plus DPO/reward/GRPO projections. |
+| `run_llm_backends.py` | Self-contained LLM backend adapter skeleton: OpenAI-compatible HTTP endpoints such as vLLM/SGLang, direct Transformers-style callables, and DSPy-style programs. |
 | `run_local_law_certificate.py` | Minimal sampled C1/C2/C3 audit rows, preference exports, evidence JSON, and component-radius certificate ledger. |
 | `run_tree_visualization.py` | Standalone expandable-tree HTML views: Manifesto sampling + gold labels + policy summaries; Markov audited local-law losses, node readouts, AIPW audit panel, and the leaf-count tradeoff chart; LDA vector readouts vs exact topic proportions; HLL exact distinct counts; and hand-built generic records. See [`docs/visualization.md`](../../docs/visualization.md). |
 
 Preference records can be passed to `treepo.fit({"preference_data": ...})` and
 are exported through supervised, DPO, reward-model, and GRPO views.
 `PreferenceDataset` also writes a Hugging Face `DatasetDict` with `units` and
-`candidates` tables for trainer adapters. DSPy and prompted-LLM examples are
-kept provider-neutral here and accept injected programs/callables from user
-code.
+`candidates` tables for trainer adapters. Prompted-LLM examples stay
+provider-neutral: OpenAI-compatible services such as vLLM and SGLang use
+`api_base`; local Transformers pipelines and other runtimes use `predict_fn`;
+DSPy prompt-tuning uses an injected `dspy_program`.
 
 `run_manifesto_replications.py` accepts `preference_mode = "none" | "scores" |
 "pairwise" | "ranked"` and `preference_scope = "both" | "roots" |
@@ -132,6 +134,17 @@ and GRPO rows, then passes that same dataset to `treepo.fit(...)` with
 trainers can consume the exported rows. The Manifesto end-to-end example uses the
 same pattern on real package fixtures.
 
+For the LLM backend adapter skeleton, use `run_llm_backends.py`:
+
+```bash
+uv run python examples/methods/run_llm_backends.py \
+  --output-dir outputs/llm_backends_example
+```
+
+It runs fully locally but exercises the same contracts used for vLLM, SGLang,
+hosted OpenAI-compatible endpoints, direct Hugging Face Transformers pipelines,
+custom Python inference functions, and DSPy programs.
+
 For reward-model data, `run_manifesto_reward_mechanisms.py` exports the same
 preference records through trainer-specific projections:
 
@@ -181,6 +194,7 @@ illustrative, and a publication run supplies the task's finite-sample bound.
 choices live in `backend_config`; for example, `family = "neural_operator"`
 uses `operator_kind = "fno"` for the FNO route. The built-in families are
 `oracle`, `learnable_constant`, `classical_sketch`, `neural_operator`, `fno`,
-`llm`, and `dspy`. The LLM/DSPy families are provider-neutral and accept
-injected `predict_fn`, `program`, or `dspy_program` hooks. Local-law penalties
-are objective terms.
+`llm`, and `dspy`. The LLM/DSPy families are provider-neutral: `api_base`
+targets OpenAI-compatible servers, while `predict_fn`, `program`, and
+`dspy_program` cover direct local runtimes and prompt-tuned programs. Local-law
+penalties are objective terms.

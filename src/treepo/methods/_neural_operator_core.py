@@ -48,9 +48,11 @@ from treepo.methods._fno_neuralop import _require_torch, _validate_operator_kind
 from treepo.methods._fno_statistic import _NeuralOperatorStatistic
 from treepo.methods._fno_targets import _target_rows
 from treepo.methods._fno_transition import (
-    _numeric_transition_state_loss,
+    _numeric_transition_law_rows,
     _numeric_transition_state_targets,
 )
+from treepo.local_law import LawKind
+from treepo.objective import LOCAL_LAW_ESTIMATOR_ORACLE_STATE, ObjectiveSpec
 
 
 class NeuralOperatorFamily:
@@ -81,6 +83,9 @@ class NeuralOperatorFamily:
         self._target_center = None
         self._target_scale = None
         self._last_artifact: dict[str, Any] | None = None
+        self._objective: ObjectiveSpec | None = None
+        self._objective_law_shares: dict[str, float] = {}
+        self._objective_gamma_depth: float = 1.0
         # Encoding cache keyed by tree identity. Each entry pins the tree
         # objects it was built from, so the id()-based key stays valid for as
         # long as the entry lives; the cache is bounded, evicting oldest first.
@@ -96,8 +101,9 @@ class NeuralOperatorFamily:
         output_dir: Path,
         iteration: int,
     ) -> Mapping[str, Any]:
-        del f_init, g, output_dir
-        return self._train_side(kind="f", traces=traces, iteration=iteration)
+        del g
+        self._maybe_warmstart(f_init)
+        return self._train_side(kind="f", traces=traces, iteration=iteration, output_dir=output_dir)
 
     def train_g(
         self,
@@ -108,10 +114,118 @@ class NeuralOperatorFamily:
         output_dir: Path,
         iteration: int,
     ) -> Mapping[str, Any]:
-        del g_init, f, output_dir
-        return self._train_side(kind="g", traces=traces, iteration=iteration)
+        del f
+        self._maybe_warmstart(g_init)
+        return self._train_side(kind="g", traces=traces, iteration=iteration, output_dir=output_dir)
 
-    def _train_side(self, *, kind: str, traces: Sequence[Any], iteration: int) -> Mapping[str, Any]:
+    def _maybe_warmstart(self, artifact: Any) -> None:
+        """Load model weights from a prior artifact into a fresh family.
+
+        Artifacts returned by ``_train_side`` carry a ``weights_path``; handing
+        one back (``initial_artifacts`` in a spec, or ``f=``/``g=`` at scoring
+        time) must reconstruct the trained model, not be silently ignored.
+        A live in-run model always wins: within one alternating run the state
+        already reflects every completed iteration.
+        """
+
+        if self._model is not None or not isinstance(artifact, Mapping):
+            return
+        path = artifact.get("weights_path")
+        if not path:
+            return
+        weights_file = Path(str(path))
+        if not weights_file.exists():
+            raise ValueError(
+                f"family={self.name!r} warmstart artifact points at missing "
+                f"weights_path {str(weights_file)!r}"
+            )
+        artifact_operator = artifact.get("operator_kind")
+        if artifact_operator is not None and str(artifact_operator) != self.operator_kind:
+            raise ValueError(
+                f"family={self.name!r} warmstart operator_kind mismatch: artifact "
+                f"has {artifact_operator!r}, family is {self.operator_kind!r}"
+            )
+        self._ensure_model(output_dim=int(artifact.get("output_dim") or 1))
+        assert self._model is not None
+        # Artifacts persist only tensor entries (see _train_side), so the safe
+        # weights-only loader applies; non-tensor module extras are rebuilt by
+        # construction, hence strict=False.
+        state = self._torch.load(weights_file, map_location=self._device, weights_only=True)
+        self._model.load_state_dict(state, strict=False)
+        for attr, key in (("_target_center", "target_center"), ("_target_scale", "target_scale")):
+            payload = artifact.get(key)
+            if payload is not None:
+                setattr(
+                    self,
+                    attr,
+                    self._torch.tensor(payload, dtype=self._torch.float32, device=self._device),
+                )
+
+    def configure_objective(self, objective: ObjectiveSpec | None) -> None:
+        """Adopt a resolved ``ObjectiveSpec`` as the executed training objective.
+
+        With a law-bearing spec, every training step minimizes the convex
+        combination ``root_share * root_mse + sum_c share_c * law_c``, where
+        each law channel is the depth-discounted canonical objective from
+        :mod:`treepo.training.local_law` over exact numeric transition-state
+        rows. The supervision targets are exact, so the spec must declare
+        ``local_law_estimator='oracle_state'``; the canonical corrected
+        estimator then degenerates to the oracle term (observed, propensity 1).
+        Mutually exclusive with the legacy additive
+        ``numeric_transition_state_weight`` knob: a configured objective must
+        fully describe the executed loss.
+        """
+        if objective is None:
+            self._objective = None
+            self._objective_law_shares = {}
+            self._objective_gamma_depth = 1.0
+            return
+        if not isinstance(objective, ObjectiveSpec):
+            raise TypeError(
+                f"family={self.name!r} objective must be an ObjectiveSpec; "
+                f"got {type(objective).__name__}"
+            )
+        if float(self.config.numeric_transition_state_weight) > 0.0:
+            raise ValueError(
+                f"family={self.name!r} got both an objective spec and "
+                "numeric_transition_state_weight > 0; the objective is the "
+                "single weight source — drop the legacy knob"
+            )
+        shares: dict[str, float] = {}
+        gamma = 1.0
+        law_weight = float(objective.local_law_weight or 0.0)
+        if law_weight > 0.0:
+            if str(objective.local_law_estimator) != LOCAL_LAW_ESTIMATOR_ORACLE_STATE:
+                raise ValueError(
+                    f"family={self.name!r} trains laws against exact numeric "
+                    "transition states; declare local_law_estimator="
+                    f"'oracle_state' (got {objective.local_law_estimator!r})"
+                )
+            weights = dict(objective.local_law_component_weights or {})
+            if float(weights.get(LawKind.C2_IDEMPOTENCE.value, 0.0)) > 0.0:
+                raise ValueError(
+                    f"family={self.name!r} has no C2 (on-range idempotence) law "
+                    "surface; set its component weight to 0"
+                )
+            total = float(sum(float(v) for v in weights.values()))
+            shares = {
+                str(name): law_weight * float(value) / total
+                for name, value in weights.items()
+                if float(value) > 0.0
+            }
+            gamma = float(objective.gamma_depth)
+        self._objective = objective
+        self._objective_law_shares = shares
+        self._objective_gamma_depth = gamma
+
+    def _train_side(
+        self,
+        *,
+        kind: str,
+        traces: Sequence[Any],
+        iteration: int,
+        output_dir: Path | None = None,
+    ) -> Mapping[str, Any]:
         train_g = kind == "g"
         trees, targets = _target_rows(traces, self.config)
         x, lengths = self._encode_trees(trees)
@@ -124,13 +238,27 @@ class NeuralOperatorFamily:
             y_train,
             train_f=not train_g,
             train_g=train_g,
-            trees=trees if train_g else None,
+            trees=trees if (train_g or self._objective_law_shares) else None,
         )
+        weights_path: Path | None = None
+        if output_dir is not None and self._model is not None:
+            out = Path(output_dir)
+            out.mkdir(parents=True, exist_ok=True)
+            weights_path = out / f"{kind}_weights_iter{int(iteration):02d}.pt"
+            # Persist tensors only (parameters/buffers): keeps the file loadable
+            # under torch's safe weights-only unpickler.
+            tensor_state = {
+                key: value
+                for key, value in self._model.state_dict().items()
+                if self._torch.is_tensor(value)
+            }
+            self._torch.save(tensor_state, weights_path)
         artifact = self._artifact_payload(
             kind=kind,
             iteration=iteration,
             n_train=int(x.shape[0]),
             loss=last_loss,
+            weights_path=weights_path,
         )
         self._last_artifact = artifact
         return artifact
@@ -142,7 +270,17 @@ class NeuralOperatorFamily:
         g: Any,
         trees: Sequence[Any],
     ) -> list[Any | None]:
-        del f, g
+        # f and g artifacts each snapshot the whole shared model at their own
+        # training iteration; scoring must resume from the newest snapshot.
+        candidates = [
+            artifact
+            for artifact in (f, g)
+            if isinstance(artifact, Mapping) and artifact.get("weights_path")
+        ]
+        if candidates:
+            self._maybe_warmstart(
+                max(candidates, key=lambda artifact: int(artifact.get("iteration") or 0))
+            )
         tree_list = list(trees or [])
         if not tree_list:
             return []
@@ -166,6 +304,13 @@ class NeuralOperatorFamily:
     def validate_artifact(self, *, kind: str, artifact: Any) -> None:
         if kind in {"f", "g"} and not isinstance(artifact, Mapping):
             raise TypeError(f"family={self.name!r} {kind} artifact must be a mapping")
+        if isinstance(artifact, Mapping):
+            path = artifact.get("weights_path")
+            if path and not Path(str(path)).exists():
+                raise ValueError(
+                    f"family={self.name!r} {kind} artifact weights_path "
+                    f"{str(path)!r} does not exist"
+                )
 
     def as_statistic(self, *, f: Any = None, g: Any = None) -> Any:
         del f, g
@@ -178,11 +323,20 @@ class NeuralOperatorFamily:
             return "treepo_fno"
         return self.artifact_kind
 
-    def _artifact_payload(self, *, kind: str, iteration: int, n_train: int, loss: float | None) -> dict[str, Any]:
+    def _artifact_payload(
+        self,
+        *,
+        kind: str,
+        iteration: int,
+        n_train: int,
+        loss: float | None,
+        weights_path: Path | None = None,
+    ) -> dict[str, Any]:
         base_kind = self._artifact_kind_for_operator()
         return {
             "kind": base_kind if kind == "f" else f"{base_kind}_g",
             "trained": kind,
+            "weights_path": str(weights_path) if weights_path is not None else None,
             "operator_kind": self.operator_kind,
             "iteration": int(iteration),
             "n_train": int(n_train),
@@ -191,6 +345,8 @@ class NeuralOperatorFamily:
             "target_center": _tensor_payload(self._target_center),
             "target_scale": _tensor_payload(self._target_scale),
             "numeric_transition_state_weight": float(self.config.numeric_transition_state_weight),
+            "objective_executed": self._objective is not None,
+            "objective": self._objective.to_dict() if self._objective is not None else None,
             "output_dim": int(self._output_dim or 1),
             "target_key": self.config.target_key,
             "target_vector_key": self.config.target_vector_key,
@@ -254,37 +410,104 @@ class NeuralOperatorFamily:
         epochs = max(1, int(self.config.epochs_per_iteration))
         last_loss = None
         n = int(x.shape[0])
+        # The law signal enters training in one of two mutually exclusive ways:
+        # a configured ObjectiveSpec drives the convex assembly on every step,
+        # while the legacy additive knob applies to g-steps only.
+        law_in_loss = bool(self._objective_law_shares) or (
+            self._objective is None
+            and train_g
+            and float(self.config.numeric_transition_state_weight) > 0.0
+        )
         state_targets = (
             _numeric_transition_state_targets(trees, self.config, torch=self._torch, device=self._device)
-            if train_g and trees is not None and float(self.config.numeric_transition_state_weight) > 0.0
+            if law_in_loss and trees is not None
             else None
         )
+        if self._objective_law_shares and state_targets is None:
+            raise ValueError(
+                f"family={self.name!r} objective declares a local-law weight but "
+                "the training trees carry no numeric transition supervision "
+                "(tree metadata needs n_states and vocabulary_size)"
+            )
         for _epoch in range(epochs):
             order = self._torch.randperm(n, device=self._device)
             for start in range(0, n, batch_size):
                 idx = order[start : start + batch_size]
                 if state_targets is None:
                     pred = self._model(x[idx], lengths[idx])
-                    state_loss = None
+                    law_rows = None
                 else:
                     pred, traces = self._model.forward_with_trace(x[idx], lengths[idx])
                     selected = [state_targets[int(i)] for i in idx.detach().cpu().tolist()]
-                    state_loss = _numeric_transition_state_loss(
+                    law_rows = _numeric_transition_law_rows(
                         traces,
                         selected,
                         torch=self._torch,
                         device=self._device,
                         dtype=pred.dtype,
                     )
-                loss = self._torch.nn.functional.mse_loss(pred, y[idx])
-                if state_loss is not None:
-                    loss = loss + float(self.config.numeric_transition_state_weight) * state_loss
+                root_loss = self._torch.nn.functional.mse_loss(pred, y[idx])
+                loss = self._assemble_loss(root_loss, law_rows)
                 opt.zero_grad(set_to_none=True)
                 loss.backward()
                 opt.step()
                 last_loss = float(loss.detach().cpu())
         self._set_trainable(train_f=True, train_g=True)
         return last_loss
+
+    def _assemble_loss(self, root_loss: Any, law_rows: Any | None) -> Any:
+        """Combine root and law terms under the executed objective.
+
+        ObjectiveSpec path: ``root_share * root + sum_c share_c * law_c`` with
+        each channel routed through the canonical depth-discounted objective.
+        Legacy path: ``root + numeric_transition_state_weight * node_mean`` —
+        the law term is the unweighted node mean, the sampling contract's
+        audit estimand.
+        """
+        # Imported lazily to keep `import treepo.methods.fno` free of torch;
+        # this module only touches torch after family construction.
+        from treepo.training.local_law import local_law_objective_from_losses
+
+        torch = self._torch
+        if self._objective is None:
+            if law_rows is None:
+                return root_loss
+            proxy, _depths, _is_leaf = law_rows
+            return root_loss + float(self.config.numeric_transition_state_weight) * proxy.mean()
+        loss = float(self._objective.root_share) * root_loss
+        if not self._objective_law_shares:
+            return loss
+        if law_rows is None:
+            raise ValueError(
+                f"family={self.name!r} objective declares a local-law weight but "
+                "the training batch produced no law rows"
+            )
+        proxy, depths, is_leaf = law_rows
+        channel_masks = {
+            LawKind.C1_LEAF.value: is_leaf,
+            LawKind.C3_MERGE.value: ~is_leaf,
+        }
+        for name, share in self._objective_law_shares.items():
+            mask = channel_masks[name]
+            if not bool(mask.any()):
+                raise ValueError(
+                    f"family={self.name!r} objective weights law channel {name!r} "
+                    "but the training batch has no such nodes; set its component "
+                    "weight to 0"
+                )
+            masked = proxy[mask]
+            # Exact-state supervision: the corrected estimator degenerates to
+            # the oracle term (observed rows, propensity 1, oracle == proxy).
+            channel = local_law_objective_from_losses(
+                proxy_loss=masked,
+                oracle_loss=masked,
+                observed=torch.ones(masked.shape[0], dtype=torch.bool, device=masked.device),
+                propensity=torch.ones(masked.shape[0], dtype=masked.dtype, device=masked.device),
+                depths=depths[mask],
+                gamma_depth=float(self._objective_gamma_depth),
+            )
+            loss = loss + float(share) * channel
+        return loss
 
     def _set_trainable(self, *, train_f: bool, train_g: bool) -> None:
         assert self._model is not None

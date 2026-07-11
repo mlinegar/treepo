@@ -22,6 +22,7 @@ RUNNABLE_EXAMPLES = [
     "run_finetune_views.py",
     "run_manifesto_finetune_views.py",
     "run_preference_optimizer_views.py",
+    "run_llm_backends.py",
     "run_local_law_certificate.py",
 ]
 
@@ -477,6 +478,23 @@ def test_preference_optimizer_views_example_exports_trl_and_dspy_bones(tmp_path:
     assert Path(payload["bundle"]["files"]["manifest"]).exists()
 
 
+def test_llm_backends_example_exercises_provider_shapes(tmp_path: Path) -> None:
+    stdout = _run_example("run_llm_backends.py", tmp_path)
+    assert "openai_compatible=success" in stdout
+    assert "transformers_callable=success" in stdout
+    assert "dspy_program=success" in stdout
+
+    payload = json.loads((tmp_path / "llm_backends_result.json").read_text(encoding="utf-8"))
+    backends = payload["backends"]
+    assert "vLLM" in backends["openai_compatible"]["examples"]
+    assert "SGLang" in backends["openai_compatible"]["examples"]
+    assert "Hugging Face Transformers pipeline" in backends["transformers_callable"]["examples"]
+    assert backends["openai_compatible"]["http_calls"] >= 2
+    assert backends["openai_compatible"]["metrics"]["internal_f_mae"] == 0.0
+    assert backends["transformers_callable"]["metrics"]["internal_f_mae"] == 0.0
+    assert backends["dspy_program"]["metrics"]["internal_f_mae"] == 0.0
+
+
 def test_local_law_certificate_example_exports_unified_evidence(tmp_path: Path) -> None:
     stdout = _run_example("run_local_law_certificate.py", tmp_path)
     assert "family=example" in stdout
@@ -495,8 +513,15 @@ def test_local_law_certificate_example_exports_unified_evidence(tmp_path: Path) 
     assert payload["audit"]["local_law_objective"]["row_count"] == 6
     assert payload["audit"]["local_law_objective"]["observed_count"] == 4
     certificate = payload["certificate"]
-    assert certificate["local_law_radius"] == payload["audit"]["local_law_objective"]["objective"]
-    assert certificate["estimation_radius"] == 0.05
+    assert certificate["local_law_radius"] == pytest.approx(
+        payload["audit"]["local_law_objective"]["objective"],
+    )
+    assert certificate["calibration_radius"] == pytest.approx(0.18)
+    assert certificate["estimation_radius"] == pytest.approx(0.23)
+    assert certificate["metadata"]["transport_certificate_kind"] == "triangle_local_law"
+    assert certificate["metadata"]["common_mechanism_envelopes"][0]["degradation_radius"] == pytest.approx(
+        0.23,
+    )
     for path in payload["files"].values():
         assert Path(path).exists()
 

@@ -19,7 +19,9 @@
 
 - `bench`: YAML config IO.
 - `sketches`: datasketches-backed sketch adapters.
-- `llm`: the requests-based OpenAI-compatible client layer.
+- `llm`: the requests-based OpenAI-compatible client layer. Direct local
+  runtimes such as Transformers remain caller-owned and enter through
+  `predict_fn`.
 - `all`: all optional package stacks.
 
 `uv sync --no-dev` installs the base package. `uv sync` installs contributor
@@ -30,9 +32,9 @@ dependencies too.
 Trainer applications, manifesto-training campaigns, deployment, and large
 simulation code register with the public `treepo` contracts from their own
 packages. DSPy and prompted-LLM families are included as provider-neutral
-wrappers; downstream code supplies the actual program or callable. Preference
-data export is included; policy optimization engines consume those records
-downstream.
+wrappers; OpenAI-compatible endpoints use `api_base`, while downstream code
+supplies direct local programs or callables. Preference data export is included;
+policy optimization engines consume those records downstream.
 
 Additional family runtimes register with
 `treepo.methods.families.register_family(...)`. Markov has a built-in

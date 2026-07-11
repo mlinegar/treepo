@@ -32,7 +32,7 @@ The built-in families are:
 | `classical_sketch` | Exact classical sketch adapters (e.g. HLL) as a composable-statistic family. |
 | `neural_operator` | Generic neural-operator root-score scorer over embedded leaf sequences; supports `operator_kind="fno"`, `operator_kind="tfno"`, `operator_kind="uno"`, and the local `operator_kind="conv1d"` baseline. |
 | `fno` | Concrete FNO route over the shared neural-operator runtime. Use `family="neural_operator"` when selecting a non-FNO operator kind explicitly. |
-| `llm` | Provider-neutral prompt wrapper. Pass `predict_fn` for concrete OpenAI-compatible/vLLM calls. |
+| `llm` | Provider-neutral prompt wrapper. Pass `api_base` for OpenAI-compatible servers such as vLLM/SGLang, or `predict_fn` for direct runtimes such as Transformers. |
 | `dspy` | Provider-neutral DSPy wrapper. Pass `dspy_program`, `program`, or `predict_fn`; DSPy loads only when a program runs. |
 
 The built-in oracles are:

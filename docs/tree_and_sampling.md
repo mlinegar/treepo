@@ -124,12 +124,64 @@ which is unbiased for the oracle loss under logged propensities and reduces
 to the proxy loss on unsampled nodes (`treepo.local_law.corrected_local_law_loss`,
 tensor forms in `treepo.training.local_law`). Aggregation weights each row by
 `node_weight * gamma_depth ** depth` and normalizes by the total weight.
+`node_weight` is the structural row weight; `gamma_depth` is the depth-emphasis
+hyperparameter; neither changes logged propensities. Certificate `delta`
+continues to mean failure probability, not depth decay.
 `sampled_ipw` mode is the Hajek estimator over observed rows only. The
 overall training objective is the convex combination
 `(1 − lambda) * root_loss + lambda * corrected_law_loss`
 (`treepo.objective.resolve_root_local_objective_weights`); audit diagnostics
 (effective sample size, max IPW weight, propensity clipping) feed the
 certificate, never the objective.
+
+## Triangle/local-law error certificates
+
+For partially observed trees, local-law checking is also the default
+model-agnostic error-estimation interface. The audited C1/C2/C3 objective
+estimates the leaf-up triangle transport residual: under the common `f,g`
+assumption, the same local calls that operate at the document root also
+operate at internal nodes, so small local-law residuals transport root-level
+error control through the tree.
+
+Use `triangle_local_law_residual_from_audit(...)` to convert either raw
+`LocalLawAuditRow` values or an `audit_local_laws(...)` payload into a
+`TwoChannelResidual`. Its channels map as follows:
+
+- `leaf_up_radius`: the audited local-law/triangle transport radius;
+- `root_down_radius`: root-label aggregate control through the rest-of-tree
+  readout map;
+- `overidentification_radius`: disagreement between leaf-up and root-down
+  channels.
+
+Use `build_triangle_local_law_error_certificate(...)` when the run also has
+common-mechanism root-error envelopes or external conditional-average
+envelopes. A corrected local-law point estimate can be noisy; when a run has a
+finite-sample bound, pass it as `leaf_up_radius` explicitly. Otherwise the
+helper uses the non-negative audited point objective as the transport radius.
+The certificate preserves the audit's `gamma_depth` and effective-weight
+formula in metadata so finite-sample bounds can be checked against the same
+weighted estimand.
+
+## Additive identification weights
+
+`treepo.identification` defines the partially observed additive/share case.
+For a node with mass `m` inside a document of mass `M`,
+`additive_root_sensitivity(m, M) = m / M` and
+`additive_root_information_weight(m, M) = (m / M)^2`. These are root-label
+identification/sensitivity weights, not inclusion probabilities. They should
+therefore be logged in metadata and, when a run opts in, passed as
+`node_weight`; they must not overwrite `propensity` or any document/unit/label
+sampling probability.
+
+Use `annotate_additive_identification_rows(...)` after constructing local-law
+rows to attach `node_mass`, `document_mass`, `additive_root_sensitivity`, and
+`additive_root_information_weight`. The helper is model-agnostic: it accepts
+ordinary `LocalLawAuditRow` values from any family, statistic, or audit
+artifact. `profile="none"` preserves existing `node_weight`; `sensitivity`
+uses `m/M` as `node_weight`, and `information` uses `(m/M)^2`. For
+qsentence/CMP count or share labels, internal additive targets are derived
+from leaf codes, so this is the exact additive special case rather than a
+hand-observed internal-label regime.
 
 ## Visualizing trees
 

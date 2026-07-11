@@ -10,7 +10,9 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from treepo.local_law import LawKind, LocalLawAuditRow
+from treepo.schedule import fold, merge_depths
 from treepo.state import TaskState, state_from_value
+from treepo.tree import tree_row_id
 from treepo.statistic import StatisticInfo
 from treepo.tasks.manifesto.rile import clamp_rile
 
@@ -156,10 +158,13 @@ class ManifestoPolicyStatistic:
         if not leaves:
             base = TaskState(kind=MANIFESTO_POLICY_STATE_KIND)
         else:
-            state = self.encode_leaf(leaves[0])
-            for leaf in leaves[1:]:
-                state = self.merge(state, self.encode_leaf(leaf))
-            base = state
+            # Sequential accumulation is this family's deliberate schedule
+            # choice; the fold itself comes from the canonical definition.
+            base = fold(
+                [self.encode_leaf(leaf) for leaf in leaves],
+                self.merge,
+                schedule="left_to_right",
+            )
         return attach_manifesto_root_label(base, _root_label(tree))
 
     def local_law_rows(
@@ -172,8 +177,10 @@ class ManifestoPolicyStatistic:
         del oracle
         rows: list[LocalLawAuditRow] = []
         for tree_idx, tree in enumerate(list(units or ())):
-            tree_id = str(getattr(tree, "doc_id", f"tree_{tree_idx}"))
-            for leaf_idx, leaf in enumerate(list(getattr(tree, "leaves", None) or ())):
+            tree_id = tree_row_id(tree, tree_idx, fallback_prefix="tree")
+            leaves = list(getattr(tree, "leaves", None) or ())
+            depths = merge_depths(len(leaves), schedule="left_to_right") if leaves else []
+            for leaf_idx, leaf in enumerate(leaves):
                 score = _optional_float(getattr(leaf, "score", None))
                 if score is None:
                     continue
@@ -187,6 +194,7 @@ class ManifestoPolicyStatistic:
                         oracle_loss=loss,
                         observed=True,
                         propensity=1.0,
+                        depth=int(depths[leaf_idx]) if leaf_idx < len(depths) else 0,
                         metadata={
                             "statistic": self.info.name,
                             "state_kind": self.info.state_kind,
@@ -194,6 +202,7 @@ class ManifestoPolicyStatistic:
                             "tree_id": tree_id,
                             "node_id": getattr(leaf, "qid", leaf_idx),
                             "check": "gold_leaf_readout",
+                            "law_facet": "c1_sufficiency",
                         },
                     )
                 )
@@ -211,6 +220,7 @@ class ManifestoPolicyStatistic:
                     oracle_loss=loss,
                     observed=True,
                     propensity=1.0,
+                    depth=0,
                     metadata={
                         "statistic": self.info.name,
                         "state_kind": self.info.state_kind,
@@ -218,6 +228,9 @@ class ManifestoPolicyStatistic:
                         "tree_id": tree_id,
                         "node_id": "root",
                         "check": "gold_root_readout",
+                        # Root-label agreement is C3a joint faithfulness of
+                        # f(g-composed state), not C3b merge compositionality.
+                        "law_facet": "c3a_joint_faithfulness",
                         "rile_from_leaves": dict(state.measures).get("rile_from_leaves"),
                     },
                 )

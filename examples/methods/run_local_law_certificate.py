@@ -8,7 +8,13 @@ It shows the public evidence ingredients that a real run should persist:
 * unit/candidate preference exports,
 * statistic metadata,
 * sampled C1/C2/C3 local-law audit rows with logged propensities,
-* a component-radius certificate ledger.
+* a two-channel component-radius certificate ledger.
+
+For partially observed trees, ``build_triangle_local_law_error_certificate``
+maps the audited C1/C2/C3 transport residual, document-level root controls,
+overidentification, and optional hidden-degradation envelopes into the ledger.
+Root-share identification weights belong in ``node_weight`` metadata/objective
+weights, not in logged propensities.
 """
 
 from __future__ import annotations

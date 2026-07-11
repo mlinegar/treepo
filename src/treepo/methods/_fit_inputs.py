@@ -44,10 +44,12 @@ def optional_int(value: Any) -> int | None:
 
 
 def resolve_objective(backend_config: Mapping[str, Any]) -> Any | None:
-    """Record an optional objective in the run manifest.
+    """Resolve the optional objective spec from ``backend_config``.
 
-    The objective is recorded for provenance; families consume their existing
-    typed configs for training.
+    ``fit()`` hands the resolved spec to the family's ``configure_objective``
+    hook to execute during training, and records it in the run manifest. A
+    law-bearing objective on a family without the hook is an error: a declared
+    training objective must not be provenance-only.
     """
     raw = backend_config.get("objective")
     if raw is None:

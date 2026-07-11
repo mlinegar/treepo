@@ -8,6 +8,7 @@ from typing import Any, Mapping, Sequence
 
 from treepo.local_law import LawKind, LocalLawAuditRow
 from treepo.statistic import StatisticInfo
+from treepo.tree import tree_leaves, tree_row_id
 
 
 @dataclass(frozen=True)
@@ -162,6 +163,7 @@ class ClassicalSketchStatistic:
                             "statistic": self.info.name,
                             "check": "schedule_invariance",
                             "schedule": "left_to_right",
+                            "law_facet": "c3b_compositionality",
                         },
                     )
                 )
@@ -176,6 +178,7 @@ class ClassicalSketchStatistic:
                             "statistic": self.info.name,
                             "check": "schedule_invariance",
                             "schedule": "right_to_left",
+                            "law_facet": "c3b_compositionality",
                         },
                     )
                 )
@@ -185,7 +188,11 @@ class ClassicalSketchStatistic:
                         row_id=f"{row_prefix}:idempotence",
                         law_kind=LawKind.C2_IDEMPOTENCE,
                         loss=0.0 if self.adapter.state_equal(root, self.adapter.merge(root, root)) else 1.0,
-                        metadata={"statistic": self.info.name, "check": "idempotence"},
+                        metadata={
+                            "statistic": self.info.name,
+                            "check": "idempotence",
+                            "law_facet": "c2_idempotence",
+                        },
                     )
                 )
             target = _oracle_value(oracle, unit, idx)
@@ -205,6 +212,9 @@ class ClassicalSketchStatistic:
                             metadata={
                                 "statistic": self.info.name,
                                 "check": "readout_oracle_agreement",
+                                # Exact merges make root-readout agreement a
+                                # certificate of leaf sufficiency (C1).
+                                "law_facet": "c1_sufficiency_via_exact_merges",
                                 "prediction": prediction,
                                 "target": truth,
                             },
@@ -238,9 +248,8 @@ def _make_adapter(config: ClassicalSketchFamilyConfig) -> Any:
 
 
 def _leaf_items(tree: Any) -> list[list[Any]]:
-    leaves = getattr(tree, "leaves", None)
-    if not leaves and callable(getattr(tree, "get_leaves", None)):
-        leaves = tree.get_leaves()
+    # Canonical leaf extraction: also handles TreeRecord's callable leaves().
+    leaves = tree_leaves(tree)
     groups: list[list[Any]] = []
     for leaf in list(leaves or []):
         tokens = getattr(leaf, "tokens", None)
@@ -262,12 +271,7 @@ def _leaf_tokens(leaf: Any) -> list[Any]:
 
 
 def _unit_row_prefix(unit: Any, idx: int) -> str:
-    metadata = getattr(unit, "metadata", None)
-    if isinstance(metadata, Mapping):
-        for key in ("tree_id", "doc_id", "unit_id"):
-            if metadata.get(key) is not None:
-                return str(metadata[key])
-    return f"unit_{idx}"
+    return tree_row_id(unit, idx, fallback_prefix="unit")
 
 
 def _state_law_row(

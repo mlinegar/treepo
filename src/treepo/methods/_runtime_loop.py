@@ -53,19 +53,23 @@ def statistic_payload(
     f_artifact: Any,
     g_artifact: Any,
     eval_trees: Sequence[Any],
+    objective: Any = None,
 ) -> dict[str, Any]:
     statistic = family_statistic(family, f=f_artifact, g=g_artifact)
     if statistic is None:
         return {}
     payload: dict[str, Any] = {"info": statistic.info.to_dict()}
-    try:
-        rows = list(statistic.local_law_rows(list(eval_trees or ())))
-    except Exception as exc:  # pragma: no cover - defensive metadata path
-        payload["local_law_error"] = f"{type(exc).__name__}: {exc}"
-        return payload
+    # A broken statistic must fail the run, not degrade into a metadata
+    # string; local_law_rows errors propagate.
+    rows = list(statistic.local_law_rows(list(eval_trees or ())))
     if rows:
-        payload["local_law_summary"] = local_law_objective_summary(rows).to_dict()
+        gamma_depth = float(objective.gamma_depth) if objective is not None else 1.0
+        payload["local_law_summary"] = local_law_objective_summary(
+            rows,
+            gamma_depth=gamma_depth,
+        ).to_dict()
         payload["local_law_row_count"] = int(len(rows))
+        payload["local_law_gamma_depth"] = gamma_depth
     return payload
 
 
@@ -83,6 +87,7 @@ def run_alternating_family(
     output_dir: Path,
     axis_kind: str = "leaf_count",
     leaf_count: int | None = None,
+    objective: Any = None,
 ) -> list[IterationRecord]:
     """Run a compact alternating loop over a public ``FamilyRuntime``."""
 
@@ -136,6 +141,7 @@ def run_alternating_family(
             f_artifact=f_artifact,
             g_artifact=g_artifact,
             eval_trees=eval_trees,
+            objective=objective,
         )
         if stats:
             extra["statistic"] = stats

@@ -5,15 +5,22 @@ from pathlib import Path
 
 import pytest
 
+from treepo.certificate import (
+    CommonMechanismEnvelopeEvidence,
+    ConditionalAverageEnvelopeEvidence,
+    TwoChannelResidual,
+    UnifiedLearningComponentEvidence,
+    build_error_certificate,
+    build_two_channel_error_certificate,
+)
 from treepo.evidence import build_evidence
 from treepo.local_law import (
     LawKind,
     LocalLawAuditRow,
+    audit_local_laws,
+    build_triangle_local_law_error_certificate,
     compute_influence_weighted_overlap,
-)
-from treepo.certificate import (
-    UnifiedLearningComponentEvidence,
-    build_error_certificate,
+    triangle_local_law_residual_from_audit,
 )
 from treepo.objective import (
     ObjectiveSpec,
@@ -132,6 +139,177 @@ def test_audit_rows_compute_corrected_losses_and_overlap() -> None:
     assert overlap.effective_sample_size > 0.0
 
 
+def test_triangle_local_law_residual_uses_audit_objective_as_transport_radius() -> None:
+    rows = [
+        LocalLawAuditRow(
+            row_id="r0",
+            law_kind=LawKind.C1_LEAF,
+            proxy_loss=0.2,
+            observed=False,
+            propensity=0.5,
+        ),
+        LocalLawAuditRow(
+            row_id="r1",
+            law_kind=LawKind.C3_MERGE,
+            proxy_loss=0.1,
+            oracle_loss=0.4,
+            observed=True,
+            propensity=0.5,
+        ),
+    ]
+    audit = audit_local_laws(rows)
+    residual = triangle_local_law_residual_from_audit(
+        audit=audit,
+        radius_multiplier=2.0,
+        root_down_radius=0.3,
+        overidentification_radius=0.05,
+        source="unit_test_audit",
+        artifact_ids=("audit_summary",),
+    )
+
+    assert audit["local_law_objective"]["objective"] == pytest.approx(0.45)
+    assert residual.leaf_up_radius == pytest.approx(0.9)
+    assert residual.root_down_radius == pytest.approx(0.3)
+    assert residual.overidentification_radius == pytest.approx(0.05)
+    assert residual.total_radius == pytest.approx(1.25)
+    assert residual.source == "unit_test_audit"
+    assert residual.artifact_ids == ("audit_summary",)
+    assert residual.metadata["transport_source"] == "merge_triangle_local_laws"
+    assert residual.metadata["local_law_radius_source"] == "local_law_objective"
+    assert residual.metadata["local_law_objective_mode"] == "corrected_local_law"
+    assert residual.metadata["local_law_row_count"] == 2
+    assert residual.metadata["local_law_observed_count"] == 1
+    assert set(residual.metadata["by_law_kind"]) == {
+        "leaf_preservation",
+        "merge_preservation",
+    }
+
+
+def test_local_law_audit_records_depth_discount_weighting_metadata() -> None:
+    rows = [
+        LocalLawAuditRow(
+            row_id="root",
+            law_kind=LawKind.C3_MERGE,
+            proxy_loss=0.1,
+            observed=False,
+            propensity=0.25,
+            node_weight=2.0,
+            depth=0,
+        ),
+        LocalLawAuditRow(
+            row_id="leaf",
+            law_kind=LawKind.C1_LEAF,
+            proxy_loss=0.2,
+            observed=False,
+            propensity=0.25,
+            node_weight=3.0,
+            depth=2,
+        ),
+    ]
+
+    flat = audit_local_laws(rows, gamma_depth=1.0)
+    discounted = audit_local_laws(rows, gamma_depth=0.9)
+
+    assert [row.propensity for row in rows] == [pytest.approx(0.25), pytest.approx(0.25)]
+    assert flat["local_law_weighting"]["effective_weight_sum"] == pytest.approx(5.0)
+    assert discounted["local_law_weighting"]["gamma_depth"] == pytest.approx(0.9)
+    assert discounted["local_law_weighting"]["effective_weight_formula"] == (
+        "node_weight * gamma_depth ** depth"
+    )
+    assert discounted["local_law_weighting"]["by_depth"]["0"]["effective_weight_sum"] == pytest.approx(2.0)
+    assert discounted["local_law_weighting"]["by_depth"]["2"]["effective_weight_sum"] == pytest.approx(
+        3.0 * 0.9**2,
+    )
+    assert discounted["local_law_weighting"]["propensity_role"] == "sampling_probability_not_weight"
+
+
+def test_triangle_local_law_certificate_routes_audit_into_two_channel_ledger() -> None:
+    rows = [
+        LocalLawAuditRow(
+            row_id="r0",
+            law_kind="c1",
+            proxy_loss=0.05,
+            observed=False,
+            propensity=0.5,
+        ),
+        LocalLawAuditRow(
+            row_id="r1",
+            law_kind="c3",
+            proxy_loss=0.05,
+            oracle_loss=0.15,
+            observed=True,
+            propensity=0.5,
+        ),
+    ]
+    cert = build_triangle_local_law_error_certificate(
+        reported_estimate=0.2,
+        rows=rows,
+        leaf_up_radius=0.11,
+        root_down_radius=0.12,
+        overidentification_radius=0.02,
+        common_mechanism_envelopes=[
+            CommonMechanismEnvelopeEvidence(
+                observed_root_radius=0.2,
+                amplification=1.0,
+                slack=0.01,
+            ),
+        ],
+        confidence_delta=0.05,
+    )
+
+    assert cert.local_law_radius == pytest.approx(0.11)
+    assert cert.calibration_radius == pytest.approx(0.12)
+    assert cert.estimation_radius == pytest.approx(0.23)
+    assert cert.radius_sum == pytest.approx(0.46)
+    assert cert.confidence_delta == pytest.approx(0.05)
+    assert cert.metadata["certificate_kind"] == "two_channel"
+    assert cert.metadata["transport_certificate_kind"] == "triangle_local_law"
+    assert cert.metadata["two_channel_residual"]["metadata"]["local_law_radius_source"] == (
+        "explicit_leaf_up_radius"
+    )
+
+
+def test_triangle_local_law_certificate_preserves_certificate_gamma_metadata() -> None:
+    rows = [
+        LocalLawAuditRow(
+            row_id="r0",
+            law_kind="c1",
+            proxy_loss=0.1,
+            observed=False,
+            propensity=1.0,
+            depth=2,
+        ),
+    ]
+    cert = build_triangle_local_law_error_certificate(
+        reported_estimate=0.0,
+        rows=rows,
+        gamma_depth=0.9,
+    )
+
+    weighting = cert.metadata["two_channel_residual"]["metadata"]["local_law_weighting"]
+    assert weighting["gamma_depth"] == pytest.approx(0.9)
+    assert weighting["by_depth"]["2"]["effective_weight_sum"] == pytest.approx(0.9**2)
+
+
+def test_triangle_local_law_residual_rejects_negative_derived_radius() -> None:
+    rows = [
+        LocalLawAuditRow(
+            row_id="r0",
+            law_kind="c3",
+            proxy_loss=0.4,
+            oracle_loss=0.1,
+            observed=True,
+            propensity=0.5,
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="derived leaf_up_radius is negative"):
+        triangle_local_law_residual_from_audit(rows=rows)
+
+    residual = triangle_local_law_residual_from_audit(rows=rows, leaf_up_radius=0.0)
+    assert residual.leaf_up_radius == pytest.approx(0.0)
+
+
 def test_certificate_keeps_component_radii_separate() -> None:
     cert = build_error_certificate(
         reported_estimate=0.2,
@@ -145,6 +323,132 @@ def test_certificate_keeps_component_radii_separate() -> None:
     assert cert.radius_sum == pytest.approx(1.0)
     assert cert.total_bound == pytest.approx(1.2)
     assert cert.local_law_radius == pytest.approx(0.1)
+
+
+def test_two_channel_certificate_maps_to_existing_radius_ledger() -> None:
+    cert = build_two_channel_error_certificate(
+        reported_estimate=0.2,
+        residual=TwoChannelResidual(
+            leaf_up_radius=0.10,
+            root_down_radius=0.20,
+            overidentification_radius=0.03,
+            source="audit",
+        ),
+        conditional_envelopes=[
+            ConditionalAverageEnvelopeEvidence(
+                degradation_radius=0.04,
+                posterior_predictive_fit=True,
+                psis_loo_stable=True,
+                rank_calibrated=True,
+                source="mrp",
+            ),
+        ],
+    )
+    assert cert.local_law_radius == pytest.approx(0.10)
+    assert cert.calibration_radius == pytest.approx(0.20)
+    assert cert.estimation_radius == pytest.approx(0.07)
+    assert cert.radius_sum == pytest.approx(0.37)
+    assert cert.total_bound == pytest.approx(0.57)
+    assert cert.metadata["certificate_kind"] == "two_channel"
+    semantic_components = {
+        item.metadata["semantic_component"] for item in cert.component_evidence
+    }
+    assert semantic_components == {
+        "leaf_up",
+        "root_down",
+        "overidentification",
+        "conditional_average_envelope",
+    }
+    envelope_evidence = [
+        item for item in cert.component_evidence
+        if item.metadata["semantic_component"] == "conditional_average_envelope"
+    ][0]
+    assert envelope_evidence.metadata["envelope_source"] == "external_workflow"
+    assert envelope_evidence.metadata["model_fitted_by_treepo"] is False
+
+
+def test_common_mechanism_envelope_uses_observed_root_bound() -> None:
+    cert = build_two_channel_error_certificate(
+        reported_estimate=0.0,
+        residual=TwoChannelResidual(
+            leaf_up_radius=0.01,
+            root_down_radius=0.20,
+            overidentification_radius=0.03,
+        ),
+        common_mechanism_envelopes=[
+            CommonMechanismEnvelopeEvidence(
+                observed_root_radius=0.20,
+                amplification=1.5,
+                slack=0.01,
+                source="heldout_roots",
+            ),
+        ],
+    )
+    assert cert.local_law_radius == pytest.approx(0.01)
+    assert cert.calibration_radius == pytest.approx(0.20)
+    assert cert.estimation_radius == pytest.approx(0.34)
+    assert cert.radius_sum == pytest.approx(0.55)
+    assert cert.metadata["common_mechanism_envelopes"][0]["degradation_radius"] == pytest.approx(
+        0.31,
+    )
+    envelope_evidence = [
+        item for item in cert.component_evidence
+        if item.metadata["semantic_component"] == "common_mechanism_envelope"
+    ][0]
+    assert envelope_evidence.metadata["envelope_source"] == "observed_root_errors"
+    assert envelope_evidence.metadata["transport_source"] == "merge_triangle_local_laws"
+    assert envelope_evidence.metadata["root_control_source"] == "audit_bound"
+    assert envelope_evidence.metadata["observed_root_radius"] == pytest.approx(0.20)
+    assert envelope_evidence.metadata["assumptions"] == {
+        "common_f": True,
+        "common_g": True,
+        "local_law_transport": True,
+        "assumptions_satisfied": True,
+    }
+
+
+def test_common_mechanism_envelope_requires_transport_assumptions() -> None:
+    envelope = CommonMechanismEnvelopeEvidence(
+        observed_root_radius=0.2,
+        common_f=True,
+        common_g=True,
+        local_law_transport=False,
+    )
+    with pytest.raises(ValueError, match="common-mechanism"):
+        build_two_channel_error_certificate(
+            reported_estimate=0.0,
+            common_mechanism_envelopes=[envelope],
+        )
+
+    cert = build_two_channel_error_certificate(
+        reported_estimate=0.0,
+        common_mechanism_envelopes=[envelope],
+        require_common_mechanism_assumptions=False,
+    )
+    assert cert.estimation_radius == pytest.approx(0.2)
+    assert cert.metadata["common_mechanism_envelopes"][0]["assumptions_satisfied"] is False
+
+
+def test_conditional_average_envelope_requires_explicit_diagnostics() -> None:
+    envelope = ConditionalAverageEnvelopeEvidence(
+        degradation_radius=0.04,
+        posterior_predictive_fit=True,
+        psis_loo_stable=False,
+        rank_calibrated=True,
+    )
+    with pytest.raises(ValueError, match="diagnostics"):
+        build_two_channel_error_certificate(
+            reported_estimate=0.0,
+            conditional_envelopes=[envelope],
+        )
+
+    cert = build_two_channel_error_certificate(
+        reported_estimate=0.0,
+        conditional_envelopes=[envelope],
+        require_conditional_diagnostics=False,
+    )
+    assert cert.estimation_radius == pytest.approx(0.04)
+    assert cert.metadata["conditional_envelopes"][0]["diagnostics_satisfied"] is False
 
 
 def test_sampling_metadata_is_deterministic() -> None:
@@ -270,7 +574,6 @@ def test_fit_routes_preference_data_to_f_and_g(tmp_path: Path) -> None:
 
 
 def test_preference_dataset_exports_optimizer_records(tmp_path: Path) -> None:
-    from treepo import TaskState
     from treepo.methods.preference import (
         Candidate,
         PreferenceDataset,

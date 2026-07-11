@@ -201,8 +201,13 @@ def test_llm_openai_compatible_example_stays_import_light() -> None:
     code = """
 import json
 import sys
-from treepo.llm import render_chat_payload
+from treepo.llm import OpenAICompatibleChatClient, render_chat_payload
 heavy = ["datasets", "dspy", "openai", "pandas", "peft", "scipy", "sentence_transformers", "sklearn", "torch", "transformers", "trl", "vllm"]
+client = OpenAICompatibleChatClient(
+    api_base="http://localhost:8000/v1",
+    model="served-chat-model",
+    verify_model=False,
+)
 payload = render_chat_payload(
     model="served-chat-model",
     messages=[
@@ -214,6 +219,7 @@ payload = render_chat_payload(
 )
 print(json.dumps({
     "heavy": {name: name in sys.modules for name in heavy},
+    "client_model": client.resolve_model(),
     "payload": payload,
 }, sort_keys=True))
 """
@@ -227,6 +233,7 @@ print(json.dumps({
         env=env,
     )
     payload = json.loads(proc.stdout)
+    assert payload["client_model"] == "served-chat-model"
     assert payload["payload"]["model"] == "served-chat-model"
     assert payload["payload"]["messages"][1]["content"] == "Summarize the local-law result."
     assert payload["payload"]["max_tokens"] == 64

@@ -14,8 +14,8 @@ from treepo.local_law import LawKind, LocalLawAuditRow
 from treepo.methods._fno_config import _clamp
 from treepo.methods._fno_encoding import _leaf_token_groups
 from treepo.methods._fno_transition import (
+    _numeric_transition_law_rows,
     _numeric_transition_state_targets,
-    _pairwise_merge_depths,
     _tree_row_id,
 )
 from treepo.statistic import StatisticInfo
@@ -159,45 +159,58 @@ class _NeuralOperatorStatistic:
         family._model.eval()
         with family._torch.no_grad():
             _raw, traces = family._model.forward_with_trace(x, lengths)
+            for tree, pred_trace in zip(trees, traces):
+                leaf_count = len(_leaf_token_groups(tree) or ())
+                n_rows = int(pred_trace.shape[0])
+                if n_rows != max(1, 2 * leaf_count - 1):
+                    raise ValueError(
+                        f"local-law state audit expected {max(1, 2 * leaf_count - 1)} trace rows "
+                        f"for {leaf_count} leaves, model trace has {n_rows}"
+                    )
+            law_rows = _numeric_transition_law_rows(
+                traces,
+                targets,
+                torch=family._torch,
+                device=family._device,
+                dtype=traces[0].dtype,
+            )
+            if law_rows is None:
+                return ()
+            loss_tensor, depth_tensor, leaf_tensor = law_rows
+            # One host sync for the whole audit batch; never per node.
+            losses = loss_tensor.detach().cpu().tolist()
+            depths = depth_tensor.detach().cpu().tolist()
+            leaf_flags = leaf_tensor.detach().cpu().tolist()
         rows: list[LocalLawAuditRow] = []
+        cursor = 0
         for tree_idx, (tree, pred_trace, target_trace) in enumerate(zip(trees, traces, targets)):
-            leaf_count = len(_leaf_token_groups(tree) or ())
-            if int(pred_trace.shape[0]) != int(target_trace.shape[0]):
-                raise ValueError(
-                    "local-law state audit node count mismatch: model trace has "
-                    f"{int(pred_trace.shape[0])} nodes, targets have {int(target_trace.shape[0])}"
-                )
             n_rows = int(pred_trace.shape[0])
-            if n_rows != max(1, 2 * leaf_count - 1):
-                raise ValueError(
-                    f"local-law state audit expected {max(1, 2 * leaf_count - 1)} trace rows "
-                    f"for {leaf_count} leaves, model trace has {n_rows}"
-                )
-            depths = _pairwise_merge_depths(leaf_count)
+            d = min(int(pred_trace.shape[1]), int(target_trace.shape[1]))
+            if n_rows <= 0 or d <= 0:
+                continue
+            tree_id = _tree_row_id(tree, tree_idx)
             for node_idx in range(n_rows):
-                d = min(int(pred_trace.shape[1]), int(target_trace.shape[1]))
-                if d <= 0:
-                    continue
-                loss = float(
-                    family._torch.nn.functional.mse_loss(
-                        pred_trace[node_idx, :d],
-                        target_trace[node_idx, :d].to(device=family._device, dtype=pred_trace.dtype),
-                    ).detach().cpu()
-                )
-                law_kind = LawKind.C1_LEAF if node_idx < leaf_count else LawKind.C3_MERGE
+                loss = float(losses[cursor])
+                is_leaf_row = bool(leaf_flags[cursor])
+                law_kind = LawKind.C1_LEAF if is_leaf_row else LawKind.C3_MERGE
+                depth = int(depths[cursor])
+                cursor += 1
                 rows.append(
                     LocalLawAuditRow(
-                        row_id=f"{_tree_row_id(tree, tree_idx)}:state:{node_idx}",
+                        row_id=f"{tree_id}:state:{node_idx}",
                         law_kind=law_kind,
                         proxy_loss=loss,
                         oracle_loss=loss,
                         observed=True,
                         propensity=1.0,
-                        depth=depths[node_idx] if node_idx < len(depths) else 0,
+                        depth=depth,
                         metadata={
                             "statistic": self.info.name,
                             "state_kind": self.info.state_kind,
                             "check": "numeric_transition_state",
+                            "law_facet": (
+                                "c1_sufficiency" if is_leaf_row else "c3b_compositionality"
+                            ),
                             "tree_index": int(tree_idx),
                             "node_index": int(node_idx),
                             "target_dim": int(target_trace.shape[1]),

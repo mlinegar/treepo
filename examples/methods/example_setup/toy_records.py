@@ -91,7 +91,14 @@ def toy_finetune_preferences() -> Any:
 
 
 def toy_optimizer_trees_and_preferences() -> tuple[list[Any], Any]:
-    from treepo import Candidate, PreferenceDataset, PreferenceRecord, TaskState, TreeNode, TreeRecord
+    from treepo import (
+        Candidate,
+        PreferenceDataset,
+        PreferenceRecord,
+        TaskState,
+        TreeNode,
+        TreeRecord,
+    )
 
     train_trees = [
         TreeRecord(
@@ -453,47 +460,32 @@ def toy_root_metrics() -> dict[str, float]:
 
 
 def toy_error_certificate(*, root_metrics: dict[str, float], audit: dict[str, Any]) -> Any:
-    from treepo.certificate import (
-        COMPONENT_CALIBRATION,
-        COMPONENT_CLIPPING,
-        COMPONENT_ESTIMATION,
-        COMPONENT_LOCAL_LAW,
-        UnifiedLearningComponentEvidence,
-        build_error_certificate,
-    )
+    from treepo.certificate import CommonMechanismEnvelopeEvidence
+    from treepo.local_law import build_triangle_local_law_error_certificate
 
-    return build_error_certificate(
+    observed_root_radius = abs(float(root_metrics["mean_prediction"]) - float(root_metrics["mean_teacher"]))
+    return build_triangle_local_law_error_certificate(
         reported_estimate=float(root_metrics["internal_f_mae"]),
-        component_evidence=(
-            UnifiedLearningComponentEvidence(
-                component=COMPONENT_LOCAL_LAW,
-                radius=float(audit["local_law_objective"]["objective"]),
-                estimate=float(audit["local_law_objective"]["objective"]),
-                source="sampled_local_law_rows",
-                artifact_ids=("sampled_local_law_rows", "audit_summary"),
-            ),
-            UnifiedLearningComponentEvidence(
-                component=COMPONENT_ESTIMATION,
-                radius=0.05,
-                source="toy_concentration_radius",
+        audit=audit,
+        root_down_radius=observed_root_radius,
+        common_mechanism_envelopes=(
+            CommonMechanismEnvelopeEvidence(
+                observed_root_radius=observed_root_radius,
+                amplification=1.0,
+                slack=0.05,
+                source="toy_root_error_bound",
                 artifact_ids=("audit_summary",),
-                metadata={"replace_with": "finite-sample certificate bound"},
-            ),
-            UnifiedLearningComponentEvidence(
-                component=COMPONENT_CALIBRATION,
-                radius=0.0,
-                source="not_used_in_this_example",
-            ),
-            UnifiedLearningComponentEvidence(
-                component=COMPONENT_CLIPPING,
-                radius=0.0,
-                source="not_used_in_this_example",
+                metadata={"replace_with": "held-out root-error finite-sample bound"},
             ),
         ),
         confidence_delta=0.05,
+        source="sampled_local_law_rows",
+        artifact_ids=("sampled_local_law_rows", "audit_summary"),
         metadata={
             "example_only": True,
-            "note": "The ledger shape is real; the toy estimation radius is illustrative.",
+            "note": (
+                "The ledger shape is real; the toy root and common-mechanism "
+                "radii are illustrative."
+            ),
         },
     )
-

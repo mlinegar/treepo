@@ -8,6 +8,9 @@
 - `treepo.bench.sketches`: the sketch adapter protocol and tree reducer. Optional third-party sketch backends load lazily and name the extra to install.
 - `treepo.bench`: benchmark runs, result IO, and release checks. `treepo.bench.classical_sketches` is the comparison benchmark that runs adapters from `treepo.bench.sketches` over shared item streams.
 - `treepo.llm`: OpenAI-compatible chat/embedding helpers behind `treepo[llm]`.
+  vLLM, SGLang, hosted compatible APIs, and compatible local servers use the
+  same `/v1` client; direct local runtimes such as Transformers plug in through
+  `predict_fn`.
 - `treepo.training`: torch local-law tensor helpers layered on `treepo.local_law`; richer trainers register from downstream packages.
 - `treepo.tasks`: small task-specific assets, starting with Manifesto/RILE constants and examples.
 

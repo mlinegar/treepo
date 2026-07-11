@@ -3809,30 +3809,40 @@ wheels = [
 
 [[package]]
 name = "treepo"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
-    { name = "datasets" },
-    { name = "neuraloperator" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "datasets" },
+    { name = "datasketches" },
+    { name = "neuraloperator" },
+    { name = "pyyaml" },
+    { name = "requests" },
     { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "torch" },
-]
-
-[package.optional-dependencies]
-all = [
-    { name = "datasketches" },
-    { name = "pyyaml" },
-    { name = "requests" },
 ]
 bench = [
     { name = "pyyaml" },
+]
+hf = [
+    { name = "datasets" },
+]
+lda = [
+    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 llm = [
     { name = "requests" },
@@ -3840,10 +3850,15 @@ llm = [
 sketches = [
     { name = "datasketches" },
 ]
+torch = [
+    { name = "neuraloperator" },
+    { name = "torch" },
+]
 
 [package.dev-dependencies]
 dev = [
     { name = "black" },
+    { name = "datasets" },
     { name = "datasketches" },
     { name = "isort" },
     { name = "mypy" },
@@ -3863,25 +3878,31 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "datasets", specifier = ">=2.14.0" },
+    { name = "datasets", marker = "extra == 'all'", specifier = ">=2.14.0" },
+    { name = "datasets", marker = "extra == 'hf'", specifier = ">=2.14.0" },
     { name = "datasketches", marker = "extra == 'all'", specifier = ">=5.2.0" },
     { name = "datasketches", marker = "extra == 'sketches'", specifier = ">=5.2.0" },
-    { name = "neuraloperator", specifier = ">=2.0.0" },
+    { name = "neuraloperator", marker = "extra == 'all'", specifier = ">=2.0.0" },
+    { name = "neuraloperator", marker = "extra == 'torch'", specifier = ">=2.0.0" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "pyyaml", marker = "extra == 'all'", specifier = ">=6.0" },
     { name = "pyyaml", marker = "extra == 'bench'", specifier = ">=6.0" },
     { name = "requests", marker = "extra == 'all'", specifier = ">=2.31.0" },
     { name = "requests", marker = "extra == 'llm'", specifier = ">=2.31.0" },
-    { name = "scikit-learn", specifier = ">=1.4" },
-    { name = "scipy", specifier = ">=1.10" },
+    { name = "scikit-learn", marker = "extra == 'all'", specifier = ">=1.4" },
+    { name = "scikit-learn", marker = "extra == 'lda'", specifier = ">=1.4" },
+    { name = "scipy", marker = "extra == 'all'", specifier = ">=1.10" },
+    { name = "scipy", marker = "extra == 'lda'", specifier = ">=1.10" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=1.2" },
-    { name = "torch", specifier = ">=2.0.0" },
+    { name = "torch", marker = "extra == 'all'", specifier = ">=2.0.0" },
+    { name = "torch", marker = "extra == 'torch'", specifier = ">=2.0.0" },
 ]
-provides-extras = ["bench", "sketches", "llm", "all"]
+provides-extras = ["torch", "lda", "hf", "bench", "sketches", "llm", "all"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "black", specifier = ">=23.0.0" },
+    { name = "datasets", specifier = ">=2.14.0" },
     { name = "datasketches", specifier = ">=5.2.0" },
     { name = "isort", specifier = ">=5.0.0" },
     { name = "mypy", specifier = ">=1.0.0" },

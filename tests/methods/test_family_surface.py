@@ -29,6 +29,30 @@ from treepo.tasks.manifesto import (
 )
 
 
+class _FakeHTTPResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
+class _FakeChatSession:
+    def __init__(self, content: str):
+        self.content = content
+        self.posts = []
+
+    def get(self, url, **kwargs):
+        return _FakeHTTPResponse({"data": [{"id": "served-chat-model"}]})
+
+    def post(self, url, **kwargs):
+        self.posts.append((url, kwargs))
+        return _FakeHTTPResponse({"choices": [{"message": {"content": self.content}}]})
+
+
 def _tiny_config(tmp_path: Path) -> dict[str, object]:
     return {
         "output_dir": str(tmp_path),
@@ -73,11 +97,24 @@ def test_downstream_can_register_application_family(monkeypatch) -> None:
     assert "custom_llm" in family_registry.list_families()
 
 
-def test_builtin_non_state_families_expose_empty_statistic_hook() -> None:
-    assert family_statistic(resolve_family("llm", {"default_prediction": 1.0})) is None
-    assert family_statistic(resolve_family("dspy", {"default_prediction": 1.0})) is None
-    assert family_statistic(resolve_family("oracle", {"oracle_name": "hll_exact"})) is None
-    assert family_statistic(resolve_family("learnable_constant", {})) is None
+def test_every_builtin_family_exposes_a_law_bearing_statistic() -> None:
+    # All three laws are required for every family (Lean alignment): each
+    # built-in exposes a ComposableStatistic with supports_local_laws=True.
+    for family, note in (
+        (resolve_family("llm", {"default_prediction": 1.0}), "llm"),
+        (resolve_family("dspy", {"default_prediction": 1.0}), "dspy"),
+        (resolve_family("oracle", {"oracle_name": "hll_exact"}), "oracle"),
+    ):
+        statistic = family_statistic(family)
+        assert statistic is not None, note
+        assert statistic.info.supports_local_laws is True, note
+    # The learnable constant needs a trained value before it has a state.
+    learnable = resolve_family("learnable_constant", {})
+    assert family_statistic(learnable) is None
+    assert family_statistic(learnable, f=2.5) is not None
+    # An LLM family with neither predict_fn nor default_prediction has no
+    # readout at all — that stays an explicit None, not a broken statistic.
+    assert family_statistic(resolve_family("llm", {})) is None
 
 
 def test_fit_uses_family_without_selector_indirection(tmp_path: Path) -> None:
@@ -157,6 +194,69 @@ def test_fit_can_use_llm_family_with_injected_predict_fn(tmp_path: Path) -> None
     assert result.status == "success"
     assert result.summary["family"] == "llm"
     assert result.artifacts["g"]["kind"] == "treepo_llm_g"
+    assert result.metrics["internal_f_mae"] == 0.0
+
+
+def test_fit_can_use_llm_family_with_openai_compatible_config(tmp_path: Path) -> None:
+    trees = [
+        SimpleNamespace(metadata={"split": "test", "text": "alpha", "teacher_score_native": 7.0}),
+        SimpleNamespace(metadata={"split": "test", "text": "beta", "teacher_score_native": 7.0}),
+    ]
+    session = _FakeChatSession("7")
+
+    result = fit(
+        {
+            "family": "llm",
+            "train_data": trees,
+            "eval_data": trees,
+            "backend_config": {
+                "output_dir": str(tmp_path),
+                "api_base": "http://localhost:8000/v1",
+                "api_key": "EMPTY",
+                "model": "placeholder-model",
+                "session": session,
+                "prompt_template": "Return only the integer 7. Document: {text}",
+            },
+            "axis": {"max_iterations": 1, "axis_value": 0},
+        },
+    )
+
+    assert result.status == "success"
+    assert result.summary["family"] == "llm"
+    assert result.metrics["internal_f_mae"] == 0.0
+    assert result.artifacts["f"]["config"]["api_key"] == "<redacted>"
+    assert len(session.posts) >= len(trees)
+    assert {post[1]["json"]["model"] for post in session.posts} == {"served-chat-model"}
+
+
+def test_tree_record_root_label_is_used_as_metric_truth(tmp_path: Path) -> None:
+    from treepo import TreeRecord
+
+    trees = [
+        TreeRecord(tree_id="doc_a", text="positive document", root_label=0.75),
+        TreeRecord(tree_id="doc_b", text="negative document", root_label=-0.25),
+    ]
+
+    def predict_fn(*, tree, **kwargs):
+        del kwargs
+        return getattr(tree, "root_label")
+
+    result = fit(
+        {
+            "family": "llm",
+            "train_data": trees,
+            "eval_data": trees,
+            "backend_config": {
+                "output_dir": str(tmp_path),
+                "predict_fn": predict_fn,
+                "prompt_template": "Score this: {text}",
+            },
+            "axis": {"max_iterations": 1, "axis_value": 0},
+        },
+    )
+
+    assert result.status == "success"
+    assert result.metrics["n"] == 2.0
     assert result.metrics["internal_f_mae"] == 0.0
 
 

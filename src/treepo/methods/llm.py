@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from treepo.llm.openai_compatible import render_chat_payload
+from treepo.local_law import LawKind, LocalLawAuditRow
+from treepo.methods._family_config import coerce_family_config
 from treepo.state import state_to_dict
 
 PredictFn = Callable[..., Any]
@@ -23,6 +25,10 @@ PredictFn = Callable[..., Any]
 @dataclass(frozen=True)
 class PromptedLLMFamilyConfig:
     model: str = "llm"
+    api_base: str | None = None
+    api_key: str = "EMPTY"
+    timeout_seconds: float = 120.0
+    verify_model: bool = True
     system_prompt: str = "You estimate the tree root statistic from the supplied document."
     prompt_template: str = "Return only one numeric score for this document.\n\n{text}\n\nScore:"
     temperature: float = 0.0
@@ -32,6 +38,12 @@ class PromptedLLMFamilyConfig:
     default_prediction: float | None = None
     min_score: float | None = None
     max_score: float | None = None
+    # Law auditing is on by default: fit() performs the same basic operations
+    # for every family given the same input. Model-backed checks (C1 gold-leaf
+    # readouts, C3 composed-vs-direct) cost one model call per row — set
+    # audit_laws=False to keep only the call-free C2 identity check when that
+    # per-iteration cost is prohibitive.
+    audit_laws: bool = True
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -107,9 +119,10 @@ class PromptedLLMFamily:
         if not isinstance(artifact, Mapping):
             raise TypeError(f"llm {kind} artifact must be a mapping")
 
-    def as_statistic(self, *, f: Any = None, g: Any = None) -> None:
-        del f, g
-        return None
+    def as_statistic(self, *, f: Any = None, g: Any = None) -> Any:
+        if self.predict_fn is None and self.config.default_prediction is None:
+            return None
+        return _PromptedTextStatistic(family=self, f=f, g=g)
 
     def render_prompt(self, tree: Any, *, f: Any = None, g: Any = None) -> str:
         variables = _prompt_variables(
@@ -135,6 +148,9 @@ class PromptedLLMFamily:
 
     def _artifact(self, *, kind: str, iteration: int, traces: Sequence[Any]) -> Mapping[str, Any]:
         examples = _render_supervised_examples(traces)
+        config_payload = asdict(self.config)
+        if config_payload.get("api_key"):
+            config_payload["api_key"] = "<redacted>"
         return {
             "kind": f"treepo_llm_{kind}",
             "trained": str(kind),
@@ -143,7 +159,7 @@ class PromptedLLMFamily:
             "model": str(self.config.model),
             "has_predict_fn": self.predict_fn is not None,
             "supervised_examples": examples,
-            "config": asdict(self.config),
+            "config": config_payload,
         }
 
     def _call_predict_fn(self, *, prompt: str, tree: Any, f: Any = None, g: Any = None) -> Any:
@@ -189,6 +205,139 @@ class PromptedLLMFamily:
         return out
 
 
+class _PromptedTextStatistic:
+    """ComposableStatistic surface for prompt-backed families.
+
+    The composable state is document text: ``encode_leaf`` extracts leaf
+    text, ``merge`` concatenates, ``readout`` prompts the model on the
+    composed text. Law rows cost one model call per check: C1 audits leaf
+    readouts against gold leaf scores where they exist, C3 compares the
+    composed-text readout against the family's direct whole-tree prediction,
+    and C2 is the exact (call-free) identity check that merging with empty
+    text preserves the state. Predictors that cannot score a unit return
+    ``None`` and that row is skipped rather than fabricated.
+    """
+
+    def __init__(self, *, family: "PromptedLLMFamily", f: Any = None, g: Any = None) -> None:
+        self.family = family
+        self._f = f
+        self._g = g
+        from treepo.statistic import StatisticInfo
+
+        self.info = StatisticInfo(
+            name=str(family.name),
+            state_kind="prompted_text",
+            exact=False,
+            supports_local_laws=True,
+            metadata={
+                "model": str(family.config.model),
+                "has_predict_fn": family.predict_fn is not None,
+            },
+        )
+
+    def encode_leaf(self, leaf: Any) -> str:
+        return _tree_text(leaf)
+
+    def merge(self, left: Any, right: Any) -> str:
+        parts = [str(part) for part in (left, right) if str(part or "").strip()]
+        return "\n".join(parts)
+
+    def readout(self, state: Any, query: Any = None) -> float | None:
+        del query
+        proxy = _TextOnlyTree(str(state or ""))
+        predictions = self.family.score_roots_with_f(f=self._f, g=self._g, trees=[proxy])
+        return predictions[0] if predictions else None
+
+    def predict_tree(self, tree: Any) -> float | None:
+        predictions = self.family.score_roots_with_f(f=self._f, g=self._g, trees=[tree])
+        return predictions[0] if predictions else None
+
+    def local_law_rows(
+        self,
+        units: Sequence[Any],
+        *,
+        query: Any = None,
+        oracle: Any = None,
+    ) -> Sequence[LocalLawAuditRow]:
+        del query, oracle
+        from treepo.schedule import merge_depths
+        from treepo.tree import tree_leaves, tree_row_id
+
+        rows: list[LocalLawAuditRow] = []
+        for idx, tree in enumerate(list(units or ())):
+            tree_id = tree_row_id(tree, idx, fallback_prefix="tree")
+            base_metadata = {"statistic": self.info.name, "state_kind": self.info.state_kind}
+            leaves = list(tree_leaves(tree) or ())
+            texts = [self.encode_leaf(leaf) for leaf in leaves]
+            state = ""
+            for text in texts:
+                state = self.merge(state, text)
+            identity_holds = self.merge(state, "") == state and self.merge("", state) == state
+            rows.append(
+                LocalLawAuditRow(
+                    row_id=f"{tree_id}:idempotence",
+                    law_kind=LawKind.C2_IDEMPOTENCE,
+                    proxy_loss=0.0 if identity_holds else 1.0,
+                    oracle_loss=0.0 if identity_holds else 1.0,
+                    observed=True,
+                    propensity=1.0,
+                    metadata={**base_metadata, "check": "empty_merge_identity", "law_facet": "c2_idempotence"},
+                )
+            )
+            if not bool(self.family.config.audit_laws):
+                continue
+            depths = merge_depths(len(leaves), schedule="left_to_right") if leaves else []
+            for leaf_idx, leaf in enumerate(leaves):
+                score = getattr(leaf, "score", None)
+                if score is None:
+                    continue
+                # Score the leaf object itself so predict_fns that read leaf
+                # attributes/metadata see the real unit, not a text proxy.
+                leaf_predictions = self.family.score_roots_with_f(
+                    f=self._f, g=self._g, trees=[leaf]
+                )
+                prediction = leaf_predictions[0] if leaf_predictions else None
+                if prediction is None:
+                    continue
+                loss = float((float(prediction) - float(score)) ** 2)
+                rows.append(
+                    LocalLawAuditRow(
+                        row_id=f"{tree_id}:leaf:{leaf_idx}",
+                        law_kind=LawKind.C1_LEAF,
+                        proxy_loss=loss,
+                        oracle_loss=loss,
+                        observed=True,
+                        propensity=1.0,
+                        depth=int(depths[leaf_idx]) if leaf_idx < len(depths) else 0,
+                        metadata={**base_metadata, "check": "gold_leaf_readout", "law_facet": "c1_sufficiency"},
+                    )
+                )
+            composed = self.readout(state) if str(state).strip() else None
+            direct = self.predict_tree(tree)
+            if composed is not None and direct is not None:
+                loss = float((float(composed) - float(direct)) ** 2)
+                rows.append(
+                    LocalLawAuditRow(
+                        row_id=f"{tree_id}:composition",
+                        law_kind=LawKind.C3_MERGE,
+                        proxy_loss=loss,
+                        oracle_loss=loss,
+                        observed=True,
+                        propensity=1.0,
+                        metadata={**base_metadata, "check": "composed_vs_direct_readout", "law_facet": "c3b_compositionality"},
+                    )
+                )
+        return tuple(rows)
+
+
+class _TextOnlyTree:
+    """Present composed text as a tree-like value for prompt rendering."""
+
+    def __init__(self, text: str) -> None:
+        self.text = str(text)
+        self.metadata: dict[str, Any] = {}
+
+
 def _select_kwargs(predict_fn: PredictFn, available: Mapping[str, Any]) -> dict[str, Any]:
     """Pick the ``available`` arguments a ``predict_fn`` actually accepts.
 
@@ -216,27 +365,75 @@ def _select_kwargs(predict_fn: PredictFn, available: Mapping[str, Any]) -> dict[
 
 
 def build_llm_family(backend_config: Mapping[str, Any]) -> PromptedLLMFamily:
-    raw_config = dict(backend_config.get("llm_config") or {})
-    for key in (
-        "model",
-        "system_prompt",
-        "prompt_template",
-        "temperature",
-        "max_tokens",
-        "max_prompt_chars",
-        "score_regex",
-        "default_prediction",
-        "min_score",
-        "max_score",
-        "metadata",
-    ):
-        if key in backend_config:
-            raw_config[key] = backend_config[key]
-    config = PromptedLLMFamilyConfig(**raw_config)
+    config = coerce_family_config(
+        PromptedLLMFamilyConfig,
+        backend_config,
+        nested_key="llm_config",
+        aliases={"base_url": "api_base"},
+    )
+    predict_fn = resolve_prompted_predict_fn(
+        config,
+        backend_config,
+        family_name="llm",
+    )
+    return PromptedLLMFamily(config=config, predict_fn=predict_fn)
+
+
+def resolve_prompted_predict_fn(
+    config: PromptedLLMFamilyConfig,
+    backend_config: Mapping[str, Any],
+    *,
+    family_name: str,
+) -> PredictFn | None:
+    """Resolve a prompt family's predictor the same way for every route.
+
+    Precedence: explicit ``predict_fn``, then an injected ``chat_client``,
+    then an OpenAI-compatible client auto-built from ``api_base``.
+    """
+
     predict_fn = backend_config.get("predict_fn")
     if predict_fn is not None and not callable(predict_fn):
-        raise TypeError("llm predict_fn must be callable")
-    return PromptedLLMFamily(config=config, predict_fn=predict_fn)
+        raise TypeError(f"{family_name} predict_fn must be callable")
+    chat_client = backend_config.get("chat_client")
+    if predict_fn is None and chat_client is not None:
+        predict_fn = _chat_client_predict_fn(chat_client)
+    if predict_fn is None and config.api_base:
+        from treepo.llm import build_chat_client
+
+        client = build_chat_client(
+            api_base=config.api_base,
+            model=config.model,
+            api_key=config.api_key,
+            timeout_seconds=config.timeout_seconds,
+            session=backend_config.get("session"),
+            verify_model=config.verify_model,
+            default_temperature=config.temperature,
+            default_max_tokens=config.max_tokens,
+        )
+        predict_fn = client.predict_text
+    return predict_fn
+
+
+def _chat_client_predict_fn(chat_client: Any) -> PredictFn:
+    if callable(chat_client):
+        return chat_client
+    method = getattr(chat_client, "predict_text", None)
+    if callable(method):
+        return method
+    method = getattr(chat_client, "complete_chat", None)
+    if callable(method):
+        def predict_from_complete_chat(*, messages, config=None, **kwargs):
+            del kwargs
+            return method(
+                messages,
+                temperature=getattr(config, "temperature", None),
+                max_tokens=getattr(config, "max_tokens", None),
+            )
+
+        return predict_from_complete_chat
+    raise TypeError(
+        "backend_config['chat_client'] must be callable or expose predict_text()/complete_chat()"
+    )
 
 
 def _prompt_variables(tree: Any, *, f: Any = None, g: Any = None) -> dict[str, Any]:

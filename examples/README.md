@@ -24,10 +24,12 @@ uv run treepo-bench run markov \
   --csv-out outputs/markov.csv
 ```
 
-The Markov benchmark is fully local. The Manifesto/RILE methods examples are
-provider-neutral: they run with packaged fixtures, and provider-specific LLM or
-DSPy code can be supplied through the same callable/program hooks used by
-`treepo.fit(...)`.
+The Markov benchmark is fully local. The LLM methods examples are
+provider-neutral: they run with packaged fixtures, and provider-specific code
+can be supplied through the same endpoint/callable/program hooks used by
+`treepo.fit(...)`. OpenAI-compatible servers such as vLLM and SGLang use
+`api_base`; direct local runtimes such as Hugging Face Transformers use
+`predict_fn`; DSPy uses an injected program.
 
 The Manifesto/RILE example includes a document-unit supervision grid.
 Root-only cells can sweep the leaf-grouping grid because they use document
@@ -53,6 +55,13 @@ Run any method example with:
 
 ```bash
 uv run python examples/methods/run_NAME.py --output-dir outputs/NAME
+```
+
+For the LLM backend adapter shapes:
+
+```bash
+uv run python examples/methods/run_llm_backends.py \
+  --output-dir outputs/llm_backends_example
 ```
 
 Verify the runnable examples and their exported artifacts with:

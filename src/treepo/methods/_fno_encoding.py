@@ -10,24 +10,13 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
+from treepo.tree import tree_leaves
+
 
 def _tree_leaves(tree: Any) -> tuple[Any, ...] | None:
-    """Return the leaf sequence of any tree-like value.
+    """The canonical leaf-extraction convention (see :func:`treepo.tree.tree_leaves`)."""
 
-    Accepts a ``leaves`` attribute holding a sequence (fixture trees), a
-    callable ``leaves()`` method (``TreeRecord``), or a ``get_leaves()``
-    method. Leaf order is the composition order the family merges in.
-    """
-
-    leaves = getattr(tree, "leaves", None)
-    if callable(leaves):
-        leaves = leaves()
-    if leaves is None and callable(getattr(tree, "get_leaves", None)):
-        leaves = tree.get_leaves()
-    if leaves is None:
-        return None
-    out = tuple(leaves)
-    return out if out else None
+    return tree_leaves(tree)
 
 
 def _leaf_token_groups(tree: Any) -> list[Any] | None:

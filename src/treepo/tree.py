@@ -510,12 +510,62 @@ def _optional_str(value: Any) -> str | None:
     return None if value is None else str(value)
 
 
+def tree_leaves(tree: Any) -> tuple[Any, ...] | None:
+    """Return the leaf sequence of any tree-like value.
+
+    The single leaf-extraction convention for every family: a ``leaves``
+    attribute holding a sequence (fixture trees), a callable ``leaves()``
+    method (``TreeRecord``), or a ``get_leaves()`` method. Leaf order is the
+    composition order the family merges in. Returns ``None`` when the value
+    exposes no leaves.
+    """
+
+    leaves = getattr(tree, "leaves", None)
+    if callable(leaves):
+        leaves = leaves()
+    if leaves is None and callable(getattr(tree, "get_leaves", None)):
+        leaves = tree.get_leaves()
+    if leaves is None:
+        return None
+    out = tuple(leaves)
+    return out if out else None
+
+
+_TREE_ID_KEYS = ("tree_id", "doc_id", "unit_id")
+
+
+def tree_row_id(tree: Any, index: int, *, fallback_prefix: str | None = "tree") -> str:
+    """Return the canonical row identifier for a tree-like value.
+
+    The single id-resolution convention for audit rows, prediction rows, and
+    exports: attributes ``tree_id``/``doc_id``/``unit_id`` first, then the
+    same keys in ``metadata``. Anonymous trees fall back to
+    ``{fallback_prefix}_{index}`` (or bare ``str(index)`` when
+    ``fallback_prefix`` is ``None``).
+    """
+
+    for key in _TREE_ID_KEYS:
+        value = getattr(tree, key, None)
+        if value is not None and not callable(value):
+            return str(value)
+    metadata = getattr(tree, "metadata", None)
+    if isinstance(metadata, MappingABC):
+        for key in _TREE_ID_KEYS:
+            if metadata.get(key) is not None:
+                return str(metadata[key])
+    if fallback_prefix is None:
+        return str(int(index))
+    return f"{fallback_prefix}_{int(index)}"
+
+
 __all__ = [
     "TreeNode",
     "TreeRecord",
     "iter_tree_units",
     "load_tree_records",
     "local_law_rows_from_tree_records",
+    "tree_leaves",
+    "tree_row_id",
     "tree_summary",
     "validate_tree_record",
     "write_tree_records_jsonl",

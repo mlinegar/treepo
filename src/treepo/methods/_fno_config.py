@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any, Mapping, TypeVar
 
+from treepo.methods._family_config import dataclass_field_subset
+
 _LOCAL_OPERATOR_KINDS = frozenset({"conv1d"})
 
 
@@ -84,8 +86,9 @@ def _coerce_config(
 
 
 def _known_config_keys(values: Mapping[str, Any], *, config_cls: type[Any]) -> dict[str, Any]:
-    allowed = {field.name for field in fields(config_cls)}
-    return {str(k): v for k, v in dict(values or {}).items() if str(k) in allowed}
+    # Field filtering is the shared family-config mechanism; this module only
+    # adds the dataclass-instance conversion paths in _coerce_config above.
+    return dataclass_field_subset(values, config_cls)
 
 
 def _config_payload(config: NeuralOperatorFamilyConfig) -> dict[str, Any]:

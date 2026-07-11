@@ -37,8 +37,12 @@ uv run treepo-bench run markov \
   --csv-out outputs/markov.csv
 ```
 
-Optional extras are defined in `pyproject.toml` for benchmark config IO, sketch
-backends, and LLM clients.
+The core install is slim (numpy only). Heavy stacks are extras: `treepo[torch]`
+for the neural-operator families (`fno`, `neural_operator`), `treepo[lda]` for
+the sklearn LDA family, `treepo[hf]` for Hugging Face dataset export,
+`treepo[sketches]` for sketch backends, `treepo[llm]` for LLM clients,
+`treepo[bench]` for benchmark config IO, and `treepo[all]` for everything.
+Missing extras fail lazily at first use with the extra named in the error.
 
 ## Usage
 
@@ -54,17 +58,18 @@ result = treepo.fit({
 })
 ```
 
-For DSPy or prompted-LLM runs, start an OpenAI-compatible server for your model
-and configure DSPy or your `predict_fn` against its `/v1` endpoint, for example
-`http://localhost:8000/v1`. Then pass the configured callable or DSPy program
-through `backend_config`. `treepo` supplies prompt, fit, and artifact helpers;
-server startup and credentials stay in your application.
+For prompted-LLM runs, install `treepo[llm]`. `family="llm"` can call
+OpenAI-compatible `/v1` servers directly, including vLLM, SGLang, hosted
+OpenAI-compatible APIs, and other compatible servers. It can also use any
+direct Python callable through `predict_fn`, including Hugging Face
+Transformers pipelines or custom local runtimes. DSPy runs use the same server
+settings plus an injected DSPy program.
 
 One common local setup is:
 
 ```bash
-MODEL=/path/or/hf-model
-SERVED_MODEL_NAME=treepo-local
+MODEL=Qwen/Qwen2.5-7B-Instruct  # replace with your HF model id or local path
+SERVED_MODEL_NAME="$MODEL"      # or a short alias; must match lm_config["model"]
 HOST=0.0.0.0
 PORT=8000
 TENSOR_PARALLEL=1
@@ -86,37 +91,75 @@ curl -H "Authorization: Bearer $API_KEY" \
 ```
 
 Add any model-specific vLLM flags to the `vllm serve` command; `treepo` only
-requires an OpenAI-compatible `/v1` endpoint and a matching model name.
+requires an OpenAI-compatible `/v1` endpoint and a model name that appears in
+`/v1/models`. If your vLLM environment ships CUDA libraries outside the system
+path, activate that environment before launch; the source checkout also includes
+`scripts/start_vllm.sh`, which sets up common bundled CUDA runtimes.
 
 ```python
 lm_config = {
-    "model": "treepo-local",
+    # Must match the model id returned by /v1/models, or the alias passed to
+    # vLLM with --served-model-name.
+    "model": "Qwen/Qwen2.5-7B-Instruct",
     "api_base": "http://localhost:8000/v1",
     "api_key": "EMPTY",
     "max_tokens": 256,
     "temperature": 0.0,
 }
 
-# Configure `program` with DSPy against `lm_config` before passing it here.
+result = treepo.fit({
+    "family": "llm",
+    "train_data": train_trees,
+    "eval_data": eval_trees,
+    "preference_data": preferences,
+    "backend_config": {
+        **lm_config,
+        "prompt_template": "Return only one numeric score.\n\n{text}\n\nScore:",
+    },
+})
+```
+
+For direct local inference with Transformers or another runtime, pass a
+callable instead of `api_base`:
+
+```python
+def predict_fn(*, prompt, **kwargs):
+    output = pipeline(prompt, max_new_tokens=16)
+    return output[0]["generated_text"]
+
+result = treepo.fit({
+    "family": "llm",
+    "train_data": train_trees,
+    "eval_data": eval_trees,
+    "backend_config": {"predict_fn": predict_fn},
+})
+```
+
+For DSPy prompt tuning, configure `program` against the same `lm_config` and
+pass it through `backend_config`:
+
+```python
 result = treepo.fit({
     "family": "dspy",
     "train_data": train_trees,
     "eval_data": eval_trees,
     "preference_data": preferences,
-    "backend_config": {
-        "lm_config": lm_config,
-        "dspy_program": program,
-    },
+    "backend_config": {"lm_config": lm_config, "dspy_program": program},
 })
 ```
 
 ## Examples
 
 For long-document language tasks, start with the LLM families. `family="llm"`
-renders prompts and accepts a `predict_fn`; `treepo.llm` provides
-OpenAI-compatible client helpers. `family="dspy"` wraps an injected DSPy
-program or prediction callable for prompt tuning. This local example shows the
-preference and optimizer views used by those routes:
+can call an OpenAI-compatible endpoint directly from `api_base`, or accept an
+injected `predict_fn`. `family="dspy"` wraps an injected DSPy program or
+prediction callable for prompt tuning. These local examples exercise the
+backend adapter shapes and the preference/optimizer views used by those routes:
+
+```bash
+uv run python examples/methods/run_llm_backends.py \
+  --output-dir outputs/llm_backends_example
+```
 
 ```bash
 uv run python examples/methods/run_preference_optimizer_views.py \

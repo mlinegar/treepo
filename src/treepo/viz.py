@@ -31,7 +31,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from treepo.common import jsonable
 from treepo.methods._coerce import safe_float
-from treepo.methods._fno_transition import _pairwise_merge_children
+from treepo.schedule import merge_children as _schedule_merge_children
 from treepo.state import split_unit_id, state_to_dict
 from treepo.tree import TreeRecord
 
@@ -426,7 +426,7 @@ def _attach_trace_annotations(
     for position, leaf in enumerate(children):
         annotate(leaf, position)
 
-    merge_children = _pairwise_merge_children(leaf_count)
+    merge_children = _schedule_merge_children(leaf_count, schedule="balanced")
     root_index = 2 * leaf_count - 2
 
     payload_by_index: dict[int, dict[str, Any]] = dict(enumerate(children))

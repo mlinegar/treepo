@@ -36,6 +36,14 @@ def _validate_operator_kind(operator_kind: str, *, family_name: str) -> None:
         return
     if _neuralop_model_class(operator_kind, required=False) is not None:
         return
+    if not _neuralop_importable():
+        # A kind that only looks unavailable because the optional dependency
+        # is absent must say so — not claim the kind is unsupported.
+        raise ImportError(
+            f"operator_kind={operator_kind!r} needs the 'neuraloperator' package, "
+            "which is not installed. Install the torch extra of this package: "
+            "uv sync --extra torch (treepo[torch])."
+        )
     supported = ", ".join(sorted((*_LOCAL_OPERATOR_KINDS, *_available_neuralop_kinds())))
     raise ValueError(
         f"family={family_name!r} does not support operator_kind={operator_kind!r}; "
@@ -43,13 +51,22 @@ def _validate_operator_kind(operator_kind: str, *, family_name: str) -> None:
     )
 
 
+def _neuralop_importable() -> bool:
+    try:
+        import neuralop.models  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def _require_torch() -> Any:
     try:
         import torch
     except ImportError as exc:  # pragma: no cover - exercised when deps absent
         raise ImportError(
-            "neural-operator families require PyTorch. Install the default treepo "
-            "package dependencies or add torch to this environment."
+            "neural-operator families require PyTorch, which is not installed. "
+            "Install the torch extra of this package: "
+            "uv sync --extra torch (treepo[torch])."
         ) from exc
     return torch
 
@@ -77,8 +94,9 @@ def _neuralop_model_class(operator_kind: str, *, required: bool) -> Any:
         if not required:
             return None
         raise ImportError(
-            f"operator_kind={operator_kind!r} requires neuraloperator. Install the default "
-            "treepo package dependencies or add neuraloperator to this environment."
+            f"operator_kind={operator_kind!r} requires the 'neuraloperator' package, "
+            "which is not installed. Install the torch extra of this package: "
+            "uv sync --extra torch (treepo[torch])."
         ) from exc
     exact_name = _NEURALOP_KIND_ALIASES.get(normalized)
     if exact_name is not None and hasattr(models, exact_name):

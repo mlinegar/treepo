@@ -19,8 +19,9 @@ from __future__ import annotations
 
 from typing import Iterable, Sequence
 
-from treepo.common import VALID_SCHEDULES, ScheduleName
+from treepo.common import ScheduleName
 from treepo.bench.sketches.protocol import SketchAdapter
+from treepo.schedule import fold
 
 
 def treepo_reduce(
@@ -58,30 +59,4 @@ def fold_states(
 
 
 def _fold(states: Sequence, adapter: SketchAdapter, *, schedule: ScheduleName):
-    sched = str(schedule)
-    if sched not in VALID_SCHEDULES:
-        raise ValueError(f"unsupported schedule: {schedule!r}; expected one of {VALID_SCHEDULES}")
-
-    if len(states) == 1:
-        return states[0]
-
-    if sched == "balanced":
-        cur = list(states)
-        while len(cur) > 1:
-            nxt = []
-            i = 0
-            while i < len(cur):
-                if i + 1 >= len(cur):
-                    nxt.append(cur[i])
-                    i += 1
-                    continue
-                nxt.append(adapter.merge(cur[i], cur[i + 1]))
-                i += 2
-            cur = nxt
-        return cur[0]
-
-    order = list(states) if sched == "left_to_right" else list(reversed(states))
-    acc = order[0]
-    for st in order[1:]:
-        acc = adapter.merge(acc, st)
-    return acc
+    return fold(states, adapter.merge, schedule=schedule)

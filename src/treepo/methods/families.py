@@ -66,9 +66,9 @@ def _make_oracle(backend_config: Mapping[str, Any]) -> FamilyRuntime:
 def _make_learnable_constant(backend_config: Mapping[str, Any]) -> FamilyRuntime:
     from treepo.methods.learnable import LearnableConstantFamily
 
-    return LearnableConstantFamily(
-        gamma_depth=float(backend_config.get("law_gamma_depth", 1.0)),
-    )
+    # 'gamma_depth' is the canonical spelling; 'law_gamma_depth' is a legacy alias.
+    gamma = backend_config.get("gamma_depth", backend_config.get("law_gamma_depth", 1.0))
+    return LearnableConstantFamily(gamma_depth=float(gamma))
 
 
 def _make_classical_sketch(backend_config: Mapping[str, Any]) -> FamilyRuntime:
@@ -101,11 +101,21 @@ def _make_fno(backend_config: Mapping[str, Any]) -> FamilyRuntime:
     return build_fno_family(backend_config)
 
 
+def _make_sklearn_lda(backend_config: Mapping[str, Any]) -> FamilyRuntime:
+    from treepo.methods._family_config import coerce_family_config
+    from treepo.methods.lda import SklearnLDAFamily, SklearnLDAFamilyConfig
+
+    return SklearnLDAFamily(
+        coerce_family_config(SklearnLDAFamilyConfig, backend_config, nested_key="lda_config")
+    )
+
+
 register_family("oracle", _make_oracle)
 register_family("learnable_constant", _make_learnable_constant)
 register_family("classical_sketch", _make_classical_sketch)
 register_family("neural_operator", _make_neural_operator)
 register_family("fno", _make_fno)
+register_family("sklearn_lda", _make_sklearn_lda)
 register_family("dspy", _make_dspy)
 register_family("llm", _make_llm)
 

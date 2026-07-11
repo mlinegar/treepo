@@ -8,6 +8,7 @@ from typing import Any, Mapping, Sequence
 from treepo.methods._coerce import float_vector as _as_float_vector, safe_float
 from treepo.methods._runtime_types import SplitMetrics
 from treepo.methods.contracts import FamilyRuntime
+from treepo.tree import tree_row_id
 
 
 def evaluate_splits(
@@ -196,14 +197,7 @@ def _tree_split(tree: Any) -> str:
 
 
 def _tree_id(tree: Any, fallback: int) -> str:
-    meta = _metadata(tree)
-    value = (
-        getattr(tree, "doc_id", None)
-        or getattr(tree, "tree_id", None)
-        or meta.get("doc_id")
-        or meta.get("tree_id")
-    )
-    return str(value) if value is not None else str(fallback)
+    return tree_row_id(tree, fallback, fallback_prefix=None)
 
 
 def _teacher_root_score(tree: Any) -> float | None:
@@ -211,16 +205,24 @@ def _teacher_root_score(tree: Any) -> float | None:
     score = _safe_float(meta.get("teacher_score_native"))
     if score is not None:
         return score
-    return _safe_float(getattr(tree, "document_score", None))
+    score = _safe_float(getattr(tree, "document_score", None))
+    if score is not None:
+        return score
+    return _safe_float(getattr(tree, "root_label", None))
 
 
 def _expert_root_score(tree: Any) -> float | None:
+    # Deliberately NO fallback to teacher_score_native: external metrics must
+    # measure agreement with a genuinely external label, otherwise f_star_gap
+    # trivially reads 0 and internal/external silently alias.
     meta = _metadata(tree)
-    for key in ("expert_score_for_objective", "teacher_score_native"):
-        score = _safe_float(meta.get(key))
-        if score is not None:
-            return score
-    return _safe_float(getattr(tree, "document_score", None))
+    score = _safe_float(meta.get("expert_score_for_objective"))
+    if score is not None:
+        return score
+    score = _safe_float(getattr(tree, "document_score", None))
+    if score is not None:
+        return score
+    return _safe_float(getattr(tree, "root_label", None))
 
 
 def _metrics_scale(trees: Sequence[Any]) -> str:
