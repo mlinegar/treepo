@@ -44,6 +44,12 @@ class NeuralOperatorFamilyConfig:
     micro_batch_size: int | None = None
     #: Trees per no-grad forward chunk at scoring time (always exact).
     eval_batch_size: int = 32
+    #: TT-ladder loss shape: per-tree convex split
+    #: ``mean_trees[(1-λ)·root_mse + λ·(leaf/merge-weighted node mean)]`` —
+    #: every tree contributes equally regardless of node count (the recorded
+    #: anchors' objective). ``None`` keeps the pooled weighted node mean.
+    #: Mutually exclusive with an ObjectiveSpec.
+    per_tree_loss_lambda: float | None = None
     seed: int = 0
     device: str = "cpu"
     normalize_targets: bool = True

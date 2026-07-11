@@ -553,12 +553,13 @@ class NeuralOperatorFamily:
             for start in range(0, n, batch_size):
                 idx = order[start : start + batch_size]
                 micro = self.config.micro_batch_size
-                if micro is not None and 0 < int(micro) < int(idx.shape[0]):
+                per_tree = self.config.per_tree_loss_lambda is not None and node_weighted
+                if per_tree or (micro is not None and 0 < int(micro) < int(idx.shape[0])):
                     if state_targets is not None or node_law is not None:
                         raise ValueError(
-                            f"family={self.name!r} micro_batch_size does not support "
-                            "law-bearing objectives yet; drop micro_batch_size or the "
-                            "objective"
+                            f"family={self.name!r} micro_batch_size / per-tree loss "
+                            "does not support law-bearing objectives yet; drop "
+                            "micro_batch_size or the objective"
                         )
                     last_loss = self._micro_batch_step(
                         x,
@@ -658,7 +659,7 @@ class NeuralOperatorFamily:
         idx_list = idx.detach().cpu().tolist()
 
         denom: float | None = None
-        if node_supervision is not None:
+        if node_supervision is not None and self.config.per_tree_loss_lambda is None:
             weight_sum = torch.zeros((), device=self._device)
             for i in idx_list:
                 _target, mask = node_supervision[int(i)]
@@ -682,9 +683,24 @@ class NeuralOperatorFamily:
         opt.zero_grad(set_to_none=True)
         total = 0.0
         any_grad = False
+        per_tree_lambda = self.config.per_tree_loss_lambda
         for cstart in range(0, batch_n, micro):
             cidx = idx[cstart : cstart + micro]
-            if node_supervision is not None:
+            if node_supervision is not None and per_tree_lambda is not None:
+                if rollup_weights is not None:
+                    pred, traces = self._model.forward_rollup(
+                        x[cidx], lengths[cidx], rollup_weights[cidx], collect_trace=True
+                    )
+                else:
+                    pred, traces = self._model.forward_with_trace(x[cidx], lengths[cidx])
+                chunk_loss = self._per_tree_convex_loss(
+                    pred,
+                    y[cidx],
+                    traces,
+                    [node_supervision[int(i)] for i in cidx.detach().cpu().tolist()],
+                    batch_n=batch_n,
+                )
+            elif node_supervision is not None:
                 if rollup_weights is not None:
                     pred, traces = self._model.forward_rollup(
                         x[cidx], lengths[cidx], rollup_weights[cidx], collect_trace=True
@@ -728,6 +744,50 @@ class NeuralOperatorFamily:
                 torch.nn.utils.clip_grad_norm_(params, float(clip))
             opt.step()
         return total
+
+    def _per_tree_convex_loss(
+        self,
+        pred: Any,
+        y: Any,
+        traces: Sequence[Any],
+        selected: Sequence[tuple[Any, Any]],
+        *,
+        batch_n: int,
+    ) -> Any:
+        """TT-ladder loss shape: mean over trees of a per-tree convex split.
+
+        Per tree: ``(1-λ)·root_mse + λ·(leaf/merge-weighted node mean)``; a
+        tree without observed node rows contributes ``(1-λ)·root_mse``. Every
+        tree weighs equally regardless of node count, so chunked accumulation
+        (divide by the full ``batch_n``) is exact under any chunking.
+        """
+
+        torch = self._torch
+        lam = float(self.config.per_tree_loss_lambda or 0.0)
+        leaf_w = float(self.config.leaf_weight)
+        merge_w = float(self.config.merge_weight)
+        read = getattr(self._model, "_read", None) or self._model.readout
+        total = None
+        for i, (trace, (target, mask)) in enumerate(zip(traces, selected)):
+            root_mse = ((pred[i] - y[i]) ** 2).mean()
+            n_nodes = int(trace.shape[0])
+            leaf_count = (n_nodes + 1) // 2
+            preds = read(trace)
+            losses = ((preds - target.to(dtype=preds.dtype)) ** 2).mean(dim=-1)
+            is_leaf = torch.arange(n_nodes, device=losses.device) < leaf_count
+            row_w = torch.where(
+                is_leaf,
+                torch.full_like(losses, leaf_w),
+                torch.full_like(losses, merge_w),
+            )
+            keep = mask & (row_w > 0.0)
+            tree_loss = (1.0 - lam) * root_mse
+            if bool(keep.any()):
+                node_mean = (row_w[keep] * losses[keep]).sum() / row_w[keep].sum()
+                tree_loss = tree_loss + lam * node_mean
+            total = tree_loss if total is None else total + tree_loss
+        assert total is not None
+        return total / float(batch_n)
 
     def _rollup_weights_tensor(self, trees: Sequence[Any], *, max_leaves: int) -> Any | None:
         """Normalized ``[n_trees, max_leaves]`` rollup weights for ``leaf_mean``."""
