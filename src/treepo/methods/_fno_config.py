@@ -29,8 +29,21 @@ class NeuralOperatorFamilyConfig:
     head_hidden_dim: int = 32
     operator_kwargs: Mapping[str, Any] = field(default_factory=dict)
     learning_rate: float = 1e-3
+    #: AdamW weight decay and gradient-norm clip — the TT-ladder training
+    #: conventions the parity anchors were recorded under.
+    weight_decay: float = 1e-4
+    grad_clip_norm: float | None = 1.0
     epochs_per_iteration: int = 8
     batch_size: int = 8
+    #: Trees per forward/backward chunk inside one optimizer step. Exact
+    #: gradient accumulation: the accumulated loss equals the full-batch loss,
+    #: so training dynamics are identical to ``batch_size`` — only peak
+    #: activation memory shrinks (the embedding-axis FNO at large leaf counts
+    #: does not fit a 24GB MIG slice at batch 16 otherwise). ``None`` keeps
+    #: single-pass batches. Law-bearing objectives are not supported yet.
+    micro_batch_size: int | None = None
+    #: Trees per no-grad forward chunk at scoring time (always exact).
+    eval_batch_size: int = 32
     seed: int = 0
     device: str = "cpu"
     normalize_targets: bool = True

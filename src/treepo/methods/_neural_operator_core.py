@@ -43,7 +43,7 @@ from treepo.methods._fno_encoding import (
     _leaf_token_groups,
     _tree_sequence_cache_key,
 )
-from treepo.methods._fno_models import _TreeFGModel
+from treepo.methods._fno_models import _EmbeddingCoordinateFGModel, _TreeFGModel
 from treepo.methods._fno_neuralop import _require_torch, _validate_operator_kind
 from treepo.methods._fno_statistic import _NeuralOperatorStatistic
 from treepo.methods._fno_targets import (
@@ -329,12 +329,18 @@ class NeuralOperatorFamily:
         self._model.eval()
         x, lengths = self._encode_trees(tree_list)
         rollup_weights = self._rollup_weights_tensor(tree_list, max_leaves=int(x.shape[1]))
+        eval_chunk = max(1, int(self.config.eval_batch_size or len(tree_list) or 1))
+        raw_values: list[Any] = []
         with self._torch.no_grad():
-            if rollup_weights is not None:
-                raw, _traces = self._model.forward_rollup(x, lengths, rollup_weights)
-            else:
-                raw = self._model(x, lengths)
-            raw_values = self._denormalized_predictions(raw).detach().cpu().tolist()
+            for start in range(0, len(tree_list), eval_chunk):
+                stop = start + eval_chunk
+                if rollup_weights is not None:
+                    raw, _traces = self._model.forward_rollup(
+                        x[start:stop], lengths[start:stop], rollup_weights[start:stop]
+                    )
+                else:
+                    raw = self._model(x[start:stop], lengths[start:stop])
+                raw_values.extend(self._denormalized_predictions(raw).detach().cpu().tolist())
         values = [row if isinstance(row, list) else [row] for row in raw_values]
         if (self._output_dim or 1) == 1:
             return [_clamp(float(row[0]), self.config.target_min, self.config.target_max) for row in values]
@@ -419,18 +425,49 @@ class NeuralOperatorFamily:
         if self._model is not None:
             return
         _validate_operator_kind(self.operator_kind, family_name=self.name)
-        self._model = _TreeFGModel(
-            operator_kind=self.operator_kind,
-            config=self.config,
-            torch=self._torch,
-            output_dim=int(self._output_dim),
-        ).to(self._device)
+        if self.operator_kind == "fno":
+            # The documented f/g FNO invariant (embedding axis as the spatial
+            # dimension, 1/2 input channels, zero-last-layer identity init) —
+            # the same computational object as the TT-ladder anchor runs.
+            # Other operator kinds keep the generic leaf-axis model.
+            self._model = _EmbeddingCoordinateFGModel(
+                config=self.config,
+                torch=self._torch,
+                output_dim=int(self._output_dim),
+            ).to(self._device)
+        else:
+            self._model = _TreeFGModel(
+                operator_kind=self.operator_kind,
+                config=self.config,
+                torch=self._torch,
+                output_dim=int(self._output_dim),
+            ).to(self._device)
 
     def _normalized_targets(self, y: Any) -> Any:
         if not bool(self.config.normalize_targets):
             self._target_center = self._torch.zeros((int(y.shape[1]),), dtype=y.dtype, device=y.device)
             self._target_scale = self._torch.ones((int(y.shape[1]),), dtype=y.dtype, device=y.device)
             return y
+        if bool(getattr(self._model, "bounded_output", False)):
+            # A sigmoid-bounded head predicts in [0, 1]: min-max normalize onto
+            # that range (the TT convention) instead of z-scoring, which would
+            # put targets outside the head's codomain.
+            lo = (
+                float(self.config.target_min)
+                if self.config.target_min is not None
+                else float(y.min().detach().cpu())
+            )
+            hi = (
+                float(self.config.target_max)
+                if self.config.target_max is not None
+                else float(y.max().detach().cpu())
+            )
+            span = max(hi - lo, 1.0e-6)
+            center = self._torch.full((int(y.shape[1]),), lo, dtype=y.dtype, device=y.device)
+            scale = self._torch.full((int(y.shape[1]),), span, dtype=y.dtype, device=y.device)
+            self._target_center = center.detach()
+            self._target_scale = scale.detach()
+            return (y - center) / scale
         center = y.mean(dim=0)
         scale = y.std(dim=0, unbiased=False).clamp_min(1.0e-6)
         self._target_center = center.detach()
@@ -460,7 +497,11 @@ class NeuralOperatorFamily:
         if not params:
             return None
         self._model.train()
-        opt = self._torch.optim.Adam(params, lr=float(self.config.learning_rate))
+        opt = self._torch.optim.AdamW(
+            params,
+            lr=float(self.config.learning_rate),
+            weight_decay=float(self.config.weight_decay),
+        )
         batch_size = max(1, int(self.config.batch_size))
         epochs = max(1, int(self.config.epochs_per_iteration))
         last_loss = None
@@ -504,9 +545,32 @@ class NeuralOperatorFamily:
         )
         need_trace = state_targets is not None or node_law is not None or node_weighted
         for _epoch in range(epochs):
+            # Per-epoch reseed of the shuffle (the TT ladder convention): the
+            # data order at epoch e is a function of (seed, e), not of how many
+            # batches previous stages consumed from the global RNG stream.
+            self._torch.manual_seed(int(self.config.seed) + int(_epoch))
             order = self._torch.randperm(n, device=self._device)
             for start in range(0, n, batch_size):
                 idx = order[start : start + batch_size]
+                micro = self.config.micro_batch_size
+                if micro is not None and 0 < int(micro) < int(idx.shape[0]):
+                    if state_targets is not None or node_law is not None:
+                        raise ValueError(
+                            f"family={self.name!r} micro_batch_size does not support "
+                            "law-bearing objectives yet; drop micro_batch_size or the "
+                            "objective"
+                        )
+                    last_loss = self._micro_batch_step(
+                        x,
+                        lengths,
+                        y,
+                        idx,
+                        opt=opt,
+                        params=params,
+                        node_supervision=node_supervision if node_weighted else None,
+                        rollup_weights=rollup_weights,
+                    )
+                    continue
                 law_rows = None
                 node_rows = None
                 if not need_trace:
@@ -548,12 +612,122 @@ class NeuralOperatorFamily:
                     )
                 else:
                     loss = self._assemble_loss(root_loss, law_rows)
+                last_loss = float(loss.detach().cpu())
+                if not bool(loss.requires_grad):
+                    # The batch's loss is constant w.r.t. this side's params
+                    # (e.g. a g-pass over single-leaf trees: no merge exists,
+                    # fg reduces to f and the root term supervises f).
+                    continue
                 opt.zero_grad(set_to_none=True)
                 loss.backward()
+                clip = self.config.grad_clip_norm
+                if clip is not None and float(clip) > 0.0:
+                    self._torch.nn.utils.clip_grad_norm_(params, float(clip))
                 opt.step()
-                last_loss = float(loss.detach().cpu())
         self._set_trainable(train_f=True, train_g=True)
         return last_loss
+
+    def _micro_batch_step(
+        self,
+        x: Any,
+        lengths: Any,
+        y: Any,
+        idx: Any,
+        *,
+        opt: Any,
+        params: list[Any],
+        node_supervision: list[tuple[Any, Any]] | None,
+        rollup_weights: Any | None,
+    ) -> float:
+        """One optimizer step over ``idx`` in memory-bounded chunks — exact.
+
+        The chunk losses are scaled so their SUM equals the full-batch loss
+        (plain root MSE, or the weighted node-mean with its denominator
+        computed over the whole batch up front), so accumulated gradients are
+        identical to a single-pass batch and only peak activation memory
+        changes.
+        """
+
+        torch = self._torch
+        micro = max(1, int(self.config.micro_batch_size or 1))
+        batch_n = int(idx.shape[0])
+        width = int(y.shape[1])
+        root_w = float(self.config.root_weight)
+        leaf_w = float(self.config.leaf_weight)
+        merge_w = float(self.config.merge_weight)
+        idx_list = idx.detach().cpu().tolist()
+
+        denom: float | None = None
+        if node_supervision is not None:
+            weight_sum = torch.zeros((), device=self._device)
+            for i in idx_list:
+                _target, mask = node_supervision[int(i)]
+                n_nodes = int(mask.shape[0])
+                leaf_count = (n_nodes + 1) // 2
+                is_leaf = torch.arange(n_nodes, device=mask.device) < leaf_count
+                row_w = torch.where(
+                    is_leaf,
+                    torch.full((n_nodes,), leaf_w, device=mask.device),
+                    torch.full((n_nodes,), merge_w, device=mask.device),
+                )
+                keep = mask & (row_w > 0.0)
+                weight_sum = weight_sum + row_w[keep].sum()
+            denom = root_w * float(batch_n) + float(weight_sum.detach().cpu())
+            if denom <= 0.0:
+                raise ValueError(
+                    f"family={self.name!r} weighted node-mean has zero total weight "
+                    "over the batch; nothing anchors the loss"
+                )
+
+        opt.zero_grad(set_to_none=True)
+        total = 0.0
+        any_grad = False
+        for cstart in range(0, batch_n, micro):
+            cidx = idx[cstart : cstart + micro]
+            if node_supervision is not None:
+                if rollup_weights is not None:
+                    pred, traces = self._model.forward_rollup(
+                        x[cidx], lengths[cidx], rollup_weights[cidx], collect_trace=True
+                    )
+                else:
+                    pred, traces = self._model.forward_with_trace(x[cidx], lengths[cidx])
+                node_rows = self._node_supervision_rows(
+                    traces,
+                    [node_supervision[int(i)] for i in cidx.detach().cpu().tolist()],
+                    dtype=pred.dtype,
+                )
+                # Numerator contribution: root_w * Σ_tree (per-tree MSE over
+                # width) + Σ row_w · node loss, over this chunk only.
+                sse = ((pred - y[cidx]) ** 2).sum() / float(width)
+                num = root_w * sse
+                if node_rows is not None:
+                    losses, _depths, is_leaf = node_rows
+                    row_w = torch.where(
+                        is_leaf,
+                        torch.full_like(losses, leaf_w),
+                        torch.full_like(losses, merge_w),
+                    )
+                    keep = row_w > 0.0
+                    num = num + (row_w[keep] * losses[keep]).sum()
+                chunk_loss = num / float(denom or 1.0)
+            else:
+                if rollup_weights is not None:
+                    pred, _traces = self._model.forward_rollup(
+                        x[cidx], lengths[cidx], rollup_weights[cidx]
+                    )
+                else:
+                    pred = self._model(x[cidx], lengths[cidx])
+                chunk_loss = ((pred - y[cidx]) ** 2).sum() / float(batch_n * width)
+            total += float(chunk_loss.detach().cpu())
+            if bool(chunk_loss.requires_grad):
+                any_grad = True
+                chunk_loss.backward()
+        if any_grad:
+            clip = self.config.grad_clip_norm
+            if clip is not None and float(clip) > 0.0:
+                torch.nn.utils.clip_grad_norm_(params, float(clip))
+            opt.step()
+        return total
 
     def _rollup_weights_tensor(self, trees: Sequence[Any], *, max_leaves: int) -> Any | None:
         """Normalized ``[n_trees, max_leaves]`` rollup weights for ``leaf_mean``."""
@@ -678,7 +852,8 @@ class NeuralOperatorFamily:
             )
             leaf_chunks.append(torch.arange(n_nodes, device=self._device) < leaf_count)
         states = torch.cat(list(traces), dim=0)
-        preds = self._model.readout(states)
+        read = getattr(self._model, "_read", None)
+        preds = read(states) if callable(read) else self._model.readout(states)
         targets = torch.cat(target_chunks, dim=0).to(device=preds.device, dtype=dtype)
         mask = torch.cat(mask_chunks)
         if not bool(mask.any()):
@@ -782,15 +957,27 @@ class NeuralOperatorFamily:
         return loss
 
     def _set_trainable(self, *, train_f: bool, train_g: bool) -> None:
+        """f trains the leaf operator + readout; g trains the merge operator.
+
+        This mirrors the TT-ladder semantics the anchors were recorded under
+        (``freeze_for_f_training`` / ``freeze_for_g_training``): f owns how a
+        single unit becomes a scored state, g owns how two states compose.
+        Models may pin the split explicitly via ``f_module_names`` /
+        ``g_module_names``.
+        """
+
         assert self._model is not None
         for param in self._model.parameters():
             param.requires_grad = False
-        modules = []
-        if train_g:
-            modules.extend([self._model.leaf_operator, self._model.merge])
+        f_names = getattr(self._model, "f_module_names", ("leaf_operator", "readout"))
+        g_names = getattr(self._model, "g_module_names", ("merge",))
+        names: list[str] = []
         if train_f:
-            modules.append(self._model.readout)
-        for module in modules:
+            names.extend(f_names)
+        if train_g:
+            names.extend(g_names)
+        for name in names:
+            module = getattr(self._model, name)
             for param in module.parameters():
                 param.requires_grad = True
 

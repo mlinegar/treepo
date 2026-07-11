@@ -68,8 +68,9 @@ class _NeuralOperatorStatistic:
         family._ensure_model(output_dim=family._output_dim)
         assert family._model is not None
         state_t = self._state_tensor(state)
+        read = getattr(family._model, "_read", None) or family._model.readout
         with family._torch.no_grad():
-            raw = family._model.readout(state_t)
+            raw = read(state_t)
             values = family._denormalized_predictions(raw).detach().cpu().tolist()
         row = values[0] if values and isinstance(values[0], list) else values
         if (family._output_dim or 1) == 1:
@@ -115,8 +116,9 @@ class _NeuralOperatorStatistic:
         rows: list[dict[str, Any]] = []
         with family._torch.no_grad():
             _raw, traces = family._model.forward_with_trace(x, lengths)
+            read = getattr(family._model, "_read", None) or family._model.readout
             for tree_idx, (tree, trace) in enumerate(zip(tree_list, traces)):
-                raw = family._model.readout(trace)
+                raw = read(trace)
                 values = family._denormalized_predictions(raw).detach().cpu().tolist()
                 for node_idx, row in enumerate(values):
                     row = row if isinstance(row, list) else [row]
