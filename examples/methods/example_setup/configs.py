@@ -184,6 +184,12 @@ class ManifestoReplicationConfig:
     leaf_unit_count: int = 1
     leaf_unit_counts: tuple[int, ...] = ()
     supervision_grid: tuple[str, ...] = ()
+    # First-class grid axes (docs/treepo_fit_grid_upgrade_plan_2026_07_10.md
+    # Phase 3). Empty tuples fall back to a single default cell.
+    seeds: tuple[int, ...] = ()
+    doc_gold_ns: tuple[int | None, ...] = ()
+    local_label_mixes: tuple[str, ...] = ()
+    gold_fraction_p: float = 1.0
 
 
 @dataclass

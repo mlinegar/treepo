@@ -46,13 +46,24 @@ def main() -> int:
         leaf_count = int(cell["leaf_unit_count"])
         mode = str(cell["preference_mode"])
         supervision_unit = str(cell["supervision_unit"])
-        cell_dir = output_dir / f"{supervision_unit}_leaf_count_{leaf_count:03d}_{mode}"
+        seed = int(cell.get("seed", cfg.doc_sample_seed))
+        doc_gold_n = cell.get("doc_gold_n")
+        local_label_mix = str(cell.get("local_label_mix", "none"))
+        cell_dir = (
+            output_dir
+            / f"{supervision_unit}_leaf_count_{leaf_count:03d}_{mode}"
+            f"_seed{seed}_gold{'all' if doc_gold_n is None else doc_gold_n}_{local_label_mix}"
+        )
         payload = run_manifesto_replication_cell(
             config=cfg,
             output_dir=cell_dir,
             leaf_unit_count=leaf_count,
             preference_mode=mode,
             prompt_template=prompt_template,
+            seed=seed,
+            doc_gold_n=doc_gold_n,
+            local_label_mix=local_label_mix,
+            gold_fraction_p=cell.get("gold_fraction_p"),
         )
         grid_rows.append(
             {
@@ -61,6 +72,10 @@ def main() -> int:
                 "preference_mode": mode,
                 "preference_scope": cfg.preference_scope,
                 "supervision_unit": supervision_unit,
+                "seed": seed,
+                "doc_gold_n": doc_gold_n,
+                "local_label_mix": local_label_mix,
+                "grid_axes": dict(payload["result"].summary.get("grid_axes") or {}),
                 "status": payload["result"].status,
                 "metrics": dict(payload["result"].metrics),
                 "output_dir": str(cell_dir),

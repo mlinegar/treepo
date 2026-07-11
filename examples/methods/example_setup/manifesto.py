@@ -9,9 +9,17 @@ from .configs import ManifestoReplicationConfig
 
 
 def manifesto_grid_cells(config: ManifestoReplicationConfig) -> tuple[dict[str, Any], ...]:
+    from treepo.methods._grid_axes import LOCAL_LABEL_MIXES
+
     doc_unit_kind = str(config.doc_unit_kind or "qsentence")
     leaf_counts = tuple(int(v) for v in (config.leaf_unit_counts or (config.leaf_unit_count,)))
     supervision_grid = tuple(str(v) for v in (config.supervision_grid or (config.preference_mode,)))
+    seeds = tuple(int(v) for v in (config.seeds or (config.doc_sample_seed,)))
+    doc_gold_ns = tuple(config.doc_gold_ns or (None,))
+    local_label_mixes = tuple(str(v) for v in (config.local_label_mixes or ("none",)))
+    for mix in local_label_mixes:
+        if mix not in LOCAL_LABEL_MIXES:
+            raise ValueError(f"local_label_mixes entries must be one of {LOCAL_LABEL_MIXES}, got {mix!r}")
     mode_units = {
         "none": "root",
         "scores": doc_unit_kind,
@@ -19,26 +27,42 @@ def manifesto_grid_cells(config: ManifestoReplicationConfig) -> tuple[dict[str, 
         "ranked": doc_unit_kind,
     }
     cells: list[dict[str, Any]] = []
-    seen: set[tuple[str, int]] = set()
-    for mode in supervision_grid:
-        supervision_unit = mode_units.get(mode)
-        if supervision_unit is None:
-            raise ValueError("preference_mode/supervision_grid entries must be one of: none, scores, pairwise, ranked")
-        unit_leaf_counts = leaf_counts if supervision_unit == "root" else (1,)
-        for leaf_count in unit_leaf_counts:
-            normalized_leaf_count = max(1, int(leaf_count or 1))
-            key = (mode, normalized_leaf_count)
-            if key in seen:
-                continue
-            seen.add(key)
-            cells.append(
-                {
-                    "preference_mode": mode,
-                    "leaf_unit_count": normalized_leaf_count,
-                    "doc_unit_kind": doc_unit_kind,
-                    "supervision_unit": supervision_unit,
-                }
-            )
+    seen: set[tuple[str, int, int, Any, str]] = set()
+    for seed in seeds:
+        for doc_gold_n in doc_gold_ns:
+            normalized_doc_gold_n = None if doc_gold_n is None else int(doc_gold_n)
+            for local_label_mix in local_label_mixes:
+                for mode in supervision_grid:
+                    supervision_unit = mode_units.get(mode)
+                    if supervision_unit is None:
+                        raise ValueError(
+                            "preference_mode/supervision_grid entries must be one of: none, scores, pairwise, ranked"
+                        )
+                    unit_leaf_counts = leaf_counts if supervision_unit == "root" else (1,)
+                    for leaf_count in unit_leaf_counts:
+                        normalized_leaf_count = max(1, int(leaf_count or 1))
+                        key = (
+                            mode,
+                            normalized_leaf_count,
+                            int(seed),
+                            normalized_doc_gold_n,
+                            local_label_mix,
+                        )
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        cell: dict[str, Any] = {
+                            "preference_mode": mode,
+                            "leaf_unit_count": normalized_leaf_count,
+                            "doc_unit_kind": doc_unit_kind,
+                            "supervision_unit": supervision_unit,
+                            "seed": int(seed),
+                            "doc_gold_n": normalized_doc_gold_n,
+                            "local_label_mix": local_label_mix,
+                        }
+                        if local_label_mix == "gold_fraction":
+                            cell["gold_fraction_p"] = float(config.gold_fraction_p)
+                        cells.append(cell)
     return tuple(cells)
 
 
@@ -49,6 +73,10 @@ def run_manifesto_replication_cell(
     leaf_unit_count: int,
     preference_mode: str,
     prompt_template: str,
+    seed: int | None = None,
+    doc_gold_n: int | None = None,
+    local_label_mix: str = "none",
+    gold_fraction_p: float | None = None,
 ) -> dict[str, Any]:
     from treepo import fit
     from treepo.methods.preference import export_preference_records
@@ -119,6 +147,7 @@ def run_manifesto_replication_cell(
             "scope": config.preference_scope,
             **export_preference_records(preferences, output_dir / "preference"),
         }
+    resolved_seed = int(config.doc_sample_seed if seed is None else seed)
     fit_config = {
         "family": config.family,
         "train_data": train,
@@ -129,7 +158,15 @@ def run_manifesto_replication_cell(
             "axis_value": int(leaf_unit_count),
             "axis_kind": "leaf_unit_count",
         },
+        # First-class supervision-grid axes for this cell.
+        "seed": resolved_seed,
+        "doc_gold_n": (None if doc_gold_n is None else int(doc_gold_n)),
+        "local_label_mix": str(local_label_mix or "none"),
+        "gold_fraction_p": float(config.gold_fraction_p if gold_fraction_p is None else gold_fraction_p),
     }
+    if config.use_oracle_predictor:
+        # The manifesto oracle doubles as the node predictor for llm_distilled.
+        backend.setdefault("node_oracle_predictor", manifesto_oracle_predict_fn)
     if preferences is not None:
         fit_config["preference_data"] = preferences
     return {
@@ -142,6 +179,9 @@ def run_manifesto_replication_cell(
         "preference_mode": preference_mode,
         "leaf_unit_count": int(leaf_unit_count),
         "doc_unit_kind": str(config.doc_unit_kind or "unit"),
+        "seed": resolved_seed,
+        "doc_gold_n": (None if doc_gold_n is None else int(doc_gold_n)),
+        "local_label_mix": str(local_label_mix or "none"),
     }
 
 

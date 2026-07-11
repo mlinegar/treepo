@@ -62,6 +62,41 @@ treepo.fit(
 Downstream code injects concrete callables/programs or registers real
 families.
 
+## Supervision-Grid Axes
+
+`treepo.fit` promotes three supervision-grid knobs to first-class, validated
+spec fields (top-level keys or `CTreePOLearningSpec` fields). Defaults preserve
+today's behavior: all documents, root-only labels, seed 0.
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `doc_gold_n` | `int \| None` | `None` | How many documents contribute gold document-level labels. Drawn from one per-seed permutation and taken as a prefix, so cells at increasing `n` are nested (`25 ⊂ 50 ⊂ 100`) and the selected ids are pinned/persisted. `None` uses all documents. |
+| `local_label_mix` | `"none" \| "gold_fraction" \| "llm_distilled"` | `"none"` | Node-level supervision. `none` = root-only. `gold_fraction` keeps gold node labels on a deterministic `p`-fraction of nodes (pinned per seed). `llm_distilled` routes to a cached-teacher node source. |
+| `gold_fraction_p` | `float` | `1.0` | Kept-node fraction for `gold_fraction` (in `[0, 1]`). |
+| `distilled_labels_path` | `str \| None` | `None` | Cached `teacher_node_rows.jsonl` source for `llm_distilled`. Absent one, supply a callable in `backend_config["node_oracle_predictor"]` (or `["predict_fn"]`); otherwise `fit()` errors naming what to configure. The cached-jsonl loader itself is Phase 2. |
+| `seed` | `int` | `0` | One seed per `fit()` call; drives every pinned selection and seeds the backend when unset. |
+
+```python
+treepo.fit(
+    {
+        "family": "fno",
+        "train_data": train_trees,
+        "eval_data": eval_trees,
+        "doc_gold_n": 25,
+        "local_label_mix": "gold_fraction",
+        "gold_fraction_p": 0.5,
+        "seed": 3,
+    },
+)
+```
+
+Each cell persists its axes into `summary["grid_axes"]`, the evidence JSON
+(`evidence["grid_axes"]`, with the pinned `selected_doc_ids` and
+`selected_node_units`), and the run manifest. To expand a full grid, use
+`treepo.methods._grid_axes.expand_grid_cells(seeds=..., doc_gold_ns=...,
+local_label_mixes=..., leaf_unit_counts=...)`, which emits one fully specified
+cell per combination — `fit()` stays one seed per call.
+
 ## Application Families
 
 Downstream packages can register additional runtimes with

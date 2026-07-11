@@ -76,8 +76,9 @@ The path is:
 1. `treepo.fit(...)` normalizes a mapping into `FitConfig`.
 2. `treepo.methods.contracts.CTreePOLearningSpec` receives the public spec.
 3. `treepo.methods.families.resolve_family(...)` builds a `FamilyRuntime`, unless `backend_config["family_runtime"]` injects one for tests or downstream adapters.
-4. `treepo.methods.runtime.run_alternating_family(...)` alternates f/g training and evaluates splits.
-5. `treepo.methods._fit_result.build_result(...)` writes manifests, prediction rows, preference exports, statistics, and evidence.
+4. `treepo.methods._grid_axes.apply_grid_axes(...)` pins the `doc_gold_n` document subset and resolves the `local_label_mix` node-label source before training (see `docs/training_defaults.md` for the axis surface and defaults).
+5. `treepo.methods.runtime.run_alternating_family(...)` alternates f/g training and evaluates splits.
+6. `treepo.methods._fit_result.build_result(...)` writes manifests, prediction rows, preference exports, statistics, evidence, and the persisted `grid_axes` provenance (pinned selected doc ids / node units, mix, seed).
 
 ## Family Boundary
 

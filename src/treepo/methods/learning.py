@@ -12,6 +12,7 @@ from treepo.methods._fit_inputs import (
     resolve_runtime_family,
 )
 from treepo.methods._fit_result import build_result
+from treepo.methods._grid_axes import GridAxes, apply_grid_axes
 from treepo.methods._preference_traces import preference_training_rows
 from treepo.methods.preference import PreferenceDataset
 from treepo.methods.runtime import run_alternating_family
@@ -22,6 +23,17 @@ def fit(spec: Any) -> Any:
     backend_config = dict(spec.backend_config or {})
     axis = dict(spec.axis or {})
     initial = spec.initial_artifacts or {}
+
+    # First-class supervision-grid axes: pin the document subset and resolve the
+    # node-label mix before training, and carry one seed per fit() call so every
+    # cell at the same (seed, n) trains on the identical, persisted subset.
+    grid_axes = GridAxes.from_spec(spec)
+    backend_config.setdefault("seed", int(grid_axes.seed))
+    train_traces, grid_axes_provenance = apply_grid_axes(
+        as_sequence(spec.train_data),
+        axes=grid_axes,
+        backend_config=backend_config,
+    )
 
     family = resolve_runtime_family(spec, backend_config)
     objective = resolve_objective(backend_config)
@@ -47,7 +59,7 @@ def fit(spec: Any) -> Any:
         family=family,
         f_init=initial.get("f"),
         g_init=initial.get("g"),
-        traces=as_sequence(spec.train_data),
+        traces=train_traces,
         f_traces=f_preference_traces or None,
         g_traces=g_preference_traces or None,
         eval_trees=as_sequence(spec.eval_data),
@@ -67,6 +79,7 @@ def fit(spec: Any) -> Any:
         output_dir=output_dir,
         objective=objective,
         preference_dataset=preference_dataset,
+        grid_axes=grid_axes_provenance,
     )
 
 

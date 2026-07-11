@@ -70,6 +70,14 @@ class CTreePOLearningSpec:
     eval_data: Any = None
     backend_config: Mapping[str, Any] = field(default_factory=dict)
     axis: Mapping[str, Any] = field(default_factory=dict)
+    # First-class supervision-grid axes (see treepo.methods._grid_axes and
+    # docs/treepo_fit_grid_upgrade_plan_2026_07_10.md Phase 3). Defaults keep
+    # today's behavior: all documents, root-only labels, seed 0.
+    doc_gold_n: int | None = None
+    local_label_mix: str = "none"
+    gold_fraction_p: float = 1.0
+    distilled_labels_path: str | None = None
+    seed: int = 0
 
     def to_dict(self) -> JsonDict:
         return {
@@ -80,10 +88,18 @@ class CTreePOLearningSpec:
             "backend_config": jsonable(dict(self.backend_config or {})),
             "axis": jsonable(dict(self.axis or {})),
             "preference_data": jsonable(self.preference_data),
+            "doc_gold_n": (None if self.doc_gold_n is None else int(self.doc_gold_n)),
+            "local_label_mix": str(self.local_label_mix),
+            "gold_fraction_p": float(self.gold_fraction_p),
+            "distilled_labels_path": (
+                None if self.distilled_labels_path is None else str(self.distilled_labels_path)
+            ),
+            "seed": int(self.seed),
         }
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "CTreePOLearningSpec":
+        doc_gold_n = payload.get("doc_gold_n")
         return cls(
             space_kind=str(payload.get("space_kind") or ""),
             family=str(payload.get("family") or ""),
@@ -94,6 +110,17 @@ class CTreePOLearningSpec:
             eval_data=payload.get("eval_data"),
             backend_config=dict(payload.get("backend_config") or {}),
             axis=dict(payload.get("axis") or {}),
+            doc_gold_n=(None if doc_gold_n is None else int(doc_gold_n)),
+            local_label_mix=str(payload.get("local_label_mix") or "none"),
+            gold_fraction_p=float(
+                payload["gold_fraction_p"] if payload.get("gold_fraction_p") is not None else 1.0
+            ),
+            distilled_labels_path=(
+                None
+                if payload.get("distilled_labels_path") is None
+                else str(payload["distilled_labels_path"])
+            ),
+            seed=int(payload.get("seed") or 0),
         )
 
 

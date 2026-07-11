@@ -71,8 +71,17 @@ def build_evidence(
             "files": prediction_files,
             "file_count": len(prediction_files),
         },
+        "grid_axes": _grid_axes_payload(summary_payload.get("grid_axes")),
     }
     return _jsonable(evidence)
+
+
+def _grid_axes_payload(raw: Any) -> dict[str, Any]:
+    """Persist the first-class grid axes (doc-gold-n, label-mix, seed) for a run."""
+    axes = _mapping(raw)
+    if not axes:
+        return {"present": False}
+    return {"present": True, **_jsonable(axes)}
 
 
 def _local_law_payload(

@@ -40,6 +40,11 @@ def write_manifest(
             "has_preference_data": bool(getattr(spec, "preference_data", None)),
             # backend_config may carry non-JSON-serializable instances.
             "backend_config_keys": sorted((spec.backend_config or {}).keys()),
+            "doc_gold_n": getattr(spec, "doc_gold_n", None),
+            "local_label_mix": str(getattr(spec, "local_label_mix", "none")),
+            "gold_fraction_p": float(getattr(spec, "gold_fraction_p", 1.0)),
+            "distilled_labels_path": getattr(spec, "distilled_labels_path", None),
+            "seed": int(getattr(spec, "seed", 0) or 0),
         },
         "objective": (
             objective.to_dict()
