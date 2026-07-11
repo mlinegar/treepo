@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import Any
 
 from treepo.methods._fit_inputs import (
@@ -27,6 +28,7 @@ from treepo.objective import LOCAL_LAW_ESTIMATOR_ORACLE_STATE, ObjectiveSpec
 
 def fit(spec: Any) -> Any:
     """Run one alternating f/g ladder described by ``spec``."""
+    started = time.perf_counter()
     backend_config = dict(spec.backend_config or {})
     axis = dict(spec.axis or {})
     initial = spec.initial_artifacts or {}
@@ -121,6 +123,7 @@ def fit(spec: Any) -> Any:
         supervision=supervision_provenance(
             level=supervision_level, overrides=supervision_overrides
         ),
+        wall_seconds=time.perf_counter() - started,
     )
 
 

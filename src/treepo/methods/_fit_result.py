@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from treepo.evidence import build_evidence
+from treepo.methods._results import write_results_json
 from treepo.methods._run_manifest import json_default, write_manifest
 from treepo.methods.contracts import FitResult
 from treepo.methods.preference import PreferenceDataset, export_preference_records
@@ -22,6 +23,7 @@ def build_result(
     preference_dataset: PreferenceDataset,
     grid_axes: Mapping[str, Any] | None = None,
     supervision: Mapping[str, Any] | None = None,
+    wall_seconds: float | None = None,
 ) -> Any:
     last = records[-1] if records else None
     error = (last.extra or {}).get("error") if last is not None else None
@@ -93,6 +95,18 @@ def build_result(
         summary=summary,
         preference_artifacts=preference_artifacts,
     )
+    results_path = write_results_json(
+        spec=spec,
+        records=records,
+        output_dir=output_dir,
+        status=status,
+        summary=summary,
+        artifacts=artifacts,
+        wall_seconds=wall_seconds,
+    )
+    if results_path is not None:
+        summary["results_path"] = str(results_path)
+        artifacts["results_json"] = str(results_path)
     return FitResult(
         status=status,
         metrics=metrics,
