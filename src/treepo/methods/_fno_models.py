@@ -96,13 +96,27 @@ class _EmbeddingCoordinateFGModel:
                 torch.nn.init.zeros_(final.weight)
                 torch.nn.init.zeros_(final.bias)
 
-            def _encode_leaves(self, x: Any) -> Any:
-                """(batch, max_leaves, D) -> per-leaf states, residual bypass."""
+            def _encode_leaves(self, x: Any, lengths: Any = None) -> Any:
+                """(batch, max_leaves, D) -> per-leaf states, residual bypass.
+
+                Only REAL leaves go through the FNO (padding slots stay zero
+                and are never consumed downstream): activation memory scales
+                with the corpus's actual leaf count, not batch × max_leaves.
+                """
 
                 batch, max_leaves, dim = int(x.shape[0]), int(x.shape[1]), int(x.shape[2])
                 flat = x.reshape(batch * max_leaves, dim)
-                normalized = self.leaf_norm(flat).unsqueeze(1)
-                states = flat.unsqueeze(1) + self.leaf_fno(normalized)
+                if lengths is None:
+                    real = torch.ones(batch * max_leaves, dtype=torch.bool, device=x.device)
+                else:
+                    real = (
+                        torch.arange(max_leaves, device=x.device)[None, :] < lengths[:, None]
+                    ).reshape(-1)
+                rows = flat[real]
+                normalized = self.leaf_norm(rows).unsqueeze(1)
+                states_real = rows.unsqueeze(1) + self.leaf_fno(normalized)
+                states = torch.zeros_like(flat)
+                states[real] = states_real.squeeze(1)
                 return states.reshape(batch, max_leaves, dim)
 
             def _merge_rows(self, left: Any, right: Any) -> Any:
@@ -138,7 +152,7 @@ class _EmbeddingCoordinateFGModel:
                 if collect_trace:
                     _pred, traces, leaf_states = self._forward(x, lengths, collect_trace=True)
                 else:
-                    leaf_states = self._encode_leaves(x)
+                    leaf_states = self._encode_leaves(x, lengths)
                     traces = []
                 leaf_preds = self._read(leaf_states)
                 return (leaf_preds * weights.unsqueeze(-1)).sum(dim=1), traces
@@ -146,7 +160,7 @@ class _EmbeddingCoordinateFGModel:
             def _forward(
                 self, x: Any, lengths: Any, *, collect_trace: bool
             ) -> tuple[Any, list[Any], Any]:
-                leaf_states = self._encode_leaves(x)
+                leaf_states = self._encode_leaves(x, lengths)
                 if int(leaf_states.shape[0]) > 0 and bool(
                     torch.all(lengths == lengths[0]).detach().cpu().item()
                 ):
