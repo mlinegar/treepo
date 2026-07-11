@@ -53,6 +53,11 @@ class NeuralOperatorFamilyConfig:
     #: ``label`` attribute is read first, then metadata ``score`` /
     #: ``oracle_score``.
     node_target_key: str | None = None
+    #: With ``node_target_exclusive`` set, ONLY ``node_target_key`` is read —
+    #: nodes without it stay unobserved instead of falling back to ``label`` /
+    #: ``score``. The distilled label mix sets this so a cached-teacher cell
+    #: never silently trains on gold node labels where the cache has gaps.
+    node_target_exclusive: bool = False
     #: Optional pinned ``doc_id::node_id`` unit ids whose leaf labels may be
     #: consumed (the gold_fraction grid axis); leaves outside the set are
     #: treated as unlabeled. ``None`` consumes every labeled leaf.

@@ -54,10 +54,20 @@ def fit(spec: Any) -> Any:
     )
     # The gold_fraction axis pins which leaf units keep their gold labels;
     # hand the pinned selection to the family so the loss actually consumes it.
-    mix_provenance = dict(grid_axes_provenance.get("local_label_mix") or {})
+    # The llm_distilled axis attaches cached-teacher scores to the training
+    # trees and routes node targets exclusively through the distilled key.
+    mix_provenance = grid_axes_provenance.get("local_label_mix") or {}
     if mix_provenance.get("mix") == "gold_fraction" and "selected_node_units" in mix_provenance:
         backend_config.setdefault(
             "supervised_node_units", tuple(mix_provenance["selected_node_units"])
+        )
+    elif mix_provenance.get("mix") == "llm_distilled":
+        from treepo.methods._distilled import apply_distilled_node_labels
+
+        mix_provenance.update(
+            apply_distilled_node_labels(
+                train_traces, axes=grid_axes, backend_config=backend_config
+            )
         )
 
     family = resolve_runtime_family(spec, backend_config)

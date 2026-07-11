@@ -178,8 +178,8 @@ def resolve_label_mix(
     * ``gold_fraction`` — keep gold node labels on a deterministic ``p``-fraction
       of nodes (pinned per seed like the document split).
     * ``llm_distilled`` — resolve a cached-teacher node source; error with a
-      clear message when none is configured (the cached-jsonl loader itself is
-      Phase 2).
+      clear message when none is configured. Loading and attaching the labels
+      happens in ``treepo.methods._distilled`` once the source is pinned here.
     """
     mix = axes.local_label_mix
     provenance: dict[str, Any] = {"mix": mix, "seed": int(axes.seed)}
@@ -222,9 +222,8 @@ def resolve_label_mix(
             "local_label_mix='llm_distilled' needs a cached-teacher node source: "
             "set spec.distilled_labels_path to a teacher_node_rows.jsonl path, or "
             "provide a callable in backend_config['node_oracle_predictor'] "
-            "(or backend_config['predict_fn']). The cached-jsonl loader is Phase 2 "
-            "of the fit-grid upgrade plan; wire one of these to route distilled "
-            "node labels through fit()."
+            "(or backend_config['predict_fn']); fit() attaches the labels via "
+            "treepo.distilled and trains on them with no LLM client."
         )
     if labels_path:
         provenance.update({"labels_source": "cached_jsonl", "distilled_labels_path": str(labels_path)})

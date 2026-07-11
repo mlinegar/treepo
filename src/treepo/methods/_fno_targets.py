@@ -253,15 +253,22 @@ def _node_target_value(
 ) -> list[float] | None:
     meta = getattr(node, "metadata", None)
     meta = meta if isinstance(meta, Mapping) else {}
+    exclusive = bool(getattr(config, "node_target_exclusive", False))
+    if exclusive and not config.node_target_key:
+        raise ValueError(
+            "node_target_exclusive=True requires node_target_key to name the "
+            "single metadata key node targets are read from"
+        )
     candidates: list[Any] = []
     if config.node_target_key:
         candidates.append(meta.get(str(config.node_target_key)))
         if isinstance(node, Mapping):
             candidates.append(node.get(str(config.node_target_key)))
-    candidates.append(getattr(node, "label", None))
-    if isinstance(node, Mapping):
-        candidates.extend([node.get("label"), node.get("score")])
-    candidates.extend([meta.get("score"), meta.get("oracle_score")])
+    if not exclusive:
+        candidates.append(getattr(node, "label", None))
+        if isinstance(node, Mapping):
+            candidates.extend([node.get("label"), node.get("score")])
+        candidates.extend([meta.get("score"), meta.get("oracle_score")])
     for candidate in candidates:
         value = _coerce_node_target(candidate, width=width)
         if value is not None:
