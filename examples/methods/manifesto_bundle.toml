@@ -1,0 +1,18 @@
+# Load an external labeled-tree bundle and (optionally) fit() on it.
+#
+# Leave bundle_path empty to run on a tiny synthetic bundle written to the
+# output directory. Point it at a real bundle directory (a leaf-scale run with
+# labeled_trees.jsonl, or a single-run top-level bundle) to load real trees.
+# The path is supplied via config so the package hardcodes no absolute path.
+bundle_path = ""
+
+# Optional target dimension (e.g. "rile", "domain_3"). Empty uses the scalar
+# document/node scores.
+dimension = ""
+
+# Family and leaf scale used when run_fit = true.
+family = "learnable_constant"
+leaf_count = 2
+
+# Load-only by default. Set true to train the family on the loaded trees.
+run_fit = false
