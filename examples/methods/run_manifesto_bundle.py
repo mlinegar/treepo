@@ -144,6 +144,18 @@ def main() -> int:
         "axis": {"axis_kind": "leaf_count", "axis_value": int(cfg.get("leaf_count", 2))},
         "supervision_level": str(cfg.get("supervision_level", "default")),
     }
+    # Explicit node weights cover regimes the named levels don't (e.g. the RILE
+    # qsentence case: leaf + root observed, merges unlabeled -> root=1, leaf=1).
+    for weight_field in ("root_weight", "leaf_weight", "merge_weight"):
+        if cfg.get(weight_field) is not None:
+            fit_config[weight_field] = float(cfg[weight_field])
+    backend: dict[str, Any] = {}
+    if cfg.get("root_readout"):
+        backend["root_readout"] = str(cfg["root_readout"])
+    if cfg.get("rollup_weight_key"):
+        backend["rollup_weight_key"] = str(cfg["rollup_weight_key"])
+    if backend:
+        fit_config["backend_config"] = backend
 
     # Per-node supervision consumes the bundle's node labels directly: pick a
     # named level (root/leaf/node/mix) with a neural_operator/fno family, or

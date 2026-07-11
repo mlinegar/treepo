@@ -57,9 +57,31 @@ class _TreeFGModel:
                 return self._forward(x, lengths, collect_trace=False)[0]
 
             def forward_with_trace(self, x: Any, lengths: Any) -> tuple[Any, list[Any]]:
-                return self._forward(x, lengths, collect_trace=True)
+                pred, traces, _leaf_states = self._forward(x, lengths, collect_trace=True)
+                return pred, traces
 
-            def _forward(self, x: Any, lengths: Any, *, collect_trace: bool) -> tuple[Any, list[Any]]:
+            def forward_rollup(
+                self, x: Any, lengths: Any, weights: Any, *, collect_trace: bool = False
+            ) -> tuple[Any, list[Any]]:
+                """Additive rollup readout: weighted mean of per-leaf readouts.
+
+                ``weights`` is ``[batch, max_leaves]``, zero on padding and
+                normalized to sum to 1 per tree. Without a trace request the
+                merge stack is never touched — the additive case needs no
+                composition.
+                """
+
+                if collect_trace:
+                    _pred, traces, leaf_states = self._forward(x, lengths, collect_trace=True)
+                else:
+                    leaf_states = self.leaf_operator(x)
+                    traces = []
+                leaf_preds = self.readout(leaf_states)
+                return (leaf_preds * weights.unsqueeze(-1)).sum(dim=1), traces
+
+            def _forward(
+                self, x: Any, lengths: Any, *, collect_trace: bool
+            ) -> tuple[Any, list[Any], Any]:
                 leaf_states = self.leaf_operator(x)
                 if int(leaf_states.shape[0]) > 0 and bool(torch.all(lengths == lengths[0]).detach().cpu().item()):
                     length = max(1, int(lengths[0].detach().cpu().item()))
@@ -71,7 +93,7 @@ class _TreeFGModel:
                         if collect_trace
                         else []
                     )
-                    return self.readout(roots), traces
+                    return self.readout(roots), traces, leaf_states
                 roots = []
                 traces = []
                 raw_lengths = lengths.detach().cpu().tolist()
@@ -83,7 +105,7 @@ class _TreeFGModel:
                     roots.append(root)
                     if collect_trace:
                         traces.append(trace)
-                return self.readout(torch.stack(roots, dim=0)), traces
+                return self.readout(torch.stack(roots, dim=0)), traces, leaf_states
 
             def _compose_batch(self, states: Any, *, collect_trace: bool) -> tuple[Any, Any]:
                 trace_parts = [states] if collect_trace else None

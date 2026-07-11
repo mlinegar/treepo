@@ -284,6 +284,66 @@ def _coerce_node_target(value: Any, *, width: int) -> list[float] | None:
     return [float(item) for item in vector]  # type: ignore[arg-type]
 
 
+def _leaf_rollup_weights(
+    trees: Sequence[Any],
+    config: NeuralOperatorFamilyConfig,
+    *,
+    max_leaves: int,
+) -> list[list[float]]:
+    """Per-tree normalized leaf rollup weights, padded to ``max_leaves``.
+
+    With ``rollup_weight_key`` unset every leaf weighs equally (exact for
+    single-qsentence leaves). With a key set, every leaf must carry a
+    non-negative weight under that key in its metadata — additive rollups are
+    only exact when the weights are the true unit counts, so a missing weight
+    is an error, not a silent 1.0.
+    """
+
+    key = config.rollup_weight_key
+    out: list[list[float]] = []
+    for index, tree in enumerate(trees):
+        leaves = tuple(tree_leaves(tree) or ())
+        if not key:
+            raw = [1.0] * max(1, len(leaves))
+        else:
+            raw = []
+            for leaf_idx, leaf in enumerate(leaves):
+                value = _leaf_metadata_value(leaf, str(key))
+                weight = _safe_float(value)
+                if weight is None or weight < 0.0:
+                    raise ValueError(
+                        f"rollup_weight_key={key!r} is missing or invalid on leaf "
+                        f"{leaf_idx} of tree {index} (got {value!r}); additive "
+                        "rollups need a non-negative weight on every leaf"
+                    )
+                raw.append(weight)
+            if not raw:
+                raw = [1.0]
+        total = float(sum(raw))
+        if total <= 0.0:
+            raise ValueError(
+                f"tree {index} has zero total rollup weight; at least one leaf "
+                "must carry positive weight"
+            )
+        normalized = [value / total for value in raw]
+        padded = normalized[: int(max_leaves)]
+        padded.extend([0.0] * (int(max_leaves) - len(padded)))
+        out.append(padded)
+    return out
+
+
+def _leaf_metadata_value(leaf: Any, key: str) -> Any:
+    meta = getattr(leaf, "metadata", None)
+    if isinstance(meta, Mapping) and key in meta:
+        return meta.get(key)
+    if isinstance(leaf, Mapping):
+        inner = leaf.get("metadata")
+        if isinstance(inner, Mapping) and key in inner:
+            return inner.get(key)
+        return leaf.get(key)
+    return getattr(leaf, key, None)
+
+
 def _allowed_unit_set(config: NeuralOperatorFamilyConfig) -> frozenset[str] | None:
     units = getattr(config, "supervised_node_units", None)
     if units is None:
@@ -292,6 +352,7 @@ def _allowed_unit_set(config: NeuralOperatorFamilyConfig) -> frozenset[str] | No
 
 
 __all__ = [
+    "_leaf_rollup_weights",
     "_node_supervision_targets",
     "_node_target_value",
     "_target_rows",

@@ -31,6 +31,7 @@ from treepo.tree import TreeNode, TreeRecord
 __all__ = [
     "BundleFormatError",
     "KNOWN_TREE_VERSIONS",
+    "leaf_rollup_report",
     "load_labeled_tree_bundle",
 ]
 
@@ -131,6 +132,93 @@ def load_labeled_tree_bundle(
     if split is not None:
         records = _filter_by_split(records, split=split, split_ids=split_ids, where=str(tree_file))
     return records
+
+
+def leaf_rollup_report(
+    records: list[TreeRecord] | tuple[TreeRecord, ...],
+    *,
+    weight_key: str | None = None,
+) -> dict[str, Any]:
+    """Check the additive rollup identity on loaded records.
+
+    For additive targets (RILE, domain shares) the document value IS the
+    weighted mean of the leaf values — the paper's rollup identity. This
+    report compares each record's ``root_label`` against the (optionally
+    ``weight_key``-weighted) mean of its leaf labels: a near-zero error says
+    the bundle's leaf labels determine the document label exactly, so a model
+    that recovers leaf labels recovers the document construct through
+    ``root_readout='leaf_mean'`` with no further supervision.
+
+    Records whose root or leaves lack numeric labels are skipped and counted.
+    With ``weight_key`` set, a leaf missing that metadata key fails loudly —
+    a silently defaulted weight would fake the identity.
+    """
+
+    per_doc: list[tuple[float, float]] = []
+    skipped = 0
+    for record in records:
+        root = record.root_label
+        try:
+            root_value = None if root is None else float(root)
+        except (TypeError, ValueError):
+            root_value = None
+        leaves = record.leaves()
+        numerator = 0.0
+        denominator = 0.0
+        for leaf in leaves:
+            label = leaf.label
+            try:
+                value = None if label is None else float(label)
+            except (TypeError, ValueError):
+                value = None
+            if value is None:
+                continue
+            if weight_key is None:
+                weight = 1.0
+            else:
+                raw = dict(leaf.metadata or {}).get(str(weight_key))
+                if raw is None:
+                    raise BundleFormatError(
+                        f"leaf {record.tree_id}:{leaf.node_id} has no rollup weight "
+                        f"under metadata key {weight_key!r}"
+                    )
+                weight = float(raw)
+            numerator += weight * value
+            denominator += weight
+        if root_value is None or denominator <= 0.0:
+            skipped += 1
+            continue
+        per_doc.append((numerator / denominator, root_value))
+
+    abs_errors = [abs(estimate - truth) for estimate, truth in per_doc]
+    # A zero-error identity over CONSTANT labels is vacuous (a placeholder
+    # artifact, not evidence) — surface the degeneracy so callers can gate.
+    n_distinct = len({round(truth, 12) for _estimate, truth in per_doc})
+    return {
+        "n_docs": len(per_doc),
+        "n_skipped": skipped,
+        "weight_key": weight_key,
+        "mean_abs_error": (sum(abs_errors) / len(abs_errors)) if abs_errors else None,
+        "max_abs_error": max(abs_errors) if abs_errors else None,
+        "n_distinct_root_labels": n_distinct,
+        "degenerate_root_labels": len(per_doc) > 1 and n_distinct <= 1,
+        "pearson": _pearson(
+            [estimate for estimate, _ in per_doc], [truth for _, truth in per_doc]
+        ),
+    }
+
+
+def _pearson(xs: list[float], ys: list[float]) -> float | None:
+    if len(xs) < 2:
+        return None
+    mean_x = sum(xs) / len(xs)
+    mean_y = sum(ys) / len(ys)
+    num = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    den_x = sum((x - mean_x) ** 2 for x in xs) ** 0.5
+    den_y = sum((y - mean_y) ** 2 for y in ys) ** 0.5
+    if den_x <= 0.0 or den_y <= 0.0:
+        return None
+    return float(num / (den_x * den_y))
 
 
 def _resolve_tree_file(path: Path) -> tuple[Path, tuple[Path, ...]]:

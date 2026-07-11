@@ -21,3 +21,14 @@ supervision_level = "default"
 
 # Trains the family on the loaded trees. Set false for a load-only walkthrough.
 run_fit = true
+
+# The RILE qsentence regime: only leaf and document labels observed, document
+# value additive in the leaves. Use a neural_operator/fno family with explicit
+# weights (root + leaf, no merges) and the additive rollup readout:
+#   family = "neural_operator"
+#   root_weight = 1.0
+#   leaf_weight = 1.0
+#   root_readout = "leaf_mean"
+# For sentence-scale bundles whose leaves cover several qsentences, weight the
+# rollup by the covered unit count:
+#   rollup_weight_key = "total_non_header_qsentences"

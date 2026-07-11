@@ -46,7 +46,11 @@ from treepo.methods._fno_encoding import (
 from treepo.methods._fno_models import _TreeFGModel
 from treepo.methods._fno_neuralop import _require_torch, _validate_operator_kind
 from treepo.methods._fno_statistic import _NeuralOperatorStatistic
-from treepo.methods._fno_targets import _node_supervision_targets, _target_rows
+from treepo.methods._fno_targets import (
+    _leaf_rollup_weights,
+    _node_supervision_targets,
+    _target_rows,
+)
 from treepo.methods._fno_transition import (
     _numeric_transition_law_rows,
     _numeric_transition_state_targets,
@@ -79,6 +83,18 @@ class NeuralOperatorFamily:
                 f"family={self.name!r} got both numeric_transition_state_weight > 0 "
                 "and per-node supervision weights (leaf_weight/merge_weight); the "
                 "two loss shapes are mutually exclusive — pick one"
+            )
+        root_readout = str(self.config.root_readout or "root_state").strip().lower()
+        if root_readout not in {"root_state", "leaf_mean"}:
+            raise ValueError(
+                f"family={self.name!r} root_readout must be 'root_state' or "
+                f"'leaf_mean', got {self.config.root_readout!r}"
+            )
+        self.config.root_readout = root_readout
+        if self.config.rollup_weight_key and root_readout != "leaf_mean":
+            raise ValueError(
+                f"family={self.name!r} rollup_weight_key is only meaningful with "
+                "root_readout='leaf_mean'"
             )
         self.embedding_client = embedding_client or HashingEmbeddingClient(
             dim=self.config.embedding_dim,
@@ -251,6 +267,7 @@ class NeuralOperatorFamily:
         self._ensure_model(output_dim=int(y.shape[1]))
         y_train = self._normalized_targets(y)
         node_supervision = self._prepare_node_supervision(trees, width=int(y.shape[1]))
+        rollup_weights = self._rollup_weights_tensor(trees, max_leaves=int(x.shape[1]))
         last_loss = self._train_supervised(
             x,
             lengths,
@@ -259,6 +276,7 @@ class NeuralOperatorFamily:
             train_g=train_g,
             trees=trees if (train_g or self._objective_law_shares) else None,
             node_supervision=node_supervision,
+            rollup_weights=rollup_weights,
         )
         weights_path: Path | None = None
         if output_dir is not None and self._model is not None:
@@ -310,8 +328,12 @@ class NeuralOperatorFamily:
         assert self._model is not None
         self._model.eval()
         x, lengths = self._encode_trees(tree_list)
+        rollup_weights = self._rollup_weights_tensor(tree_list, max_leaves=int(x.shape[1]))
         with self._torch.no_grad():
-            raw = self._model(x, lengths)
+            if rollup_weights is not None:
+                raw, _traces = self._model.forward_rollup(x, lengths, rollup_weights)
+            else:
+                raw = self._model(x, lengths)
             raw_values = self._denormalized_predictions(raw).detach().cpu().tolist()
         values = [row if isinstance(row, list) else [row] for row in raw_values]
         if (self._output_dim or 1) == 1:
@@ -365,6 +387,8 @@ class NeuralOperatorFamily:
             "target_center": _tensor_payload(self._target_center),
             "target_scale": _tensor_payload(self._target_scale),
             "numeric_transition_state_weight": float(self.config.numeric_transition_state_weight),
+            "root_readout": str(self.config.root_readout),
+            "rollup_weight_key": self.config.rollup_weight_key,
             "node_supervision": {
                 "root_weight": float(self.config.root_weight),
                 "leaf_weight": float(self.config.leaf_weight),
@@ -428,6 +452,7 @@ class NeuralOperatorFamily:
         train_g: bool,
         trees: Sequence[Any] | None = None,
         node_supervision: list[tuple[Any, Any]] | None = None,
+        rollup_weights: Any | None = None,
     ) -> float | None:
         assert self._model is not None
         self._set_trainable(train_f=train_f, train_g=train_g)
@@ -485,9 +510,19 @@ class NeuralOperatorFamily:
                 law_rows = None
                 node_rows = None
                 if not need_trace:
-                    pred = self._model(x[idx], lengths[idx])
+                    if rollup_weights is not None:
+                        pred, _traces = self._model.forward_rollup(
+                            x[idx], lengths[idx], rollup_weights[idx]
+                        )
+                    else:
+                        pred = self._model(x[idx], lengths[idx])
                 else:
-                    pred, traces = self._model.forward_with_trace(x[idx], lengths[idx])
+                    if rollup_weights is not None:
+                        pred, traces = self._model.forward_rollup(
+                            x[idx], lengths[idx], rollup_weights[idx], collect_trace=True
+                        )
+                    else:
+                        pred, traces = self._model.forward_with_trace(x[idx], lengths[idx])
                     idx_list = idx.detach().cpu().tolist()
                     if state_targets is not None:
                         law_rows = _numeric_transition_law_rows(
@@ -519,6 +554,14 @@ class NeuralOperatorFamily:
                 last_loss = float(loss.detach().cpu())
         self._set_trainable(train_f=True, train_g=True)
         return last_loss
+
+    def _rollup_weights_tensor(self, trees: Sequence[Any], *, max_leaves: int) -> Any | None:
+        """Normalized ``[n_trees, max_leaves]`` rollup weights for ``leaf_mean``."""
+
+        if str(self.config.root_readout) != "leaf_mean":
+            return None
+        rows = _leaf_rollup_weights(trees, self.config, max_leaves=int(max_leaves))
+        return self._torch.tensor(rows, dtype=self._torch.float32, device=self._device)
 
     def _prepare_node_supervision(
         self, trees: Sequence[Any], *, width: int

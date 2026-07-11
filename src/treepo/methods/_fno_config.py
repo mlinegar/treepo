@@ -57,6 +57,17 @@ class NeuralOperatorFamilyConfig:
     #: consumed (the gold_fraction grid axis); leaves outside the set are
     #: treated as unlabeled. ``None`` consumes every labeled leaf.
     supervised_node_units: Any = None
+    #: How the tree-level prediction is read out. ``"root_state"`` (default)
+    #: applies the readout to the composed root state. ``"leaf_mean"`` is the
+    #: additive rollup: the weighted mean of per-leaf readouts — exact for
+    #: additive targets like RILE, where the document value IS the
+    #: (qsentence-weighted) mean of local values.
+    root_readout: str = "root_state"
+    #: Leaf-metadata key holding each leaf's rollup weight (e.g.
+    #: ``"total_non_header_qsentences"`` for sentence-scale manifesto bundles).
+    #: ``None`` = equal weights (exact for single-qsentence leaves). Only
+    #: meaningful with ``root_readout="leaf_mean"``.
+    rollup_weight_key: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
