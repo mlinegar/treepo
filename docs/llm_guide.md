@@ -51,6 +51,9 @@ Use these before inventing a new structure:
 - `LocalLawAuditRow`: theorem-facing C1/C2/C3 row with observed mask, propensity, node weight, depth, and optional oracle loss.
 - `ObjectiveSpec`: objective metadata for manifests and evidence.
 - `FitResult`: uniform package result with metrics, artifacts, history, summary, and manifest path.
+- `OracleTargetSpec`: one coordinate name and oracle provenance record inside
+  the ordered joint vector learned by a Semantic Forest. It does not own a
+  separate learner, dataset, objective, state kind, or artifact.
 
 ## How Fit Works
 
@@ -77,8 +80,44 @@ The path is:
 2. `treepo.methods.contracts.CTreePOLearningSpec` receives the public spec.
 3. `treepo.methods.families.resolve_family(...)` builds a `FamilyRuntime`, unless `backend_config["family_runtime"]` injects one for tests or downstream adapters.
 4. `treepo.methods._grid_axes.apply_grid_axes(...)` pins the `doc_gold_n` document subset and resolves the `local_label_mix` node-label source before training (see `docs/training_defaults.md` for the axis surface and defaults).
-5. `treepo.methods.runtime.run_alternating_family(...)` alternates f/g training and evaluates splits.
+5. `treepo.methods.runtime.run_alternating_family(...)` executes the declared
+   fit ladder and evaluates splits. A direct singleton fits `f`. Every
+   nonidentity C-Tree trains at most one shared `g`; `reduce_g` merely applies
+   that same artifact recursively. The result calls `g` learned only after a
+   realized update and calls composition supported only when the run exercised
+   internal calls.
 6. `treepo.methods._fit_result.build_result(...)` writes manifests, prediction rows, preference exports, statistics, evidence, and the persisted `grid_axes` provenance (pinned selected doc ids / node units, mix, seed).
+
+If `oracle_targets` is present, its ordered records define the names and
+oracle provenance of one dense joint target vector. Steps 2--6 still run once:
+the fit uses shared train/evaluation trees, one state space, one declared `g`,
+and one joint vector readout `f`. The operator is learned only when the cell
+executes a `g` update. Topology is recorded independently:
+`full_doc` is singleton geometry and `ctree` includes that base case.
+`g_mode="identity"` declares a no-op state mechanism;
+`g_mode="fixed"` declares a concrete frozen mechanism; and learned mode
+without an update is `trainable_not_updated_this_run`. The forest is the
+resulting population
+of document C-Trees/views, not a loop of independent target fits. See
+`docs/semantic_forests.md`.
+
+Topology, `g_mode`, and target width are separate axes:
+
+- every binary C-Tree has `L >= 1` and `M = L - 1`;
+- `full_doc_direct` is the singleton `f(X)` path with identity `g` elided;
+- `ctree_base_summary` is singleton `f(g(X))`: it calls the shared `g` once
+  and has no realized internal-call or C3 population;
+- `ctree_recursive` has `L >= 2` and recursively calls that same `g`;
+- `reduce_g(Leaf(b)) = g(b)` and
+  `reduce_g(Node(T_L,T_R)) = g(reduce_g(T_L) concat reduce_g(T_R))`; it has no
+  separately learned parameters, artifact, or training step;
+- `g_mode` never supplies the topology, and a singleton `g` update is not
+  evidence of learned composition;
+- fixed identity and deterministic analytic mechanisms are controls, not
+  learned `g`, and their artifacts/reports must say so; and
+- `K=1`, `K=3`, and `K=57` use the same `treepo.fit(...)` API, exact ordered
+  named-vector transport, and document-mean sum-L1 evaluation. Width one is
+  scalarized only for compatibility reporting.
 
 ## Family Boundary
 
@@ -89,13 +128,42 @@ A family runtime must implement:
 - `score_roots_with_f(...)`
 - `validate_artifact(...)`
 
+These methods define an interface, not a claim that both sides were learned.
+In particular, not calling `train_g(...)` is interpreted through the declared
+`g_mode`: a no-op mechanism for identity, an explicitly supplied operator for
+fixed execution, or `trainable_not_updated_this_run` for a shortened learned
+ladder. That status does not infer leaf or internal-call count. An injected
+analytic `g` or rollup must be one fixed artifact and must not be labeled as
+trained in this run.
+
+The runtime distinguishes a `train_g(...)` call from a realized update.
+Families whose artifacts do not make that distinction observable should
+return `treepo.methods.GTrainOutcome`; its `update_performed` flag is
+authoritative. A direct legacy artifact return is treated conservatively, so
+an equal/no-op artifact does not become evidence of learned composition.
+
+The provider-neutral language families have distinct capabilities. `llm`
+provides root inference, artifact plumbing, and a fixed text
+extraction/concatenation statistic; it does not optimize `g`, and an
+artifact-only `train_g(...)` call is not an update. `dspy` is optimizer-backed:
+it learns joint `f` and one shared `g` program from role-tagged leaf/merge
+examples. `dspy_program` remains the legacy `f_program` alias; an explicit
+`g_program` override still denotes the sole program used throughout the fold.
+A learned claim requires `GTrainOutcome(update_performed=True)` and the
+corresponding realized role support.
+
 Built-in family names are intentionally few: `oracle`, `learnable_constant`, `classical_sketch`, `neural_operator`, `fno`, `llm`, and `dspy`. Register application workflows from the owning downstream package; `treepo` keeps its family registry small and branch-free.
 
 When adding a built-in family, it should be dependency-light, generally useful, small enough for package tests, and registered in `treepo.methods.families`. Put family-specific knobs in `backend_config`; keep the public fit shape stable.
 
 ## Local-Law Boundary
 
-`treepo.local_law` is canonical for scalar C1/C2/C3 row arithmetic: IPW, propensity clipping, depth weighting, and corrected local-law losses all live here, and examples and families route through it. Build `LocalLawAuditRow` values and call:
+`treepo.local_law` is canonical for scalar C1/C2/C3-targeted row arithmetic:
+IPW, propensity clipping, depth weighting, and corrected local-law losses all
+live here, and examples and families route through it. A row may be a semantic
+witness, separating probe, or scalar readout proxy; the arithmetic does not
+upgrade the latter into universal task sufficiency. Build `LocalLawAuditRow`
+values and call:
 
 - `corrected_local_law_loss(...)`
 - `local_law_objective_summary(...)`
@@ -104,15 +172,20 @@ When adding a built-in family, it should be dependency-light, generally useful, 
 - `triangle_local_law_residual_from_audit(...)`
 - `build_triangle_local_law_error_certificate(...)`
 
-Training code may wrap these operations in tensors, but theorem-facing rows and reports should round-trip through the dataclasses here.
+Training code may wrap these operations in tensors, but evidence rows and
+reports should round-trip through the dataclasses here.
 
-For error estimation, the audited local-law objective is the Python estimator
-for the leaf-up/triangle transport premise. Use
-`triangle_local_law_residual_from_audit(...)` to turn an `audit_local_laws`
-payload, or raw rows, into the leaf-up channel of a `TwoChannelResidual`; use
+For error estimation, the audited objective is a point estimate for the
+declared row population, not automatically a semantic or root-error radius.
+Use `triangle_local_law_residual_from_audit(...)` to package an
+`audit_local_laws` payload, or raw rows, together with a caller-supplied
+finite-sample/transport bound in the leaf-up channel of a
+`TwoChannelResidual`; use
 `build_triangle_local_law_error_certificate(...)` when a run also has
 document-level root controls, overidentification residuals, common-mechanism
-root-error envelopes, or external conditional-average envelopes. Propensities
+root-error envelopes, or external conditional-average envelopes. The explicit
+`allow_point_estimate_proxy_radius=True` compatibility path is descriptive and
+is labeled non-semantic in metadata. Propensities
 remain sampling probabilities. Structural identification weights, including
 additive qsentence/CMP weights, belong in `node_weight` and metadata.
 
@@ -132,12 +205,25 @@ Examples export rows that downstream trainers consume; TRL, sentence-transformer
 
 `treepo.llm` provides client-side request/response helpers and optional embedding/chat clients. The deploying package owns server startup, GPU placement, vLLM/SGLang lifecycle, Transformers pipeline construction, large model downloads, and provider credentials.
 
-The `llm` and `dspy` method families are provider-neutral. Use `api_base` for
-OpenAI-compatible endpoints such as vLLM, SGLang, hosted compatible APIs, TGI,
-or llama.cpp's OpenAI server. Use `predict_fn` for direct local runtimes such as
-Hugging Face Transformers pipelines, custom Python inference functions, or SDKs
-that do not expose `/v1`. DSPy uses an injected callable/program; DSPy and
-model-serving libraries load only when downstream code imports or runs them.
+For structured-output benchmarks, use the provider-neutral
+`JSONRequestRecord`, `JSONResultRecord`, and `TokenUsage` artifacts in
+`treepo.llm`. The Manifesto task also exposes a strict full-document mass
+schema and deterministic RILE readout; see
+`docs/full_document_llm_contract.md`. `TokenUsage` retains cache reads and
+cache writes as separate canonical counters without assuming that provider
+categories form a disjoint partition. Provider transports, batch submission,
+private documents, prompt/DSPy campaigns, and locked-split orchestration stay
+downstream.
+
+Install `treepo[llm]` for OpenAI-compatible client helpers and
+`treepo[dspy]` for optimizer-backed DSPy compilation. The `llm` and `dspy`
+method families are provider-neutral. Use `api_base` for OpenAI-compatible endpoints such as vLLM, SGLang, hosted compatible APIs, TGI,
+or llama.cpp's OpenAI server. Use `predict_fn` for direct local `llm` runtimes
+such as Hugging Face Transformers pipelines, custom Python functions, or SDKs
+that do not expose `/v1`. DSPy uses `optimizer` plus `lm_config`; it can build
+default `f`/shared-`g` programs from the target schema or accept injected
+`f_program`/legacy `dspy_program` and `g_program` adapters. DSPy and
+model-serving libraries load only when code imports or runs them.
 
 ## Examples Policy
 

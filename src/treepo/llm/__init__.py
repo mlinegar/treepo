@@ -11,6 +11,13 @@ from treepo.llm.embedding import (
     OpenAICompatibleEmbeddingClient,
     build_embedding_client,
 )
+from treepo.llm.json_records import (
+    JSONRequestRecord,
+    JSONResultRecord,
+    TokenUsage,
+    parse_json_object,
+    validate_json_object,
+)
 from treepo.llm.openai_compatible import (
     ChatMessage,
     OpenAICompatibleChatClient,
@@ -23,9 +30,14 @@ __all__ = [
     "DiskCachedEmbeddingClient",
     "EmbeddingClient",
     "HashingEmbeddingClient",
+    "JSONRequestRecord",
+    "JSONResultRecord",
     "OpenAICompatibleChatClient",
     "OpenAICompatibleEmbeddingClient",
+    "TokenUsage",
     "build_chat_client",
     "build_embedding_client",
+    "parse_json_object",
     "render_chat_payload",
+    "validate_json_object",
 ]

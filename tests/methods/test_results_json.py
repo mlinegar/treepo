@@ -136,6 +136,34 @@ def test_results_cost_components_are_separate_and_c2_stays_visible(tmp_path: Pat
     assert cost["resummary_ops"] == {"count": 0, "population": "empty_by_construction"}
 
 
+def test_f_only_masked_root_results_count_observed_roots_and_local_rows(
+    tmp_path: Path,
+) -> None:
+    roots = ("doc_00", "doc_04")
+    result = _run_fit(
+        tmp_path,
+        root_observed_doc_ids=roots,
+        root_weight=1.0,
+        leaf_weight=1.0,
+        merge_weight=0.0,
+        axis={"axis_kind": "leaf_count", "axis_value": 4, "max_iterations": 1},
+    )
+    payload = _load_results(tmp_path)
+    label = payload["cost"]["label_cost"]
+    compute = payload["cost"]["one_time_compute"]
+    assert result.artifacts["g"] is None
+    assert label["gold_doc_labels_consumed"] == 2
+    assert label["n_leaf_rows"] == 32
+    assert label["gold_node_labels_consumed"] == 32
+    assert compute["n_train_trees"] == 8
+    doc_gold = payload["cell"]["grid_axes"]["doc_gold"]
+    assert doc_gold["observation_mode"] == "masked_full_training_pool"
+    assert doc_gold["training_pool_count"] == 8
+
+    manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
+    assert manifest["spec"]["root_observed_doc_ids"] == list(roots)
+
+
 def test_results_distilled_cell_reports_distilled_label_cost(tmp_path: Path) -> None:
     trees = _trees()
     rows_path = tmp_path / "teacher_node_rows.jsonl"

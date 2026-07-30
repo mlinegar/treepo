@@ -128,13 +128,15 @@ def test_neural_operator_statistic_is_available_after_training(tmp_path: Path) -
         output_dir=tmp_path / "f",
         iteration=1,
     )
-    g_artifact = family.train_g(
+    g_outcome = family.train_g(
         g_init=None,
         f=f_artifact,
         traces=train,
         output_dir=tmp_path / "g",
         iteration=2,
     )
+    assert g_outcome.update_performed is True
+    g_artifact = g_outcome.artifact
     statistic = family.as_statistic(f=f_artifact, g=g_artifact)
     assert isinstance(statistic, ComposableStatistic)
     assert statistic.info.exact is False
@@ -147,6 +149,58 @@ def test_neural_operator_statistic_is_available_after_training(tmp_path: Path) -
     rows = statistic.local_law_rows(eval_trees)
     assert rows
     assert {row.metadata["check"] for row in rows} == {"numeric_transition_state"}
+
+
+def test_named_singleton_fno_keeps_vector_transport_through_statistic(
+    tmp_path: Path,
+) -> None:
+    family = resolve_family(
+        "fno",
+        {
+            **_tiny_fno_config(),
+            "target_names": ("rile_normalized",),
+            "target_oracle_ids": ("fixture:rile",),
+            "target_dim": 1,
+        },
+    )
+    train = make_markov_changepoint_trees(
+        n_trees=5,
+        doc_tokens=24,
+        leaf_unit_count=6,
+        vocabulary_size=48,
+        seed=141,
+        split="train",
+    )
+    evaluation = make_markov_changepoint_trees(
+        n_trees=2,
+        doc_tokens=24,
+        leaf_unit_count=6,
+        vocabulary_size=48,
+        seed=142,
+        split="test",
+    )
+    f_artifact = family.train_f(
+        f_init=None,
+        g=None,
+        traces=train,
+        output_dir=tmp_path / "named-k1",
+        iteration=1,
+    )
+    direct = family.score_roots_with_f(
+        f=f_artifact,
+        g=None,
+        trees=evaluation,
+    )
+    statistic = family.as_statistic(f=f_artifact, g=None)
+    assert statistic is not None
+    composed = [statistic.predict_tree(tree) for tree in evaluation]
+    node_values = [row["value"] for row in statistic.node_readouts(evaluation)]
+
+    assert all(isinstance(value, list) and len(value) == 1 for value in direct)
+    assert all(isinstance(value, list) and len(value) == 1 for value in composed)
+    assert all(isinstance(value, list) and len(value) == 1 for value in node_values)
+    for composed_row, direct_row in zip(composed, direct):
+        assert composed_row == pytest.approx(direct_row)
 
 
 def test_fno_route_rejects_non_fno_operator_kind() -> None:
@@ -241,6 +295,18 @@ def test_fit_runs_builtin_fno_on_markov_fixture(tmp_path: Path) -> None:
     assert result.artifacts["f"]["kind"] == "treepo_fno"
     assert result.artifacts["g"]["kind"] == "treepo_fno_g"
     assert result.artifacts["g"]["trained"] == "g"
+    assert result.artifacts["g"]["architecture_version"] == "single_shared_pair_g_v3"
+    assert result.artifacts["g"]["fg_parameter_partition"] == ("f_readout__single_shared_g_v3")
+    shared = result.artifacts["g"]["shared_g_contract"]
+    assert shared["single_registered_g"] is True
+    assert shared["parameter_identity_shared_across_call_domains"] is True
+    assert shared["registered_module"] == "g"
+    assert shared["input_channel_order"] == [
+        "left_content",
+        "right_content",
+        "left_present",
+        "right_present",
+    ]
     assert result.artifacts["statistic"]["info"]["state_kind"] == "fno"
     assert result.metrics["n"] == 4.0
     assert result.metrics["internal_f_mae"] >= 0.0
@@ -348,7 +414,9 @@ def test_neural_operator_fno_matches_fno_alias_on_markov_fixture(tmp_path: Path)
     assert math.isfinite(float(generic_result.metrics["internal_f_mae"]))
 
 
-def test_neural_operator_compares_dense_official_kinds_and_conv1d_on_markov_fixture(tmp_path: Path) -> None:
+def test_neural_operator_compares_dense_official_kinds_and_conv1d_on_markov_fixture(
+    tmp_path: Path,
+) -> None:
     train = make_markov_changepoint_trees(
         n_trees=8,
         doc_tokens=32,

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from treepo.local_law import LawKind, LocalLawAuditRow
+from treepo.methods.runtime import GTrainOutcome
 from treepo.statistic import StatisticInfo
 from treepo.tree import tree_leaves, tree_row_id
 
@@ -52,13 +53,17 @@ class ClassicalSketchFamily:
         traces: Sequence[Any],
         output_dir: Path,
         iteration: int,
-    ) -> Mapping[str, Any]:
-        return {
-            "kind": "treepo_classical_sketch_g",
-            "trained": "g",
-            "iteration": int(iteration),
-            "config": asdict(self.config),
-        }
+    ) -> GTrainOutcome:
+        return GTrainOutcome(
+            artifact={
+                "kind": "treepo_classical_sketch_g",
+                "trained": "g",
+                "iteration": int(iteration),
+                "config": asdict(self.config),
+            },
+            update_performed=False,
+            reason="classical_sketch_uses_a_fixed_adapter",
+        )
 
     def score_roots_with_f(
         self,
@@ -133,7 +138,9 @@ class ClassicalSketchStatistic:
     def encode_tree(self, tree: Any, *, schedule: str | None = None) -> Any:
         from treepo.bench.sketches.tree_reducer import treepo_reduce
 
-        return treepo_reduce(_leaf_items(tree), self.adapter, schedule=str(schedule or self.config.schedule))
+        return treepo_reduce(
+            _leaf_items(tree), self.adapter, schedule=str(schedule or self.config.schedule)
+        )
 
     def local_law_rows(
         self,
@@ -187,7 +194,9 @@ class ClassicalSketchStatistic:
                     _state_law_row(
                         row_id=f"{row_prefix}:idempotence",
                         law_kind=LawKind.C2_IDEMPOTENCE,
-                        loss=0.0 if self.adapter.state_equal(root, self.adapter.merge(root, root)) else 1.0,
+                        loss=0.0
+                        if self.adapter.state_equal(root, self.adapter.merge(root, root))
+                        else 1.0,
                         metadata={
                             "statistic": self.info.name,
                             "check": "idempotence",

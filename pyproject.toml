@@ -58,6 +58,9 @@ sketches = [
 llm = [
   "requests>=2.31.0",
 ]
+dspy = [
+  "dspy>=3.0.4,<4",
+]
 all = [
   "torch>=2.0.0",
   "neuraloperator>=2.0.0",
@@ -67,6 +70,7 @@ all = [
   "pyyaml>=6.0",
   "datasketches>=5.2.0",
   "requests>=2.31.0",
+  "dspy>=3.0.4,<4",
 ]
 
 [dependency-groups]
@@ -92,6 +96,7 @@ dev = [
   "datasets>=2.14.0",
   "datasketches>=5.2.0",
   "requests>=2.31.0",
+  "dspy>=3.0.4,<4",
 ]
 
 [project.scripts]

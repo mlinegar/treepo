@@ -9,11 +9,13 @@ data model, so the model and its export views can import freely from here.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping as MappingABC
 from collections.abc import Sequence as SequenceABC
 from typing import Any, Mapping, Sequence
 
 from treepo.methods._run_manifest import json_default
+from treepo.sampling import ResolvedPropensity, resolve_effective_propensity
 from treepo.state import state_from_value, state_to_dict
 
 _UNIT_FIELDS = (
@@ -23,6 +25,9 @@ _UNIT_FIELDS = (
     "context",
     "weight",
     "propensity",
+    "sample_weight",
+    "propensity_source",
+    "sample_weight_source",
     "metadata",
     "tree_id",
     "doc_id",
@@ -32,6 +37,17 @@ _UNIT_FIELDS = (
     "parent_id",
     "left_child_id",
     "right_child_id",
+)
+_PROPENSITY_INPUT_FIELDS = (
+    "effective_propensity",
+    "joint_propensity",
+    "inclusion_probability",
+    "sampling",
+    "document_propensity",
+    "unit_propensity",
+    "label_propensity",
+    "propensity",
+    "supports_ipw_estimation",
 )
 _TREE_FIELDS = (
     "tree_id",
@@ -89,31 +105,48 @@ def _is_flat_candidate_mapping(row: Mapping[str, Any]) -> bool:
 
 def _normalize_unit_row(row: Mapping[str, Any]) -> dict[str, Any]:
     out = dict(row)
+    metadata = _preference_metadata(out)
+    resolved = _resolve_preference_propensity(out, metadata=metadata)
+    weight, sample_weight, sample_weight_source = _resolve_preference_weights(
+        out,
+        propensity=resolved.propensity,
+    )
     unit_id = str(out.get("unit_id") or out.get("node_id") or out.get("doc_id") or "")
     out["unit_id"] = unit_id
     out["unit_type"] = str(out.get("unit_type") or out.get("kind") or "unit")
     out["target"] = str(out.get("target") or "g")
     out["context"] = _maybe_json(out.get("context_json", out.get("context", out.get("prompt", ""))))
-    out["weight"] = float(out.get("weight", out.get("sample_weight", 1.0)) or 1.0)
-    out["propensity"] = float(out.get("propensity", out.get("joint_propensity", 1.0)) or 1.0)
-    if out["propensity"] <= 0.0:
-        raise ValueError("propensity must be positive")
-    out["sample_weight"] = _sample_weight(out["weight"], out["propensity"])
-    out["metadata"] = dict(_maybe_json(out.get("metadata_json", out.get("metadata") or {})) or {})
+    out["weight"] = weight
+    out["propensity"] = resolved.propensity
+    out["sample_weight"] = sample_weight
+    out["propensity_source"] = resolved.source
+    out["sample_weight_source"] = sample_weight_source
+    metadata.update(
+        {
+            "propensity_source": resolved.source,
+            "resolved_propensity": resolved.propensity,
+            "sample_weight_source": sample_weight_source,
+        }
+    )
+    out["metadata"] = metadata
     out["record_id"] = str(out.get("record_id") or out.get("id") or unit_id)
     for key in _TREE_FIELDS:
         out.setdefault(key, None)
     out["level"] = _optional_int(out.get("level"))
     out["position"] = _optional_int(out.get("position"))
-    return {key: out.get(key) for key in (*_UNIT_FIELDS, "sample_weight", "record_id")}
+    return {key: out.get(key) for key in (*_UNIT_FIELDS, "record_id")}
 
 
 def _normalize_candidate_row(row: Mapping[str, Any]) -> dict[str, Any]:
     out = dict(row)
     out["unit_id"] = str(out.get("unit_id") or "")
-    out["candidate_id"] = str(out.get("candidate_id") or out.get("id") or out.get("response_id") or "")
+    out["candidate_id"] = str(
+        out.get("candidate_id") or out.get("id") or out.get("response_id") or ""
+    )
     out["value"] = state_to_dict(
-        state_from_value(_maybe_json(out.get("value_json", out.get("value", out.get("response", "")))))
+        state_from_value(
+            _maybe_json(out.get("value_json", out.get("value", out.get("response", ""))))
+        )
     )
     out["score"] = _optional_float(out.get("score", out.get("reward")))
     out["rank"] = _optional_int(out.get("rank"))
@@ -136,8 +169,127 @@ def _hf_candidate_row(row: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _sample_weight(weight: Any, propensity: Any, *, min_propensity: float = 1e-8) -> float:
-    return float(weight or 1.0) / max(float(propensity or 1.0), min_propensity)
+def _sample_weight(
+    weight: Any,
+    propensity: Any,
+    *,
+    precomputed: Any = None,
+    min_propensity: float = 1e-8,
+) -> float:
+    """Return an exact IPW weight, never a propensity-clipped approximation."""
+
+    resolved = resolve_effective_propensity({"propensity": propensity})
+    probability = float(resolved.propensity)
+    minimum = float(min_propensity)
+    if not math.isfinite(minimum) or minimum <= 0.0 or minimum > 1.0:
+        raise ValueError("min_propensity must be finite and in (0, 1]")
+    if probability < minimum:
+        raise ValueError(
+            f"preference propensity {probability!r} is below "
+            f"min_propensity={minimum!r}; propensity flooring is not allowed"
+        )
+    if precomputed is not None:
+        return _nonnegative_finite_weight(precomputed, "sample_weight")
+    base_weight = _nonnegative_finite_weight(
+        1.0 if weight is None else weight,
+        "weight",
+    )
+    return float(base_weight / probability)
+
+
+def _unit_sample_weight(unit: Mapping[str, Any]) -> float:
+    """Read a normalized unit weight without recomputing a precomputed value."""
+
+    return _sample_weight(
+        unit.get("weight"),
+        unit.get("propensity"),
+        precomputed=unit.get("sample_weight"),
+    )
+
+
+def _resolve_preference_propensity(
+    row: Mapping[str, Any],
+    *,
+    metadata: Mapping[str, Any] | None = None,
+) -> ResolvedPropensity:
+    """Resolve one preference unit design with canonical precedence."""
+
+    parsed_metadata = dict(metadata) if metadata is not None else _preference_metadata(row)
+    payload = dict(parsed_metadata)
+    for key in _PROPENSITY_INPUT_FIELDS:
+        if key in row:
+            payload[key] = row.get(key)
+    resolved = resolve_effective_propensity(payload)
+    declared_source = row.get("propensity_source", parsed_metadata.get("propensity_source"))
+    if (
+        declared_source is not None
+        and str(declared_source).strip()
+        and resolved.source in {"metadata.propensity", "default"}
+    ):
+        return ResolvedPropensity(
+            propensity=resolved.propensity,
+            source=str(declared_source).strip(),
+        )
+    return resolved
+
+
+def _resolve_preference_weights(
+    row: Mapping[str, Any],
+    *,
+    propensity: float,
+) -> tuple[float, float, str]:
+    """Normalize base/effective weights without applying IPW twice."""
+
+    raw_weight = row.get("weight")
+    precomputed = row.get("sample_weight")
+    if precomputed is not None:
+        effective = _sample_weight(
+            raw_weight,
+            propensity,
+            precomputed=precomputed,
+        )
+        base = (
+            _nonnegative_finite_weight(raw_weight, "weight")
+            if raw_weight is not None
+            else float(effective * float(propensity))
+        )
+        source = row.get("sample_weight_source") or "precomputed_sample_weight"
+        return base, effective, str(source)
+    base = _nonnegative_finite_weight(
+        1.0 if raw_weight is None else raw_weight,
+        "weight",
+    )
+    return (
+        base,
+        _sample_weight(base, propensity),
+        "computed_weight_over_propensity",
+    )
+
+
+def _preference_metadata(row: Mapping[str, Any]) -> dict[str, Any]:
+    value = _maybe_json(
+        row.get(
+            "metadata_json",
+            row.get("unit_metadata", row.get("metadata") or {}),
+        )
+    )
+    if value is None:
+        return {}
+    if not isinstance(value, MappingABC):
+        raise ValueError("preference metadata must be a mapping")
+    return dict(value)
+
+
+def _nonnegative_finite_weight(value: Any, name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be finite and non-negative, got {value!r}")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be finite and non-negative, got {value!r}") from exc
+    if not math.isfinite(parsed) or parsed < 0.0:
+        raise ValueError(f"{name} must be finite and non-negative, got {value!r}")
+    return parsed
 
 
 def _optional_float(value: Any) -> float | None:
@@ -182,7 +334,7 @@ def _maybe_json(value: Any) -> Any:
     text = value.strip()
     if not text:
         return value
-    if text[0] not in "[{\"0123456789-tfn":
+    if text[0] not in '[{"0123456789-tfn':
         return value
     try:
         return json.loads(text)
@@ -203,6 +355,7 @@ _json_default = json_default
 
 __all__ = [
     "_CANDIDATE_FIELDS",
+    "_PROPENSITY_INPUT_FIELDS",
     "_TREE_FIELDS",
     "_UNIT_FIELDS",
     "_bool",
@@ -216,10 +369,14 @@ __all__ = [
     "_mean",
     "_normalize_candidate_row",
     "_normalize_unit_row",
+    "_preference_metadata",
+    "_resolve_preference_propensity",
+    "_resolve_preference_weights",
     "_optional_float",
     "_optional_int",
     "_optional_str",
     "_preferred_ids",
     "_rows_from_table",
     "_sample_weight",
+    "_unit_sample_weight",
 ]

@@ -4,6 +4,11 @@ This module owns C1/C2/C3 row validation, corrected local-law losses, and
 influence-weighted audit overlap. Training code wraps these in tensors; the
 scalar dataclasses here stay the source of truth, so propensities and
 overlap semantics stay consistent across the package.
+
+Rows may be semantic witnesses, calibrated separating probes, or scalar
+readout proxies. The arithmetic cannot infer which. A law-kind tag or a small
+sampled objective therefore does not by itself prove universal relational law
+closure or turn a point estimate into a root-error bound.
 """
 
 from __future__ import annotations
@@ -96,7 +101,7 @@ def corrected_local_law_loss(
 
 @dataclass(frozen=True)
 class LocalLawAuditRow:
-    """One theorem-facing local-law audit row.
+    """One local-law-targeted audit/evidence row.
 
     ``propensity`` is the logged design inclusion probability and must be
     positive for every row, regardless of whether ``observed`` is true.
@@ -109,9 +114,10 @@ class LocalLawAuditRow:
     - ``proxy_loss`` is any non-negative violation magnitude — a squared
       error for regression-style checks, or a 0/1 indicator for exact-state
       checks (0 = the law holds). ``metadata["check"]`` names the concrete
-      statistic and ``metadata["law_facet"]`` names the paper facet
-      (``c1_sufficiency``, ``c2_idempotence``, ``c3a_joint_faithfulness``,
-      ``c3b_compositionality``).
+      statistic. Callers should also record ``metadata["evidence_kind"]`` as
+      a semantic witness, separating probe, or readout proxy. Historical
+      artifacts may contain C3A/C3B facet names; those are path diagnostics,
+      not separate semantic C3 laws.
     - ``depth`` follows the canonical schedule (:mod:`treepo.schedule`) with
       the root at 0; root-level checks correctly carry ``depth=0``.
     - Exact audits (no sampling design) use the degenerate design
@@ -376,6 +382,7 @@ def triangle_local_law_residual_from_audit(
     gamma_depth: float = 1.0,
     leaf_up_radius: float | None = None,
     radius_multiplier: float = 1.0,
+    allow_point_estimate_proxy_radius: bool = False,
     root_down_radius: float = 0.0,
     overidentification_radius: float = 0.0,
     delta: float | None = None,
@@ -383,17 +390,17 @@ def triangle_local_law_residual_from_audit(
     artifact_ids: Sequence[str] = (),
     metadata: Mapping[str, Any] | None = None,
 ) -> "TwoChannelResidual":
-    """Convert a local-law audit into a two-channel transport residual.
+    """Package local-law audit evidence into a two-channel residual record.
 
-    The local-law objective is the Python estimator for the leaf-up/triangle
-    transport premise: if the common ``f,g`` calls satisfy C1/C2/C3 with small
-    audited residual, internal latent states are controlled by the same local
-    law machinery even when internal node labels were not directly observed.
+    ``leaf_up_radius`` must normally be a caller-supplied non-negative bound
+    justified by a finite-sample and local-to-root transport argument. The
+    audit point objective is only a point estimate on the declared row
+    population; it is not automatically a semantic or root-error radius.
 
-    ``leaf_up_radius`` may be supplied by a finite-sample or concentration
-    bound. If omitted, the audited point objective is used after multiplying by
-    ``radius_multiplier``; a negative corrected estimate is rejected because a
-    radius must be a non-negative bound.
+    For compatibility and descriptive plots only, callers may explicitly set
+    ``allow_point_estimate_proxy_radius=True``. That opt-in uses the point
+    objective after ``radius_multiplier`` and marks the output as a proxy, not
+    a relational certificate.
     """
 
     from treepo.certificate import TwoChannelResidual
@@ -409,6 +416,12 @@ def triangle_local_law_residual_from_audit(
     if multiplier < 0.0:
         raise ValueError("radius_multiplier must be non-negative")
     if leaf_up_radius is None:
+        if not bool(allow_point_estimate_proxy_radius):
+            raise ValueError(
+                "leaf_up_radius requires a caller-supplied finite-sample/transport "
+                "bound; set allow_point_estimate_proxy_radius=True only for an "
+                "explicitly labeled descriptive proxy"
+            )
         derived_leaf_radius = float(multiplier * raw_objective)
         if derived_leaf_radius < 0.0:
             raise ValueError(
@@ -416,14 +429,20 @@ def triangle_local_law_residual_from_audit(
                 "leaf_up_radius from a finite-sample bound"
             )
         leaf_radius = derived_leaf_radius
-        leaf_radius_source = "local_law_objective"
+        leaf_radius_source = "point_estimate_proxy_opt_in"
+        transport_source = "local_law_point_estimate_proxy"
+        transport_bound_status = "descriptive_proxy_not_semantic_bound"
     else:
         leaf_radius = _nonnegative_radius(leaf_up_radius, name="leaf_up_radius")
         leaf_radius_source = "explicit_leaf_up_radius"
+        transport_source = "caller_supplied_local_law_bound"
+        transport_bound_status = "caller_supplied_bound_requires_external_justification"
 
     residual_metadata = {
-        "transport_source": "merge_triangle_local_laws",
-        "root_control_source": "audit_bound",
+        "transport_source": transport_source,
+        "transport_bound_status": transport_bound_status,
+        "semantic_relational_certificate_proved_by_helper": False,
+        "root_control_source": "caller_supplied_or_separate_channel",
         "local_law_weighting": _audit_weighting_metadata(
             audit_payload,
             gamma_depth=gamma_depth,
@@ -463,6 +482,7 @@ def build_triangle_local_law_error_certificate(
     gamma_depth: float = 1.0,
     leaf_up_radius: float | None = None,
     radius_multiplier: float = 1.0,
+    allow_point_estimate_proxy_radius: bool = False,
     root_down_radius: float = 0.0,
     overidentification_radius: float = 0.0,
     common_mechanism_envelopes: Sequence[Any | Mapping[str, Any]] = (),
@@ -476,7 +496,11 @@ def build_triangle_local_law_error_certificate(
     require_common_mechanism_assumptions: bool = True,
     require_conditional_diagnostics: bool = True,
 ) -> "UnifiedLearningErrorCertificate":
-    """Build a unified certificate from audited triangle/local-law evidence."""
+    """Build a component ledger from local-law evidence and supplied bounds.
+
+    The helper records evidence; it does not prove the semantic witness,
+    concentration, or local-to-root transport assumptions behind a radius.
+    """
 
     from treepo.certificate import build_two_channel_error_certificate
 
@@ -487,6 +511,7 @@ def build_triangle_local_law_error_certificate(
         gamma_depth=gamma_depth,
         leaf_up_radius=leaf_up_radius,
         radius_multiplier=radius_multiplier,
+        allow_point_estimate_proxy_radius=allow_point_estimate_proxy_radius,
         root_down_radius=root_down_radius,
         overidentification_radius=overidentification_radius,
         delta=delta,

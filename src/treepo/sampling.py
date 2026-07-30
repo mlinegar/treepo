@@ -18,11 +18,17 @@ from treepo.common import (
     MIN_PROPENSITY,
     AuditPolicyName,
     audit_sample_count,
+)
+from treepo.common import (
     jsonable as _jsonable,
 )
 
-
 DEFAULT_PROPENSITY = 1.0
+_PROPENSITY_COMPONENTS = (
+    "document_propensity",
+    "unit_propensity",
+    "label_propensity",
+)
 
 
 class ObservationUnitKind(str, Enum):
@@ -35,13 +41,137 @@ class ObservationUnitKind(str, Enum):
     PAIR = "pair"
 
 
-def _normalize_propensity(value: float | None, name: str) -> float:
+def _normalize_propensity(value: Any, name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(
+            f"{name} must be finite and in (0, 1], got {value!r}"
+        )
     if value is None:
         return DEFAULT_PROPENSITY
-    parsed = float(value)
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{name} must be finite and in (0, 1], got {value!r}"
+        ) from exc
     if not math.isfinite(parsed) or parsed <= 0.0 or parsed > 1.0:
         raise ValueError(f"{name} must be finite and in (0, 1], got {value!r}")
     return parsed
+
+
+@dataclass(frozen=True)
+class ResolvedPropensity:
+    """One validated inclusion probability and its authoritative source."""
+
+    propensity: float
+    source: str
+
+
+def resolve_effective_propensity(
+    metadata: Mapping[str, Any],
+    *,
+    default: float = DEFAULT_PROPENSITY,
+) -> ResolvedPropensity:
+    """Resolve one logged inclusion probability without clipping.
+
+    The resolver follows the package's logged-design precedence rather than
+    treating the generic ``propensity`` display field as authoritative:
+
+    1. top-level ``effective_propensity``;
+    2. top-level ``joint_propensity`` or ``inclusion_probability``;
+    3. nested ``sampling.joint_propensity``;
+    4. the product of nested sampling components;
+    5. the product of top-level sampling components;
+    6. generic top-level or nested ``propensity``;
+    7. ``default`` when no propensity is logged.
+
+    Missing components in a component product are neutral (``1.0``).  A
+    selected value must be finite and in ``(0, 1]``.  The helper deliberately
+    does not apply a propensity floor: callers that require a minimum
+    propensity must fail closed or explicitly describe a different estimand.
+    """
+
+    if not isinstance(metadata, Mapping):
+        raise TypeError("sampling metadata must be a mapping")
+
+    nested_value = metadata.get("sampling")
+    if nested_value is None:
+        nested: Mapping[str, Any] = {}
+    elif isinstance(nested_value, Mapping):
+        nested = nested_value
+    else:
+        raise ValueError("sampling metadata field 'sampling' must be a mapping")
+
+    for scope_name, scope in (("metadata", metadata), ("metadata.sampling", nested)):
+        if scope.get("supports_ipw_estimation") is False:
+            raise ValueError(
+                f"{scope_name}.supports_ipw_estimation=False; "
+                "inverse-propensity weighting is unsupported for this row"
+            )
+
+    def explicit(
+        scope: Mapping[str, Any], prefix: str, *keys: str
+    ) -> ResolvedPropensity | None:
+        for key in keys:
+            value = scope.get(key)
+            if value is not None:
+                return ResolvedPropensity(
+                    propensity=_normalize_propensity(value, key),
+                    source=f"{prefix}.{key}",
+                )
+        return None
+
+    resolved = explicit(metadata, "metadata", "effective_propensity")
+    if resolved is not None:
+        return resolved
+
+    resolved = explicit(
+        metadata,
+        "metadata",
+        "joint_propensity",
+        "inclusion_probability",
+    )
+    if resolved is not None:
+        return resolved
+
+    resolved = explicit(nested, "metadata.sampling", "joint_propensity")
+    if resolved is not None:
+        return resolved
+
+    def component_product(
+        scope: Mapping[str, Any], prefix: str
+    ) -> ResolvedPropensity | None:
+        present = [key for key in _PROPENSITY_COMPONENTS if scope.get(key) is not None]
+        if not present:
+            return None
+        product = 1.0
+        for key in present:
+            product *= _normalize_propensity(scope[key], key)
+        return ResolvedPropensity(
+            propensity=_normalize_propensity(product, "joint component propensity"),
+            source=f"{prefix}.component_product[{','.join(present)}]",
+        )
+
+    resolved = component_product(nested, "metadata.sampling")
+    if resolved is not None:
+        return resolved
+
+    resolved = component_product(metadata, "metadata")
+    if resolved is not None:
+        return resolved
+
+    resolved = explicit(metadata, "metadata", "propensity")
+    if resolved is not None:
+        return resolved
+
+    resolved = explicit(nested, "metadata.sampling", "propensity")
+    if resolved is not None:
+        return resolved
+
+    return ResolvedPropensity(
+        propensity=_normalize_propensity(default, "default propensity"),
+        source="default",
+    )
 
 
 @dataclass(frozen=True)
@@ -277,7 +407,9 @@ __all__ = [
     "DocumentSamplingRow",
     "NodeAuditDesign",
     "ObservationUnitKind",
+    "ResolvedPropensity",
     "SamplingMetadata",
     "apply_node_audit",
+    "resolve_effective_propensity",
     "sample_node_audit",
 ]

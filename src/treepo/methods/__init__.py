@@ -9,16 +9,22 @@ register from downstream packages.
 from __future__ import annotations
 
 from treepo.methods.contracts import (
+    G_MODE_FIXED,
+    G_MODE_IDENTITY,
+    G_MODE_LEARNED,
+    G_MODES,
     CTreePOLearningSpec,
     FamilyRuntime,
     FitResult,
     ObjectiveSpec,
+    normalize_g_mode,
 )
 
 _LAZY_EXPORTS = {
     "canonical_defaults": ("treepo.methods.canonical_defaults", None),
     "load_dataclass": ("treepo.methods.canonical_defaults", "load_dataclass"),
     "fit": ("treepo.methods.learning", "fit"),
+    "GTrainOutcome": ("treepo.methods.runtime", "GTrainOutcome"),
     "Candidate": ("treepo.methods.preference", "Candidate"),
     "PreferenceRecord": ("treepo.methods.preference", "PreferenceRecord"),
     "PreferenceDataset": ("treepo.methods.preference", "PreferenceDataset"),
@@ -41,6 +47,7 @@ def __getattr__(name: str):
     globals()[name] = value
     return value
 
+
 __all__ = [
     "Candidate",
     "PreferenceRecord",
@@ -53,7 +60,13 @@ __all__ = [
     "CTreePOLearningSpec",
     "FitResult",
     "FamilyRuntime",
+    "GTrainOutcome",
+    "G_MODE_FIXED",
+    "G_MODE_IDENTITY",
+    "G_MODE_LEARNED",
+    "G_MODES",
     "ObjectiveSpec",
+    "normalize_g_mode",
     # Canonical defaults (see docs/training_defaults.md).
     "canonical_defaults",
     "load_dataclass",

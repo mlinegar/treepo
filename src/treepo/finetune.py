@@ -12,9 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Sequence
 
-from treepo.methods.preference import PreferenceDataset
 from treepo.common import jsonable
-
+from treepo.methods.preference import PreferenceDataset
 
 FineTuneView = Literal[
     "embedding_pairs",
@@ -116,13 +115,17 @@ def build_finetune_views(
             ]
         elif view == "embedding_ranked":
             out[view] = [
-                _embedding_ranked(row, unit_index=unit_index)
-                for row in dataset.to_records("grpo")
+                _embedding_ranked(row, unit_index=unit_index) for row in dataset.to_records("grpo")
             ]
         elif view == "sft":
-            out[view] = [_sft(row, unit_index=unit_index) for row in dataset.to_records("supervised")]
+            out[view] = [
+                _sft(row, unit_index=unit_index) for row in dataset.to_records("supervised")
+            ]
         elif view in {"dpo", "reward", "grpo"}:
-            out[view] = [_enrich_record(row, unit_index=unit_index, format_name=view) for row in dataset.to_records(view)]  # type: ignore[arg-type]
+            out[view] = [
+                _enrich_record(row, unit_index=unit_index, format_name=view)
+                for row in dataset.to_records(view)
+            ]  # type: ignore[arg-type]
         else:  # pragma: no cover - _normalize_views rejects this.
             raise ValueError(f"unsupported fine-tune view: {view}")
 
@@ -174,7 +177,6 @@ def export_finetune_views(
             "hf_dataset": None if hf_path is None else str(hf_path),
         },
     }
-
 
 
 def register_finetune_adapter(
@@ -397,7 +399,9 @@ def _trl_grpo_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "prompt": str(row.get("prompt") or ""),
         "responses": [str(item) for item in list(row.get("responses") or ())],
         "ranks": [int(rank) for rank in list(row.get("ranks") or ())],
-        "scores": [None if score is None else float(score) for score in list(row.get("scores") or ())],
+        "scores": [
+            None if score is None else float(score) for score in list(row.get("scores") or ())
+        ],
         **_base_adapter_row(row),
     }
 
@@ -423,7 +427,6 @@ def _dspy_row(view_name: str, row: Mapping[str, Any]) -> dict[str, Any]:
     raise ValueError(f"dspy_examples does not support view {view_name!r}")
 
 
-
 def _normalize_views(views: Sequence[FineTuneView | str] | None) -> tuple[str, ...]:
     if views is None:
         return tuple(DEFAULT_FINETUNE_VIEWS)
@@ -439,7 +442,9 @@ def _unit_index(dataset: PreferenceDataset) -> dict[str, dict[str, Any]]:
     return {str(row.get("unit_id") or ""): dict(row) for row in dataset.to_records("general")}
 
 
-def _embedding_pair(row: Mapping[str, Any], *, unit_index: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+def _embedding_pair(
+    row: Mapping[str, Any], *, unit_index: Mapping[str, Mapping[str, Any]]
+) -> dict[str, Any]:
     metadata = _metadata_for_row(row, unit_index=unit_index, format_name="embedding_pairs")
     score = row.get("score")
     return {
@@ -451,7 +456,9 @@ def _embedding_pair(row: Mapping[str, Any], *, unit_index: Mapping[str, Mapping[
     }
 
 
-def _embedding_triplet(row: Mapping[str, Any], *, unit_index: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+def _embedding_triplet(
+    row: Mapping[str, Any], *, unit_index: Mapping[str, Mapping[str, Any]]
+) -> dict[str, Any]:
     return {
         "anchor": str(row.get("prompt") or ""),
         "positive": str(row.get("chosen") or ""),
@@ -463,13 +470,14 @@ def _embedding_triplet(row: Mapping[str, Any], *, unit_index: Mapping[str, Mappi
     }
 
 
-def _embedding_ranked(row: Mapping[str, Any], *, unit_index: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+def _embedding_ranked(
+    row: Mapping[str, Any], *, unit_index: Mapping[str, Mapping[str, Any]]
+) -> dict[str, Any]:
     return {
         "anchor": str(row.get("prompt") or ""),
         "texts": [str(item) for item in list(row.get("responses") or ())],
         "scores": [
-            None if score is None else float(score)
-            for score in list(row.get("scores") or ())
+            None if score is None else float(score) for score in list(row.get("scores") or ())
         ],
         "ranks": [int(rank) for rank in list(row.get("ranks") or ())],
         "sample_weight": _sample_weight(row),
@@ -522,7 +530,8 @@ def _metadata_for_row(
 
 
 def _sample_weight(row: Mapping[str, Any]) -> float:
-    return float(row.get("sample_weight", 1.0) or 1.0)
+    value = row.get("sample_weight")
+    return 1.0 if value is None else float(value)
 
 
 def _optional_float(value: Any) -> float | None:
@@ -546,7 +555,6 @@ def _save_hf_dataset_dict(views: Mapping[str, Sequence[Mapping[str, Any]]], path
         }
     )
     dataset.save_to_disk(str(path))
-
 
 
 # Built-in adapter specs: (name, framework, required_views, description).
@@ -608,9 +616,7 @@ def _register_builtin_adapters() -> None:
     """Register the built-in fine-tuning adapters from ``_BUILTIN_ADAPTER_SPECS``."""
     for name, framework, required_views, description in _BUILTIN_ADAPTER_SPECS:
         prepare_fn = (
-            _prepare_generic_adapter
-            if name == "generic_jsonl"
-            else _prepare_projected_adapter
+            _prepare_generic_adapter if name == "generic_jsonl" else _prepare_projected_adapter
         )
         register_finetune_adapter(
             FineTuneAdapter(

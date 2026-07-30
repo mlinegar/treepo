@@ -76,11 +76,15 @@ def test_family_registry_exposes_builtin_routes() -> None:
     family = resolve_family("llm", {"model": "teacher", "default_prediction": 3.5})
     assert family.name == "llm"
     assert family.config.model == "teacher"
-    assert family.score_roots_with_f(f=None, g=None, trees=[SimpleNamespace(metadata={"text": "doc"})]) == [3.5]
+    assert family.score_roots_with_f(
+        f=None, g=None, trees=[SimpleNamespace(metadata={"text": "doc"})]
+    ) == [3.5]
 
     dspy = resolve_family("dspy", {"model": "teacher", "default_prediction": 2.25})
     assert dspy.name == "dspy"
-    assert dspy.score_roots_with_f(f=None, g=None, trees=[SimpleNamespace(metadata={"text": "doc"})]) == [2.25]
+    assert dspy.score_roots_with_f(
+        f=None, g=None, trees=[SimpleNamespace(metadata={"text": "doc"})]
+    ) == [2.25]
 
 
 def test_downstream_can_register_application_family(monkeypatch) -> None:
@@ -148,7 +152,9 @@ def test_fit_uses_family_without_selector_indirection(tmp_path: Path) -> None:
     assert result.status == "success"
     assert result.summary["family"] == "fno"
     assert result.artifacts["g"]["kind"] == "treepo_fno_g"
-    manifest = json.loads((tmp_path / "treepo_methods_run_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (tmp_path / "treepo_methods_run_manifest.json").read_text(encoding="utf-8")
+    )
     assert manifest["spec"]["family"] == "fno"
 
 
@@ -195,6 +201,17 @@ def test_fit_can_use_llm_family_with_injected_predict_fn(tmp_path: Path) -> None
     assert result.summary["family"] == "llm"
     assert result.artifacts["g"]["kind"] == "treepo_llm_g"
     assert result.metrics["internal_f_mae"] == 0.0
+
+    assert result.summary["g_contract"]["train_g_call_count"] == 1
+    assert result.summary["g_contract"]["g_update_count"] == 0
+    assert result.summary["g_contract"]["learned_this_run"] is False
+    assert result.summary["g_contract"]["operator"] == "trainable_not_updated_this_run"
+    assert result.summary["g_contract"]["same_g_across_node_roles"] is True
+    assert result.summary["g_contract"]["reduce_g_is_derived"] is True
+    assert result.summary["g_contract"]["g_training_role_evidence_source"] == (
+        "inferred_from_train_g_and_topology"
+    )
+    assert result.summary["g_contract"]["shared_g_updated_with_merge_domain"] is False
 
 
 def test_fit_can_use_llm_family_with_openai_compatible_config(tmp_path: Path) -> None:
@@ -278,7 +295,9 @@ def test_manifesto_trees_are_plain_and_preferences_supply_root_and_node_views() 
         assert len(preferences.to_records("dpo")) == pairwise_rows
         assert len(preferences.to_records("reward")) == pairwise_rows
         assert len(preferences.to_records("supervised")) == len(trees) * 2
-        q_records = [row for row in preferences.to_records("supervised") if row["unit_type"] == "qsentence"]
+        q_records = [
+            row for row in preferences.to_records("supervised") if row["unit_type"] == "qsentence"
+        ]
         assert q_records
         assert q_records[0]["value"]["kind"] == MANIFESTO_POLICY_STATE_KIND
         assert q_records[0]["value"]["items"][0]["code"]
@@ -380,8 +399,14 @@ def test_preference_dataset_supplies_target_specific_supervision() -> None:
 
     assert len(dataset.filter_target("f")) == 2
     assert len(dataset.filter_target("g")) == 2
-    assert [row["value"] for row in dataset.filter_target("f").to_records("supervised")] == [1.0, 3.0]
-    assert [row["value"] for row in dataset.filter_target("g").to_records("supervised")] == [2.0, 3.0]
+    assert [row["value"] for row in dataset.filter_target("f").to_records("supervised")] == [
+        1.0,
+        3.0,
+    ]
+    assert [row["value"] for row in dataset.filter_target("g").to_records("supervised")] == [
+        2.0,
+        3.0,
+    ]
 
 
 def test_dspy_prompt_uses_preference_supervision(tmp_path: Path) -> None:
@@ -414,8 +439,21 @@ def test_dspy_prompt_uses_preference_supervision(tmp_path: Path) -> None:
     assert result.summary["family"] == "dspy"
     assert result.artifacts["g"]["kind"] == "treepo_dspy_g"
     assert result.metrics["internal_f_mae"] == 0.0
+    assert result.summary["g_contract"]["train_g_call_count"] == 1
+    assert result.summary["g_contract"]["g_update_count"] == 0
+    assert result.summary["g_contract"]["learned_this_run"] is False
+    assert result.summary["g_contract"]["operator"] == "trainable_not_updated_this_run"
+    assert result.summary["g_contract"]["same_g_across_node_roles"] is True
+    assert result.summary["g_contract"]["reduce_g_is_derived"] is True
+    assert result.summary["g_contract"]["g_training_role_evidence_source"] == (
+        "inferred_from_train_g_and_topology"
+    )
+    assert result.summary["g_contract"]["shared_g_updated_with_merge_domain"] is False
     assert any("Supervised examples:" in prompt for prompt in prompts)
-    assert any("qsentence" in prompt and "target=" in prompt and "manifesto_policy" in prompt for prompt in prompts)
+    assert any(
+        "qsentence" in prompt and "target=" in prompt and "manifesto_policy" in prompt
+        for prompt in prompts
+    )
 
 
 def test_manifesto_policy_statistic_matches_fixture_root_labels() -> None:

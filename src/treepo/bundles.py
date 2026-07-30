@@ -353,7 +353,8 @@ def _record_from_row(row: Mapping[str, Any], *, dimension: str | None, where: st
             )
         )
 
-    root_label = _root_label(row, nodes_raw.get(root_id) if root_id else None, dimension=dimension)
+    root_node = nodes_raw.get(root_id) if root_id else None
+    root_label = _root_label(row, root_node, dimension=dimension)
     metadata = {
         **dict(row.get("metadata") or {}),
         "schema_version": row.get("version"),
@@ -362,6 +363,10 @@ def _record_from_row(row: Mapping[str, Any], *, dimension: str | None, where: st
         "label_source": row.get("label_source"),
         "selected_dimension": dimension,
     }
+    if isinstance(root_node, Mapping) and isinstance(
+        root_node.get("dimension_scores"), Mapping
+    ):
+        metadata["dimension_scores"] = dict(root_node["dimension_scores"])
     return TreeRecord(
         tree_id=doc_id,
         doc_id=doc_id,

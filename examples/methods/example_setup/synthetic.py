@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .common import artifact_kind, metric, neural_operator_backend
-from .configs import HllSketchConfig, NeuralOperatorLDALeafGridConfig, NeuralOperatorMarkovLeafGridConfig
+from .configs import (
+    HllSketchConfig,
+    NeuralOperatorLDALeafGridConfig,
+    NeuralOperatorMarkovLeafGridConfig,
+)
 
 
 def hll_trees(config: HllSketchConfig) -> Sequence[Any]:
@@ -23,9 +27,20 @@ def hll_trees(config: HllSketchConfig) -> Sequence[Any]:
     )
 
 
-def hll_fit_config(config: HllSketchConfig, *, output_dir: Path, trees: Sequence[Any]) -> dict[str, Any]:
+def hll_fit_config(
+    config: HllSketchConfig, *, output_dir: Path, trees: Sequence[Any]
+) -> dict[str, Any]:
+    fixed_g = {
+        "kind": "treepo_classical_sketch_g",
+        "g_mode": "fixed",
+        "operator": "classical_sketch:hll",
+        "trainable": False,
+        "train_g_enabled": False,
+    }
     return {
         "family": "classical_sketch",
+        "g_mode": "fixed",
+        "initial_artifacts": {"g": fixed_g},
         "train_data": trees,
         "eval_data": trees,
         "backend_config": {
@@ -44,7 +59,9 @@ def hll_fit_config(config: HllSketchConfig, *, output_dir: Path, trees: Sequence
     }
 
 
-def markov_split(config: Any, *, leaf_unit_count: int | None = None) -> tuple[Sequence[Any], Sequence[Any]]:
+def markov_split(
+    config: Any, *, leaf_unit_count: int | None = None
+) -> tuple[Sequence[Any], Sequence[Any]]:
     from treepo.methods.fixtures import make_markov_changepoint_trees
 
     leaf_count = int(leaf_unit_count if leaf_unit_count is not None else config.leaf_unit_count)
@@ -188,7 +205,9 @@ def markov_fit_config(
     }
 
 
-def markov_average_guess_baseline(train: Sequence[object], eval_trees: Sequence[object]) -> dict[str, float]:
+def markov_average_guess_baseline(
+    train: Sequence[object], eval_trees: Sequence[object]
+) -> dict[str, float]:
     train_scores = [_score(tree) for tree in train]
     eval_scores = [_score(tree) for tree in eval_trees]
     mean = sum(train_scores) / len(train_scores)
@@ -235,7 +254,9 @@ def markov_grid_row(
     }
 
 
-def lda_split(config: Any, *, leaf_unit_count: int | None = None) -> tuple[Sequence[Any], Sequence[Any]]:
+def lda_split(
+    config: Any, *, leaf_unit_count: int | None = None
+) -> tuple[Sequence[Any], Sequence[Any]]:
     from treepo.methods.fixtures import make_lda_topic_trees
 
     leaf_count = int(leaf_unit_count if leaf_unit_count is not None else config.leaf_unit_count)
@@ -281,7 +302,9 @@ def lda_fit_config(
     operator_kind: str,
     leaf_unit_count: int,
 ) -> dict[str, Any]:
-    backend = neural_operator_backend(config, output_dir=output_dir / "fit", operator_kind=operator_kind)
+    backend = neural_operator_backend(
+        config, output_dir=output_dir / "fit", operator_kind=operator_kind
+    )
     backend.update(
         {
             "target_key": lda_target_key(config),
@@ -304,7 +327,9 @@ def lda_fit_config(
     }
 
 
-def fit_lda_sklearn_baseline(config: Any, train: Sequence[Any], eval_trees: Sequence[Any]) -> Any | None:
+def fit_lda_sklearn_baseline(
+    config: Any, train: Sequence[Any], eval_trees: Sequence[Any]
+) -> Any | None:
     if not bool(config.run_sklearn_baseline) or int(config.sklearn_max_iter) <= 0:
         return None
 
@@ -371,12 +396,16 @@ def lda_grid_row(
         "status": result.status,
         "internal_f_mae": metric(metrics, "internal_f_mae"),
         "internal_f_pearson": metric(metrics, "internal_f_pearson"),
-        "target_topic_vector_mae": metric(metrics, f"topic_{int(config.target_topic)}_internal_f_mae"),
+        "target_topic_vector_mae": metric(
+            metrics, f"topic_{int(config.target_topic)}_internal_f_mae"
+        ),
         "mean_topic_vector_mae": mean_topic_mae(metrics, int(config.n_topics)),
         "mean_prediction": metric(metrics, "mean_prediction"),
         "mean_teacher": metric(metrics, "mean_teacher"),
         "n": metric(metrics, "n"),
-        "sklearn_target_mae": None if sklearn_baseline is None else float(sklearn_baseline.target_mae),
+        "sklearn_target_mae": None
+        if sklearn_baseline is None
+        else float(sklearn_baseline.target_mae),
         "sklearn_mean_mae": None if sklearn_baseline is None else float(sklearn_baseline.mean_mae),
         "average_guess_target": float(average_baseline["target"]),
         "average_guess_target_mae": float(average_baseline["target_mae"]),
@@ -389,7 +418,9 @@ def lda_grid_row(
 
 
 def mean_topic_mae(metrics: dict[str, Any], n_topics: int) -> float | None:
-    values = [metric(metrics, f"topic_{idx}_internal_f_mae") for idx in range(max(1, int(n_topics)))]
+    values = [
+        metric(metrics, f"topic_{idx}_internal_f_mae") for idx in range(max(1, int(n_topics)))
+    ]
     values = [value for value in values if value is not None]
     if not values:
         return None
@@ -398,4 +429,3 @@ def mean_topic_mae(metrics: dict[str, Any], n_topics: int) -> float | None:
 
 def _score(tree: object) -> float:
     return float(getattr(tree, "metadata", {}).get("teacher_score_native"))
-

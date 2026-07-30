@@ -11,7 +11,12 @@ from __future__ import annotations
 from collections.abc import Mapping as MappingABC
 from typing import Any, Mapping, Sequence
 
-from treepo.methods._preference_normalize import _bool, _json_text, _sample_weight
+from treepo.methods._preference_normalize import (
+    _TREE_FIELDS,
+    _bool,
+    _json_text,
+    _unit_sample_weight,
+)
 
 
 def _candidate_record(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -29,11 +34,29 @@ def _candidate_record(row: Mapping[str, Any]) -> dict[str, Any]:
 def _ordered_candidates(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     rows = [dict(candidate) for candidate in candidates]
     if any(_bool(candidate.get("preferred")) for candidate in rows):
-        return sorted(rows, key=lambda candidate: (0 if _bool(candidate.get("preferred")) else 1, str(candidate.get("candidate_id"))))
+        return sorted(
+            rows,
+            key=lambda candidate: (
+                0 if _bool(candidate.get("preferred")) else 1,
+                str(candidate.get("candidate_id")),
+            ),
+        )
     if any(candidate.get("rank") is not None for candidate in rows):
-        return sorted(rows, key=lambda candidate: (int(candidate.get("rank") or 10**9), str(candidate.get("candidate_id"))))
+        return sorted(
+            rows,
+            key=lambda candidate: (
+                int(candidate.get("rank") or 10**9),
+                str(candidate.get("candidate_id")),
+            ),
+        )
     if any(candidate.get("score") is not None for candidate in rows):
-        return sorted(rows, key=lambda candidate: (-_score_sort_value(candidate), str(candidate.get("candidate_id"))))
+        return sorted(
+            rows,
+            key=lambda candidate: (
+                -_score_sort_value(candidate),
+                str(candidate.get("candidate_id")),
+            ),
+        )
     return rows
 
 
@@ -55,7 +78,9 @@ def _top_candidates(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, A
     return rows[:1]
 
 
-def _pair_candidates(candidates: Sequence[Mapping[str, Any]]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+def _pair_candidates(
+    candidates: Sequence[Mapping[str, Any]],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     rows = _ordered_candidates(candidates)
     if len(rows) < 2:
         return []
@@ -130,15 +155,19 @@ def _export_metadata(
     metadata = dict(unit.get("metadata") or {})
     metadata.update(
         {
+            **{key: unit.get(key) for key in _TREE_FIELDS},
             "unit_id": unit.get("unit_id"),
             "unit_type": unit.get("unit_type"),
             "target": unit.get("target"),
-            "tree_id": unit.get("tree_id"),
-            "doc_id": unit.get("doc_id"),
-            "node_id": unit.get("node_id"),
             "law_type": metadata.get("law_type", metadata.get("law_kind", "preference")),
             "format": str(format_name),
-            "sample_weight": _sample_weight(unit.get("weight", 1.0), unit.get("propensity", 1.0)),
+            "weight": unit.get("weight"),
+            "propensity": unit.get("propensity"),
+            "propensity_source": unit.get("propensity_source", metadata.get("propensity_source")),
+            "sample_weight_source": unit.get(
+                "sample_weight_source", metadata.get("sample_weight_source")
+            ),
+            "sample_weight": _unit_sample_weight(unit),
         }
     )
     if candidates:

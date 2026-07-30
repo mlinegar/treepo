@@ -11,8 +11,9 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from treepo.local_law import LawKind, LocalLawAuditRow
-from treepo.methods._fno_config import _clamp
+from treepo.methods._fno_config import _clamp, _target_schema_payload
 from treepo.methods._fno_encoding import _leaf_token_groups
+from treepo.methods._fno_loss import training_loss_definition
 from treepo.methods._fno_transition import (
     _numeric_transition_law_rows,
     _numeric_transition_state_targets,
@@ -36,7 +37,15 @@ class _NeuralOperatorStatistic:
                 "output_dim": int(family._output_dim or 1),
                 "target_key": family.config.target_key,
                 "target_vector_key": family.config.target_vector_key,
-                "numeric_transition_state_weight": float(family.config.numeric_transition_state_weight),
+                "target_schema": _target_schema_payload(family.config),
+                "training_loss": str(family.config.training_loss),
+                "training_loss_definition": training_loss_definition(
+                    family.config.training_loss
+                ),
+                "law_state_root_readout": family.config.law_state_root_readout,
+                "numeric_transition_state_weight": float(
+                    family.config.numeric_transition_state_weight
+                ),
                 "trained": family._model is not None,
             },
         )
@@ -73,8 +82,12 @@ class _NeuralOperatorStatistic:
             raw = read(state_t)
             values = family._denormalized_predictions(raw).detach().cpu().tolist()
         row = values[0] if values and isinstance(values[0], list) else values
-        if (family._output_dim or 1) == 1:
-            return _clamp(float(row[0] if isinstance(row, list) else row), family.config.target_min, family.config.target_max)
+        if (family._output_dim or 1) == 1 and not family.config.target_names:
+            return _clamp(
+                float(row[0] if isinstance(row, list) else row),
+                family.config.target_min,
+                family.config.target_max,
+            )
         return [
             _clamp(float(value), family.config.target_min, family.config.target_max)
             for value in list(row)
@@ -130,7 +143,11 @@ class _NeuralOperatorStatistic:
                         {
                             "tree_id": _tree_row_id(tree, tree_idx),
                             "node_index": int(node_idx),
-                            "value": clamped[0] if (family._output_dim or 1) == 1 else clamped,
+                            "value": (
+                                clamped[0]
+                                if (family._output_dim or 1) == 1 and not family.config.target_names
+                                else clamped
+                            ),
                         }
                     )
         return rows
@@ -172,6 +189,7 @@ class _NeuralOperatorStatistic:
             law_rows = _numeric_transition_law_rows(
                 traces,
                 targets,
+                training_loss=family.config.training_loss,
                 torch=family._torch,
                 device=family._device,
                 dtype=traces[0].dtype,
@@ -217,6 +235,10 @@ class _NeuralOperatorStatistic:
                             "node_index": int(node_idx),
                             "target_dim": int(target_trace.shape[1]),
                             "learned_dim": int(pred_trace.shape[1]),
+                            "vector_loss": str(family.config.training_loss),
+                            "vector_loss_definition": training_loss_definition(
+                                family.config.training_loss
+                            ),
                         },
                     )
                 )

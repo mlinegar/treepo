@@ -6,21 +6,56 @@ enforces and the module that owns each.
 
 ## The pipeline shape
 
-A document `x` decomposes into ordered leaves. `g` encodes each leaf into a
-state and merges states pairwise up to a root state; `f` reads the root state
-out into the task answer:
+A document `x` decomposes into ordered leaves. One operator `g` is invoked at
+every state-producing call, and `f` reads the resulting root state:
 
 ```text
-raw document x
-  -> leaves (b_1 .. b_L), in document order
-  -> g: leaf states s_i = g(b_i); merges s = g(s_left, s_right)
-  -> f: readout U(s_root)
+reduce_g(Leaf(b))       = g(b)
+reduce_g(Node(T_L,T_R)) = g(reduce_g(T_L) concat reduce_g(T_R))
+answer                   = f(reduce_g(T))
 ```
 
-The local laws (C1 leaf preservation, C2 on-range idempotence, C3 merge
-preservation) certify that each `g` step preserves the task-relevant
-information; `treepo.local_law` owns the scalar law arithmetic and audit rows,
-`treepo.training.local_law` owns the tensor training objectives.
+Thus `reduce_g` is a recursive program induced by `g`, not a separately learned
+operator. Leaf and internal inputs may use typed tags or packing adapters, but
+there is one `g` artifact, one parameter set, and one training surface. C1
+leaf-call rows and C3 internal-call rows, when eligible, update that same
+parameter set; there is no separate `train_reduce_g`. The same updated `g` is
+used at both call types.
+
+The generic provider-neutral `llm` family exposes fixed
+text-state/concatenation behavior and does not optimize `g`. The
+optimizer-backed `dspy` family learns one program over leaf and merge examples
+and preserves this one-operator contract throughout recursive execution.
+
+## Topology and the singleton base case
+
+Every recursive binary C-Tree has `L >= 1` leaves and exactly `M = L - 1`
+merge applications. With `L = 1`, the root and leaf are the same logical node
+and `M = 0`. The package names three derived paths:
+
+- `full_doc_direct`: singleton `f(X)` with identity `g` elided;
+- `ctree_base_summary`: singleton `f(g(X))` with one nonidentity `g` call; and
+- `ctree_recursive`: `f(reduce_g(T))` with `L >= 2` and active internal calls.
+
+`full_doc` names full-span singleton geometry; `ctree` is the umbrella grammar
+and therefore includes both singleton and recursive C-Trees.
+
+In the summarized singleton, the sole `g(X)` call creates a realized C1
+obligation. There are no internal nodes, so the realized C3 population is
+empty. That is structural absence, not a C3 pass. An update changes the same
+shared `g` that a larger tree would call internally, but singleton data supply
+no internal-call or C3 evidence for learned composition.
+
+More than one leaf with no merge reduction is not a recursive binary C-Tree.
+For example, concatenating several leaf summaries directly into `f` is an
+explicit concat/no-merge ablation and must be named separately.
+
+The semantic local laws are C1 leaf validity, C2 recompression (only when the
+grammar actually recompresses a stored state), and full state-level C3 merge
+closure. `treepo.local_law` owns scalar row arithmetic and
+`treepo.training.local_law` owns tensor objectives. Those rows may be faithful
+state witnesses, separating probes, or scalar readout proxies; the arithmetic
+and a C1/C2/C3 tag do not by themselves certify task sufficiency.
 
 ## Tree records: observation granularity
 
@@ -60,9 +95,12 @@ supervision-target builder:
   each merge level bottom-up, root last. A tree with `L` leaves yields
   `2L − 1` trace rows.
 
+At `L = 1`, that formula gives one row: the root is the leaf. Sampling and
+supervision code must not emit separate root and leaf node rows for that one
+logical node. It may retain root-task and C1 evidence as distinct channels.
 Three places implement this schedule and must stay in lockstep:
 
-1. `_TreeFGModel._compose` / `_compose_batch` (`methods/_fno_models.py`) —
+1. `_UnifiedGTreeModel._compose` / `_compose_batch` (`methods/_fno_models.py`) —
    the torch forward pass;
 2. `_numeric_transition_rows` (`methods/_fno_transition.py`) — the exact
    per-node supervision targets;
@@ -114,20 +152,26 @@ keep only the proxy, and every row logs the design propensity `q / N`.
 
 ## The corrected objective
 
-Training and audit both use the AIPW-corrected node loss
+Training and audit can use the AIPW-corrected node loss
 
 ```text
 loss_corrected = proxy + (observed / propensity) * (oracle − proxy)
 ```
 
-which is unbiased for the oracle loss under logged propensities and reduces
-to the proxy loss on unsampled nodes (`treepo.local_law.corrected_local_law_loss`,
-tensor forms in `treepo.training.local_law`). Aggregation weights each row by
+which is unbiased for the declared oracle-loss estimand only when the logged
+propensity is the correct conditional inclusion probability, the proxy is
+fixed/predictable with respect to that selection, and denominator clipping is
+inactive. It reduces to the proxy loss on unsampled nodes
+(`treepo.local_law.corrected_local_law_loss`, tensor forms in
+`treepo.training.local_law`). Aggregation weights each row by
 `node_weight * gamma_depth ** depth` and normalizes by the total weight.
 `node_weight` is the structural row weight; `gamma_depth` is the depth-emphasis
-hyperparameter; neither changes logged propensities. Certificate `delta`
-continues to mean failure probability, not depth decay.
-`sampled_ipw` mode is the Hajek estimator over observed rows only. The
+hyperparameter; neither changes logged propensities. Legacy certificate API
+fields `delta` / `confidence_delta` store statistical tail allocation
+(`alpha` in the current paper), not deployment relational risk `delta_T` and
+not depth decay. `sampled_ipw` is the self-normalized Hájek ratio estimator
+over observed rows; it is generally finite-sample biased and is not the
+Horvitz--Thompson estimator. The
 overall training objective is the convex combination
 `(1 − lambda) * root_loss + lambda * corrected_law_loss`
 (`treepo.objective.resolve_root_local_objective_weights`); audit diagnostics
@@ -136,18 +180,18 @@ certificate, never the objective.
 
 ## Triangle/local-law error certificates
 
-For partially observed trees, local-law checking is also the default
-model-agnostic error-estimation interface. The audited C1/C2/C3 objective
-estimates the leaf-up triangle transport residual: under the common `f,g`
-assumption, the same local calls that operate at the document root also
-operate at internal nodes, so small local-law residuals transport root-level
-error control through the tree.
+For partially observed trees, local-law rows provide a model-agnostic
+*evidence input* to the legacy aggregate-distortion (`B_R`) lane. A point
+objective estimates its declared realized row-population loss. It becomes a
+leaf-up/root transport bound only after the caller supplies both a faithful or
+calibrated row interpretation and a valid local-to-root transport argument;
+using the same `f,g` calls at roots and internal nodes is not enough by itself.
 
-Use `triangle_local_law_residual_from_audit(...)` to convert either raw
-`LocalLawAuditRow` values or an `audit_local_laws(...)` payload into a
-`TwoChannelResidual`. Its channels map as follows:
+Use `triangle_local_law_residual_from_audit(...)` to package either raw
+`LocalLawAuditRow` values or an `audit_local_laws(...)` payload with a
+caller-supplied bound in a `TwoChannelResidual`. Its channels map as follows:
 
-- `leaf_up_radius`: the audited local-law/triangle transport radius;
+- `leaf_up_radius`: a caller-supplied local-law/triangle bound;
 - `root_down_radius`: root-label aggregate control through the rest-of-tree
   readout map;
 - `overidentification_radius`: disagreement between leaf-up and root-down
@@ -155,9 +199,10 @@ Use `triangle_local_law_residual_from_audit(...)` to convert either raw
 
 Use `build_triangle_local_law_error_certificate(...)` when the run also has
 common-mechanism root-error envelopes or external conditional-average
-envelopes. A corrected local-law point estimate can be noisy; when a run has a
-finite-sample bound, pass it as `leaf_up_radius` explicitly. Otherwise the
-helper uses the non-negative audited point objective as the transport radius.
+envelopes. Pass a justified finite-sample/transport bound as `leaf_up_radius`.
+The helper rejects an omitted bound by default. Descriptive legacy plots may
+opt in to `allow_point_estimate_proxy_radius=True`; emitted metadata labels
+that value a point-estimate proxy, not a semantic/root certificate.
 The certificate preserves the audit's `gamma_depth` and effective-weight
 formula in metadata so finite-sample bounds can be checked against the same
 weighted estimand.

@@ -20,10 +20,11 @@ Add `treepo` to a `uv` project:
 uv add "treepo @ git+https://github.com/mlinegar/treepo"
 ```
 
-Add the optional OpenAI-compatible client helpers with:
+Add optional OpenAI-compatible client helpers or optimizer-backed DSPy with:
 
 ```bash
 uv add "treepo[llm] @ git+https://github.com/mlinegar/treepo"
+uv add "treepo[dspy] @ git+https://github.com/mlinegar/treepo"
 ```
 
 From a source checkout:
@@ -41,7 +42,8 @@ The core install is slim (numpy only). Heavy stacks are extras: `treepo[torch]`
 for the neural-operator families (`fno`, `neural_operator`), `treepo[lda]` for
 the sklearn LDA family, `treepo[hf]` for Hugging Face dataset export,
 `treepo[sketches]` for sketch backends, `treepo[llm]` for LLM clients,
-`treepo[bench]` for benchmark config IO, and `treepo[all]` for everything.
+`treepo[dspy]` for optimizer-backed prompt programs, `treepo[bench]` for
+benchmark config IO, and `treepo[all]` for everything.
 Missing extras fail lazily at first use with the extra named in the error.
 
 ## Usage
@@ -62,8 +64,10 @@ For prompted-LLM runs, install `treepo[llm]`. `family="llm"` can call
 OpenAI-compatible `/v1` servers directly, including vLLM, SGLang, hosted
 OpenAI-compatible APIs, and other compatible servers. It can also use any
 direct Python callable through `predict_fn`, including Hugging Face
-Transformers pipelines or custom local runtimes. DSPy runs use the same server
-settings plus an injected DSPy program.
+Transformers pipelines or custom local runtimes. This generic ``llm`` family
+is an inference/artifact adapter and does not optimize ``g``. DSPy runs use the
+same server settings with an optimizer-backed program family that learns the
+joint readout ``f`` and, for nonidentity C-Trees, one shared ``g``.
 
 One common local setup is:
 
@@ -135,25 +139,41 @@ result = treepo.fit({
 })
 ```
 
-For DSPy prompt tuning, configure `program` against the same `lm_config` and
-pass it through `backend_config`:
+For DSPy prompt tuning, provide a non-disabled optimizer plus ``lm_config``.
+The family can construct default vector ``f``/``g`` programs from the declared
+target schema, or accept explicit ``f_program`` and ``g_program`` adapters.
+``dspy_program`` remains a compatibility alias for ``f_program``; it is not a
+replacement for the shared ``g_program``.
 
 ```python
 result = treepo.fit({
     "family": "dspy",
+    "schedule": "fg",
+    "g_mode": "learned",
+    "oracle_targets": oracle_targets,
     "train_data": train_trees,
     "eval_data": eval_trees,
     "preference_data": preferences,
-    "backend_config": {"lm_config": lm_config, "dspy_program": program},
+    "backend_config": {
+        "optimizer": "bootstrap_random_search",
+        "lm_config": lm_config,
+        # Optional overrides; otherwise defaults come from oracle_targets.
+        # "f_program": f_program,
+        # "g_program": g_program,
+    },
 })
 ```
+
+The one compiled ``g`` receives both role-tagged leaf and merge examples and is
+reused at every call in ``reduce_g``. Generic ``family="llm"`` remains the
+inference-only route.
 
 ## Examples
 
 For long-document language tasks, start with the LLM families. `family="llm"`
 can call an OpenAI-compatible endpoint directly from `api_base`, or accept an
-injected `predict_fn`. `family="dspy"` wraps an injected DSPy program or
-prediction callable for prompt tuning. These local examples exercise the
+injected `predict_fn`. `family="dspy"` is the optimizer-backed prompt-program
+route for one joint vector ``f`` and one shared ``g``. These local examples exercise the
 backend adapter shapes and the preference/optimizer views used by those routes:
 
 ```bash
@@ -165,6 +185,89 @@ uv run python examples/methods/run_llm_backends.py \
 uv run python examples/methods/run_preference_optimizer_views.py \
   --output-dir outputs/preference_optimizer_views_example
 ```
+
+The package's Semantic-Forest example is organized as two isomorphic family
+grids. DSPy and FNO each run the same nine cells:
+`K={1,3,57} x {full_doc_direct,ctree_base_summary,ctree_recursive}`
+(18 cells total). Learned DSPy execution is the default and requires a JSON or
+TOML backend config containing ``optimizer`` and ``lm_config`` (or injected
+program adapters for programmatic calls):
+
+Learned cells default to `--max-iterations 3`, the alternating `f -> g -> f`
+sequence; identity/fixed-`g` cells elide the `g` slot. The learned DSPy grid
+also defaults `f_record_source="generated_when_available"`: the first `f`
+pass may use reference states because no learned `g` exists yet, while the
+final `f` pass consumes states produced by the current shared `g`. Set
+`f_record_source="gold_state"` explicitly in the DSPy backend config for the
+reference-state ablation.
+
+```bash
+uv run python examples/methods/run_manifesto_semantic_forest_grid.py \
+  --family both \
+  --dspy-execution learned \
+  --dspy-config path/to/dspy_backend.toml \
+  --output-dir outputs/manifesto_semantic_forest_grid
+```
+
+For a fully local interface smoke, request the deterministic fixture explicitly:
+
+```bash
+uv run python examples/methods/run_manifesto_semantic_forest_grid.py \
+  --family both \
+  --dspy-execution offline_fixture \
+  --output-dir outputs/manifesto_semantic_forest_grid_offline
+```
+
+Only ``offline_fixture`` substitutes the deterministic oracle program and fixed
+analytic ``g``; it runs no DSPy optimizer and must never be reported as the
+learned DSPy grid. Both modes use synthetic records, so neither command alone
+is publication or Polmeth evidence.
+
+Tree topology, whether `g` is invoked, model family, and target width are
+independent. A recursive binary C-Tree has `L >= 1` leaves and exactly
+`M = L - 1` merge applications. In particular, a single document-sized leaf
+is already a valid C-Tree and has no merges. The package distinguishes three
+derived execution paths:
+
+- `full_doc_direct`: `f(X)`, with identity `g` operationally elided;
+- `ctree_base_summary`: `f(g(X))`, with one call to a nonidentity `g` and no
+  internal call; and
+- `ctree_recursive`: `f(reduce_g(T))` on `L >= 2` leaves, where the same `g`
+  is called at leaves and internal nodes.
+
+There is only one `g` artifact and one set of learned parameters. Formally,
+`reduce_g(Leaf(b)) = g(b)` and
+`reduce_g(Node(T_L,T_R)) = g(reduce_g(T_L) concat reduce_g(T_R))`.
+`reduce_g` is this induced fold, not another operator, learner, artifact, or
+optimization stage.
+
+Thus `full_doc` names full-span singleton geometry, not `g_mode`, and `ctree`
+is the umbrella grammar rather than shorthand for `L >= 2`. A comparison grid
+may use `ctree` as a short label for its deliberately multi-leaf arm, but that
+is a cell definition rather than the definition of a C-Tree. A fixed
+nonidentity operator must be declared `g_mode="fixed"`; a trainable operator
+is called learned only when `g_contract.learned_this_run` is true. On a
+singleton, such an update changes that same shared `g` using leaf-call support
+only; it supplies no internal-call or C3 evidence for composition.
+`train_g_call_count` records attempted calls separately from `g_update_count`;
+downstream families can return `treepo.methods.GTrainOutcome` when artifact
+equality cannot disclose whether an update actually occurred.
+
+The provider-neutral families have distinct semantics. ``family="llm"``
+supports inference and artifact plumbing but does not optimize ``g``.
+``family="dspy"`` is optimizer-backed: it learns vector ``f`` and, when
+``g_mode="learned"`` reaches a g-step, compiles one shared ``g`` over the
+available leaf/merge call domains. The result calls it learned only when the
+realized contract reports an update. ``offline_fixture`` is a fixed analytic
+control and is never learned-g evidence.
+
+`K={1,3,57}` all use the same `treepo.fit(...)` API, exact named target-vector
+contract, and mean document-level sum-L1 metric; `K=1` is not a scalar-only
+execution branch.
+The FNO/neural-operator families train root, node-readout, and vector-state
+rows with that same unnormalized `sum_l1` reduction by default. Set
+`backend_config["training_loss"]="coordinate_mean_mse"` only to reproduce the
+legacy coordinate-mean MSE surrogate.
 
 For numeric fixtures, start with the Markov benchmark:
 
@@ -198,7 +301,9 @@ local-law certificates, visualization, and neural operators (`fno`, `tfno`,
 
 For details, see [`docs/architecture.md`](docs/architecture.md),
 [`docs/tree_and_sampling.md`](docs/tree_and_sampling.md),
-[`docs/preference_data.md`](docs/preference_data.md), and
+[`docs/preference_data.md`](docs/preference_data.md),
+[`docs/semantic_forests.md`](docs/semantic_forests.md),
+[`docs/full_document_llm_contract.md`](docs/full_document_llm_contract.md), and
 [`examples/`](examples/).
 
 License: see [`LICENSE`](LICENSE).

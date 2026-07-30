@@ -13,6 +13,7 @@ from typing import Any, Mapping, Sequence
 
 from treepo.methods._fno_config import NeuralOperatorFamilyConfig
 from treepo.methods._fno_encoding import _leaf_token_groups
+from treepo.methods._fno_loss import per_row_training_loss
 from treepo.schedule import fold_with_trace, merge_children, merge_depths
 from treepo.tree import tree_row_id
 
@@ -47,6 +48,7 @@ def _numeric_transition_law_rows(
     traces: Sequence[Any],
     targets: Sequence[Any],
     *,
+    training_loss: str,
     torch: Any,
     device: Any,
     dtype: Any,
@@ -60,7 +62,8 @@ def _numeric_transition_law_rows(
     carry the supervised transition vector.
 
     Each tree contributes ``2L - 1`` rows in trace order (leaves first, then
-    merges level by level). ``proxy_loss`` is the per-node mean squared error
+    merges level by level). ``proxy_loss`` is the configured per-node vector
+    distance
     over the supervised dims, ``depths`` follows the shared merge schedule
     with the root at depth 0, and ``is_leaf`` marks the C1 channel (merge
     rows are the C3 channel) — the same channel split the audit statistic
@@ -104,7 +107,11 @@ def _numeric_transition_law_rows(
             d = min(int(pred.shape[-1]), int(target.shape[-1]))
             if d <= 0:
                 return None
-            losses = ((pred[:, :, :d] - target[:, :, :d]) ** 2).mean(dim=-1).reshape(-1)
+            losses = per_row_training_loss(
+                pred[:, :, :d],
+                target[:, :, :d],
+                training_loss=training_loss,
+            ).reshape(-1)
             n_nodes = int(pred.shape[1])
             depths, is_leaf = _node_meta(n_nodes)
             batch = int(pred.shape[0])
@@ -119,7 +126,13 @@ def _numeric_transition_law_rows(
         d = min(int(pred.shape[1]), int(target.shape[1]))
         if n <= 0 or d <= 0:
             continue
-        loss_chunks.append(((pred[:n, :d] - target[:n, :d]) ** 2).mean(dim=-1))
+        loss_chunks.append(
+            per_row_training_loss(
+                pred[:n, :d],
+                target[:n, :d],
+                training_loss=training_loss,
+            )
+        )
         depths, is_leaf = _node_meta(n)
         depth_chunks.append(depths)
         leaf_chunks.append(is_leaf)

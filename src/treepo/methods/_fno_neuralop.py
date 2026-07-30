@@ -120,38 +120,48 @@ def _neuralop_constructor_kwargs(
     operator_kind: str,
     config: NeuralOperatorFamilyConfig,
     model_cls: Any,
+    in_channels: int | None = None,
+    out_channels: int | None = None,
 ) -> dict[str, Any]:
     import inspect
 
     raw_kwargs = dict(config.operator_kwargs or {})
     signature = inspect.signature(model_cls)
     accepts_kwargs = any(
-        param.kind == inspect.Parameter.VAR_KEYWORD
-        for param in signature.parameters.values()
+        param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()
     )
     normalized = _normalize_operator_kind(operator_kind)
     if normalized in _SEQUENCE_INCOMPATIBLE_NEURALOP_KINDS:
-        supported = ", ".join(sorted((*_LOCAL_OPERATOR_KINDS, *_SEQUENCE_COMPATIBLE_NEURALOP_KINDS)))
+        supported = ", ".join(
+            sorted((*_LOCAL_OPERATOR_KINDS, *_SEQUENCE_COMPATIBLE_NEURALOP_KINDS))
+        )
         raise ValueError(
             f"operator_kind={operator_kind!r} is available from neuralop.models, "
             "but treepo's built-in neural_operator family accepts one embedded "
             f"leaf-sequence tensor. Use one of {supported}, or register a "
             "downstream family for geometry/query neural operators."
         )
-    in_channels = max(1, int(config.embedding_dim))
+    resolved_in_channels = max(
+        1,
+        int(config.embedding_dim) if in_channels is None else int(in_channels),
+    )
+    resolved_out_channels = max(
+        1,
+        int(config.hidden_channels) if out_channels is None else int(out_channels),
+    )
     hidden_channels = max(1, int(config.hidden_channels))
     n_layers = max(1, int(config.n_layers))
     n_modes = (max(1, int(config.n_modes)),)
     dense_defaults = {
-        "in_channels": in_channels,
-        "out_channels": hidden_channels,
+        "in_channels": resolved_in_channels,
+        "out_channels": resolved_out_channels,
         "hidden_channels": hidden_channels,
         "n_layers": n_layers,
         "n_modes": n_modes,
     }
     extended_defaults = {
         **dense_defaults,
-        "fno_in_channels": in_channels,
+        "fno_in_channels": resolved_in_channels,
         "fno_hidden_channels": hidden_channels,
         "fno_n_layers": n_layers,
         "fno_n_modes": n_modes,
@@ -167,9 +177,11 @@ def _neuralop_constructor_kwargs(
                 "horizontal_skips_map": {},
             }
         )
-    kwargs = dict(dense_defaults) if accepts_kwargs else {
-        key: value for key, value in extended_defaults.items() if key in signature.parameters
-    }
+    kwargs = (
+        dict(dense_defaults)
+        if accepts_kwargs
+        else {key: value for key, value in extended_defaults.items() if key in signature.parameters}
+    )
     kwargs.update(raw_kwargs)
     required_missing = [
         name

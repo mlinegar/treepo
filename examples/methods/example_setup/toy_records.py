@@ -467,6 +467,7 @@ def toy_error_certificate(*, root_metrics: dict[str, float], audit: dict[str, An
     return build_triangle_local_law_error_certificate(
         reported_estimate=float(root_metrics["internal_f_mae"]),
         audit=audit,
+        allow_point_estimate_proxy_radius=True,
         root_down_radius=observed_root_radius,
         common_mechanism_envelopes=(
             CommonMechanismEnvelopeEvidence(
@@ -484,8 +485,9 @@ def toy_error_certificate(*, root_metrics: dict[str, float], audit: dict[str, An
         metadata={
             "example_only": True,
             "note": (
-                "The ledger shape is real; the toy root and common-mechanism "
-                "radii are illustrative."
+                "The ledger shape is real; its local-law point estimate is an "
+                "explicitly labeled descriptive proxy, and the toy root and "
+                "common-mechanism radii are illustrative."
             ),
         },
     )

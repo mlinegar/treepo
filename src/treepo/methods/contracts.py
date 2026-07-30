@@ -11,9 +11,24 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
 
 from treepo.common import jsonable
+from treepo.forest import OracleTargetSpec, normalize_oracle_targets
 from treepo.objective import ObjectiveSpec
 
 JsonDict = dict[str, Any]
+
+G_MODE_IDENTITY = "identity"
+G_MODE_FIXED = "fixed"
+G_MODE_LEARNED = "learned"
+G_MODES = (G_MODE_IDENTITY, G_MODE_FIXED, G_MODE_LEARNED)
+
+
+def normalize_g_mode(value: Any) -> str:
+    """Return the package-wide shared state-operator execution policy."""
+
+    mode = str(value or G_MODE_LEARNED).strip().lower()
+    if mode not in G_MODES:
+        raise ValueError(f"g_mode must be one of {G_MODES!r}, got {value!r}")
+    return mode
 
 
 @runtime_checkable
@@ -30,8 +45,7 @@ class FamilyRuntime(Protocol):
         traces: Sequence[Any],
         output_dir: Any,
         iteration: int,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
     def train_g(
         self,
@@ -41,8 +55,7 @@ class FamilyRuntime(Protocol):
         traces: Sequence[Any],
         output_dir: Any,
         iteration: int,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
     def score_roots_with_f(
         self,
@@ -50,11 +63,9 @@ class FamilyRuntime(Protocol):
         f: Any,
         g: Any,
         trees: Sequence[Any],
-    ) -> list[float | None]:
-        ...
+    ) -> list[Any | None]: ...
 
-    def validate_artifact(self, *, kind: str, artifact: Any) -> None:
-        ...
+    def validate_artifact(self, *, kind: str, artifact: Any) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -74,6 +85,13 @@ class CTreePOLearningSpec:
     # docs/treepo_fit_grid_upgrade_plan_2026_07_10.md Phase 3). Defaults keep
     # today's behavior: all documents, root-only labels, seed 0.
     doc_gold_n: int | None = None
+    # Optional explicit root-observation mask.  ``None`` preserves the
+    # historical ``doc_gold_n`` behavior (the selected documents are the
+    # training pool).  Supplying a sequence, including an empty sequence,
+    # keeps the complete training pool and masks only the root loss.  This is
+    # the crossed label-economy surface: local labels are then resolved over
+    # the full pool independently of which document roots were observed.
+    root_observed_doc_ids: tuple[str, ...] | None = None
     local_label_mix: str = "none"
     gold_fraction_p: float = 1.0
     distilled_labels_path: str | None = None
@@ -88,9 +106,40 @@ class CTreePOLearningSpec:
     leaf_weight: float | None = None
     merge_weight: float | None = None
     local_law_weight: float | None = None
+    # Ordered coordinates of one joint vector oracle/readout. Kept append-only
+    # so older positional construction of the learning spec remains stable.
+    # All coordinates share this spec's data, objective, and declared g.
+    oracle_targets: tuple[OracleTargetSpec, ...] = field(default_factory=tuple)
+    # Execution policy for the one shared state operator. The same g is called
+    # on every declared node-input domain; ``reduce_g`` is only the derived
+    # tree fold and never names a second learner. Kept append-only for
+    # positional compatibility. Topology is independent: every C-Tree has at
+    # least one leaf, and a singleton may use identity, fixed, or learned g.
+    # ``identity`` permits semantic g applications to be elided, ``fixed``
+    # names an explicitly supplied analytic or family-owned non-trainable
+    # operator, and ``learned`` enables train_g.
+    g_mode: str = G_MODE_LEARNED
+
+    def __post_init__(self) -> None:
+        raw = self.oracle_targets
+        normalized = normalize_oracle_targets(raw) if raw else ()
+        object.__setattr__(self, "oracle_targets", normalized)
+        g_mode = normalize_g_mode(self.g_mode)
+        object.__setattr__(self, "g_mode", g_mode)
+        schedule = str(self.schedule or "").strip()
+        if not schedule:
+            schedule = "fg" if g_mode == G_MODE_LEARNED else "f"
+        expected_schedule = "fg" if g_mode == G_MODE_LEARNED else "f"
+        if schedule != expected_schedule:
+            raise ValueError(
+                f"g_mode={g_mode!r} requires schedule={expected_schedule!r}; "
+                f"got {schedule!r}. The schedule must disclose whether train_g "
+                "is enabled."
+            )
+        object.__setattr__(self, "schedule", schedule)
 
     def to_dict(self) -> JsonDict:
-        return {
+        payload = {
             "space_kind": str(self.space_kind),
             "family": str(self.family),
             "schedule": str(self.schedule),
@@ -99,6 +148,11 @@ class CTreePOLearningSpec:
             "axis": jsonable(dict(self.axis or {})),
             "preference_data": jsonable(self.preference_data),
             "doc_gold_n": (None if self.doc_gold_n is None else int(self.doc_gold_n)),
+            "root_observed_doc_ids": (
+                None
+                if self.root_observed_doc_ids is None
+                else [str(value) for value in self.root_observed_doc_ids]
+            ),
             "local_label_mix": str(self.local_label_mix),
             "gold_fraction_p": float(self.gold_fraction_p),
             "distilled_labels_path": (
@@ -112,22 +166,39 @@ class CTreePOLearningSpec:
             "local_law_weight": (
                 None if self.local_law_weight is None else float(self.local_law_weight)
             ),
+            "g_mode": str(self.g_mode),
         }
+        if self.oracle_targets:
+            payload["oracle_targets"] = [target.to_dict() for target in self.oracle_targets]
+        return payload
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "CTreePOLearningSpec":
         doc_gold_n = payload.get("doc_gold_n")
+        root_observed_doc_ids = payload.get("root_observed_doc_ids")
+        oracle_targets = (
+            normalize_oracle_targets(payload["oracle_targets"])
+            if payload.get("oracle_targets") is not None
+            else ()
+        )
         return cls(
             space_kind=str(payload.get("space_kind") or ""),
             family=str(payload.get("family") or ""),
             schedule=str(payload.get("schedule") or ""),
+            g_mode=normalize_g_mode(payload.get("g_mode")),
             initial_artifacts=dict(payload.get("initial_artifacts") or {}),
             train_data=payload.get("train_data"),
             preference_data=payload.get("preference_data"),
             eval_data=payload.get("eval_data"),
             backend_config=dict(payload.get("backend_config") or {}),
             axis=dict(payload.get("axis") or {}),
+            oracle_targets=oracle_targets,
             doc_gold_n=(None if doc_gold_n is None else int(doc_gold_n)),
+            root_observed_doc_ids=(
+                None
+                if root_observed_doc_ids is None
+                else tuple(str(value) for value in root_observed_doc_ids)
+            ),
             local_label_mix=str(payload.get("local_label_mix") or "none"),
             gold_fraction_p=float(
                 payload["gold_fraction_p"] if payload.get("gold_fraction_p") is not None else 1.0
@@ -184,7 +255,13 @@ __all__ = [
     "FitResult",
     "CTreePOLearningSpec",
     "FamilyRuntime",
+    "G_MODE_FIXED",
+    "G_MODE_IDENTITY",
+    "G_MODE_LEARNED",
+    "G_MODES",
     "JsonDict",
+    "OracleTargetSpec",
     "ObjectiveSpec",
     "jsonable",
+    "normalize_g_mode",
 ]

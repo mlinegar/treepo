@@ -15,7 +15,7 @@ from typing import Any, Mapping, Sequence
 
 from treepo.methods._coerce import safe_float as _safe_float
 from treepo.methods._fno_config import NeuralOperatorFamilyConfig
-from treepo.methods._grid_axes import tree_node_units
+from treepo.methods._grid_axes import tree_doc_id, tree_node_units
 from treepo.schedule import fold_with_trace
 from treepo.tree import TreeRecord, tree_leaves, tree_root_target
 
@@ -23,30 +23,58 @@ from treepo.tree import TreeRecord, tree_leaves, tree_root_target
 def _target_rows(
     traces: Sequence[Any],
     config: NeuralOperatorFamilyConfig,
-) -> tuple[list[Any], list[list[float]]]:
-    rows: list[tuple[Any, list[float]]] = []
-    for tree in traces:
-        target = _target_vector(tree, config)
+) -> tuple[list[Any], list[list[float]], list[bool]]:
+    """Return training trees, root targets, and the observed-root mask.
+
+    With no explicit mask this preserves the historical behavior: trees with
+    no root target are dropped.  With ``root_observed_doc_ids`` present, every
+    training tree remains available to local supervision.  Unobserved root
+    targets are never read; their zero placeholders are masked from every loss
+    and exist only to keep one dense tensor aligned with the tree batch.
+    """
+
+    allowed_roots = _allowed_root_set(config)
+    rows: list[tuple[Any, list[float] | None, bool]] = []
+    observed_width: int | None = None
+    for index, tree in enumerate(traces):
+        observed = allowed_roots is None or tree_doc_id(tree, index) in allowed_roots
+        target = _target_vector(tree, config) if observed else None
+        if allowed_roots is None and target is None:
+            continue
+        if observed and target is None:
+            raise ValueError(
+                "root_observed_doc_ids selected a training tree whose root target is missing: "
+                f"{tree_doc_id(tree, index)!r}"
+            )
         if target is not None:
-            rows.append((tree, target))
+            if observed_width is None:
+                observed_width = len(target)
+            elif len(target) != observed_width:
+                raise ValueError("all observed root target vectors must have the same length")
+        rows.append((tree, target, bool(observed)))
     if not rows:
         raise ValueError(
             "neural-operator families need training trees with scalar or vector "
             "target metadata ('teacher_score_native', backend_config['target_key'], "
             "or backend_config['target_vector_key'])."
         )
-    width = len(rows[0][1])
+    width = int(observed_width or int(config.target_dim or 1))
     if width <= 0:
         raise ValueError("target vectors must be non-empty")
-    for _tree, target in rows:
-        if len(target) != width:
+    targets: list[list[float]] = []
+    observed_rows: list[bool] = []
+    for _tree, target, observed in rows:
+        if target is not None and len(target) != width:
             raise ValueError("all target vectors must have the same length")
-    return [tree for tree, _target in rows], [target for _tree, target in rows]
+        targets.append(list(target) if target is not None else [0.0] * width)
+        observed_rows.append(bool(observed))
+    return [tree for tree, _target, _observed in rows], targets, observed_rows
 
 
 def _target_vector(tree: Any, config: NeuralOperatorFamilyConfig) -> list[float] | None:
+    target_names = tuple(config.target_names or ())
     if config.target_vector_key:
-        values = _vector_by_key(tree, config.target_vector_key)
+        values = _vector_by_key(tree, config.target_vector_key, target_names=target_names)
         if values is None:
             return None
         if config.target_dim is not None and len(values) != int(config.target_dim):
@@ -54,6 +82,18 @@ def _target_vector(tree: Any, config: NeuralOperatorFamilyConfig) -> list[float]
                 f"target_vector_key={config.target_vector_key!r} produced {len(values)} values; "
                 f"expected target_dim={int(config.target_dim)}"
             )
+        return values
+    if target_names:
+        # Singleton named targets are a conservative lift of the established
+        # scalar path: consume the identical scalar target (including the
+        # target_key/teacher/expert priority order) and only add its name.
+        if len(target_names) == 1:
+            score = _target_score(tree, config.target_key)
+            if score is not None:
+                return [float(score)]
+        values = _root_vector_by_name(tree, target_names)
+        if values is None:
+            return None
         return values
     if config.target_dim and int(config.target_dim) > 1:
         values = _vector_by_key(tree, "topic_proportions")
@@ -63,19 +103,84 @@ def _target_vector(tree: Any, config: NeuralOperatorFamilyConfig) -> list[float]
     return None if score is None else [float(score)]
 
 
-def _vector_by_key(tree: Any, key: str | None) -> list[float] | None:
+def _vector_by_key(
+    tree: Any,
+    key: str | None,
+    *,
+    target_names: Sequence[str] = (),
+) -> list[float] | None:
     if not key:
         return None
     meta = getattr(tree, "metadata", None)
     meta = meta if isinstance(meta, Mapping) else {}
     value = meta.get(key) if key in meta else getattr(tree, str(key), None)
-    if value is None or isinstance(value, (str, bytes, Mapping)):
+    if value is None or isinstance(value, (str, bytes)):
         return None
+    if isinstance(value, Mapping):
+        if not target_names:
+            return None
+        return _mapping_vector(value, target_names, source=f"target_vector_key={key!r}")
+    scalar = _safe_float(value)
+    if len(target_names) == 1 and scalar is not None:
+        return [float(scalar)]
     try:
-        out = [float(item) for item in value]
+        out = [_safe_float(item) for item in value]
     except TypeError:
         return None
-    return out if out else None
+    if not out or any(item is None for item in out):
+        return None
+    return [float(item) for item in out]  # type: ignore[arg-type]
+
+
+def _root_vector_by_name(tree: Any, target_names: Sequence[str]) -> list[float] | None:
+    if isinstance(tree, Mapping):
+        value = tree.get("root_label", tree.get("document_score"))
+    else:
+        value = getattr(tree, "root_label", None)
+        if value is None:
+            value = getattr(tree, "document_score", None)
+    if value is None:
+        return None
+    if isinstance(value, Mapping):
+        return _mapping_vector(value, target_names, source="root_label")
+    if isinstance(value, (str, bytes)):
+        return None
+    scalar = _safe_float(value)
+    if len(target_names) == 1 and scalar is not None:
+        return [float(scalar)]
+    try:
+        vector = [_safe_float(item) for item in value]
+    except TypeError:
+        return None
+    if len(vector) != len(target_names) or any(item is None for item in vector):
+        raise ValueError(
+            "named vector root_label must be a finite sequence aligned to "
+            f"target_names={tuple(target_names)!r}"
+        )
+    return [float(item) for item in vector]  # type: ignore[arg-type]
+
+
+def _mapping_vector(
+    value: Mapping[Any, Any],
+    target_names: Sequence[str],
+    *,
+    source: str,
+) -> list[float]:
+    by_name = {str(key): item for key, item in value.items()}
+    if len(by_name) != len(value):
+        raise ValueError(f"{source} contains keys that collide after string coercion")
+    declared = tuple(str(name) for name in target_names)
+    missing = sorted(set(declared).difference(by_name))
+    extra = sorted(set(by_name).difference(declared))
+    if missing or extra:
+        raise ValueError(
+            f"{source} must exactly cover declared target_names; "
+            f"missing={missing!r}, extra={extra!r}"
+        )
+    out = [_safe_float(by_name[name]) for name in declared]
+    if any(item is None for item in out):
+        raise ValueError(f"{source} contains a non-finite or non-numeric coordinate")
+    return [float(item) for item in out]  # type: ignore[arg-type]
 
 
 def _target_score(tree: Any, target_key: str | None) -> float | None:
@@ -137,16 +242,14 @@ def _tree_node_targets(
     root_position = n_nodes - 1
 
     unit_ids = (
-        tree_node_units(tree, index)
-        if include_leaves and allowed_units is not None
-        else None
+        tree_node_units(tree, index) if include_leaves and allowed_units is not None else None
     )
     for leaf_idx, leaf in enumerate(leaves):
         if not include_leaves:
             break
-        if leaf_idx == root_position:
-            # Single-leaf trees: the lone leaf IS the root; the root term owns it.
-            continue
+        # In a singleton tree the root is also the leaf. Root loss supervises
+        # f; this row remains the distinct C1/leaf-g supervision channel.
+        # Keeping both is intentional rather than duplicate bookkeeping.
         if unit_ids is not None and (
             leaf_idx >= len(unit_ids) or unit_ids[leaf_idx] not in allowed_units
         ):
@@ -224,9 +327,7 @@ def _merge_targets_by_position(
         schedule="balanced",
     )
     position_of_span = {
-        span: position
-        for position, span in enumerate(trace_spans)
-        if position >= leaf_count
+        span: position for position, span in enumerate(trace_spans) if position >= leaf_count
     }
 
     out: list[tuple[int, list[float]]] = []
@@ -270,15 +371,33 @@ def _node_target_value(
             candidates.extend([node.get("label"), node.get("score")])
         candidates.extend([meta.get("score"), meta.get("oracle_score")])
     for candidate in candidates:
-        value = _coerce_node_target(candidate, width=width)
+        value = _coerce_node_target(
+            candidate,
+            width=width,
+            target_names=tuple(config.target_names or ()),
+        )
         if value is not None:
             return value
     return None
 
 
-def _coerce_node_target(value: Any, *, width: int) -> list[float] | None:
-    if value is None or isinstance(value, (str, bytes, bool, Mapping)):
+def _coerce_node_target(
+    value: Any,
+    *,
+    width: int,
+    target_names: Sequence[str] = (),
+) -> list[float] | None:
+    if value is None or isinstance(value, (str, bytes, bool)):
         return None
+    if isinstance(value, Mapping):
+        if not target_names:
+            return None
+        vector = _mapping_vector(value, target_names, source="node target")
+        if len(vector) != int(width):
+            raise ValueError(
+                f"node target width {len(vector)} does not match model width {int(width)}"
+            )
+        return vector
     scalar = _safe_float(value)
     if scalar is not None:
         return [scalar] if int(width) == 1 else None
@@ -353,6 +472,13 @@ def _leaf_metadata_value(leaf: Any, key: str) -> Any:
 
 def _allowed_unit_set(config: NeuralOperatorFamilyConfig) -> frozenset[str] | None:
     units = getattr(config, "supervised_node_units", None)
+    if units is None:
+        return None
+    return frozenset(str(unit) for unit in units)
+
+
+def _allowed_root_set(config: NeuralOperatorFamilyConfig) -> frozenset[str] | None:
+    units = getattr(config, "root_observed_doc_ids", None)
     if units is None:
         return None
     return frozenset(str(unit) for unit in units)

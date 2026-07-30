@@ -18,6 +18,7 @@ setup live in `example_setup/` so the runnable files stay readable.
 | `run_manifesto_end_to_end.py` | Full Manifesto/RILE package walkthrough: sampled docs/qsentences, `treepo.fit(...)`, evidence JSON, and root/qsentence/both reward exports. |
 | `run_manifesto_replications.py` | Central Manifesto/RILE replication shape: root document labels, sampled document-unit labels, and optional preference exports for DPO/reward/GRPO. |
 | `run_manifesto_reward_mechanisms.py` | Trainer-neutral Manifesto preference exports for root-only, qsentence-only, and combined DPO/reward/GRPO views. |
+| `run_manifesto_semantic_forest_grid.py` | Two isomorphic grids: DSPy and FNO each cross K={1,3,57} with `{full_doc_direct,ctree_base_summary,ctree_recursive}` (nine cells per family; 18 total). All K use one ordered named-vector API and sum-L1 endpoint. Learned DSPy is optimizer-backed and uses one shared `g` for base-summary and recursive cells; FNO does the same through gradient training. `--dspy-execution offline_fixture` is the only deterministic analytic-g smoke and is never the learned DSPy grid. |
 | `run_finetune_views.py` | Task-neutral fine-tuning export skeleton: one `PreferenceDataset` feeds embedding pairs/triplets/ranked rows plus SFT/DPO/reward/GRPO rows. |
 | `run_manifesto_finetune_views.py` | Manifesto/RILE fine-tuning exports: root `f` rows, qsentence `g` rows, and qsentence pairwise/ranked candidate views. |
 | `run_preference_optimizer_views.py` | Task-neutral optimizer-view skeleton: one `PreferenceDataset` feeds supervised DSPy prompts plus DPO/reward/GRPO projections. |
@@ -25,13 +26,39 @@ setup live in `example_setup/` so the runnable files stay readable.
 | `run_local_law_certificate.py` | Minimal sampled C1/C2/C3 audit rows, preference exports, evidence JSON, and component-radius certificate ledger. |
 | `run_tree_visualization.py` | Standalone expandable-tree HTML views: Manifesto sampling + gold labels + policy summaries; Markov audited local-law losses, node readouts, AIPW audit panel, and the leaf-count tradeoff chart; LDA vector readouts vs exact topic proportions; HLL exact distinct counts; and hand-built generic records. See [`docs/visualization.md`](../../docs/visualization.md). |
 
+The Manifesto Semantic-Forest grid sends an explicit `g_mode` with every
+`treepo.fit(...)` call, while K={1,3,57} all retain the same ordered named-vector
+API and document-mean sum-L1 endpoint:
+
+- `full_doc_direct`: `f(X)`, one leaf, zero internal calls, identity `g`
+  elided, `schedule="f"`;
+- `ctree_base_summary`: `f(g(X))`, one leaf and zero internal calls; learned
+  DSPy and FNO train the one shared `g` from this singleton call domain;
+- `ctree_recursive`: `f(reduce_g(T))`, four leaves and three internal calls;
+  learned DSPy and FNO train and reuse the same `g` artifact at every call.
+
+`reduce_g` is the fold induced by `g`, not a separate learner. A singleton
+update changes the same shared `g` but supplies no internal-call/C3 evidence
+for learned composition. Learned paths retain the requested `schedule="fg"`
+iterations. Only explicit `dspy_execution="offline_fixture"` uses fixed analytic
+`g`, `optimizer="none"`, and the shortened fixed path.
+
+Only the ordered target catalog and output width change with K; the scalar raw
+RILE projection is reporting-only. Each emitted `target_by_name` mapping is
+authenticated against the authoritative evaluation `TreeRecord` for its
+`tree_id` before coverage or performance is accepted. Missing, duplicate, or
+target-mismatched rows fail the cell closed and are excluded from metrics;
+prediction rows cannot supply their own gold labels.
+
 Preference records can be passed to `treepo.fit({"preference_data": ...})` and
 are exported through supervised, DPO, reward-model, and GRPO views.
 `PreferenceDataset` also writes a Hugging Face `DatasetDict` with `units` and
 `candidates` tables for trainer adapters. Prompted-LLM examples stay
 provider-neutral: OpenAI-compatible services such as vLLM and SGLang use
 `api_base`; local Transformers pipelines and other runtimes use `predict_fn`;
-DSPy prompt-tuning uses an injected `dspy_program`.
+DSPy prompt-tuning uses a non-disabled `optimizer` and `lm_config`, with
+optional `f_program`/legacy `dspy_program` and `g_program` overrides. The same
+compiled `g_program` serves leaf and merge roles.
 
 `run_manifesto_replications.py` accepts `preference_mode = "none" | "scores" |
 "pairwise" | "ranked"` and `preference_scope = "both" | "roots" |
@@ -194,7 +221,9 @@ illustrative, and a publication run supplies the task's finite-sample bound.
 choices live in `backend_config`; for example, `family = "neural_operator"`
 uses `operator_kind = "fno"` for the FNO route. The built-in families are
 `oracle`, `learnable_constant`, `classical_sketch`, `neural_operator`, `fno`,
-`llm`, and `dspy`. The LLM/DSPy families are provider-neutral: `api_base`
-targets OpenAI-compatible servers, while `predict_fn`, `program`, and
-`dspy_program` cover direct local runtimes and prompt-tuned programs. Local-law
-penalties are objective terms.
+`llm`, and `dspy`. Both language families are provider-neutral: `api_base`
+targets OpenAI-compatible servers. Generic `llm` uses `predict_fn`/`program` for
+inference and does not optimize `g`. DSPy is optimizer-backed and accepts
+`lm_config`, optional `f_program` (legacy `dspy_program`), and one shared
+`g_program`; a learned claim still requires a realized update in the result.
+Local-law penalties are objective terms.

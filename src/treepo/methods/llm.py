@@ -38,11 +38,10 @@ class PromptedLLMFamilyConfig:
     default_prediction: float | None = None
     min_score: float | None = None
     max_score: float | None = None
-    # Law auditing is on by default: fit() performs the same basic operations
-    # for every family given the same input. Model-backed checks (C1 gold-leaf
-    # readouts, C3 composed-vs-direct) cost one model call per row — set
-    # audit_laws=False to keep only the call-free C2 identity check when that
-    # per-iteration cost is prohibitive.
+    # Proxy-law auditing is on by default. Model-backed C1 leaf-readout and
+    # realized C3 composed-vs-direct checks cost one model call per row. Set
+    # audit_laws=False to omit them. This binary text grammar has no unary
+    # recompression call, so it emits no C2 row.
     audit_laws: bool = True
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
@@ -90,11 +89,21 @@ class PromptedLLMFamily:
         traces: Sequence[Any],
         output_dir: Path,
         iteration: int,
-    ) -> Mapping[str, Any]:
+    ) -> Any:
         del g_init, f, output_dir
         artifact = self._artifact(kind="g", iteration=iteration, traces=traces)
         self._last_g = artifact
-        return artifact
+        # This built-in family records prompt/training examples but does not
+        # execute a distinct optimizable g program. Report that truthfully so
+        # runtime provenance never equates an emitted artifact with a learned
+        # singleton summary or merge update.
+        from treepo.methods.runtime import GTrainOutcome
+
+        return GTrainOutcome(
+            artifact=artifact,
+            update_performed=False,
+            reason="prompted_llm_artifact_only_no_g_program_update",
+        )
 
     def score_roots_with_f(
         self,
@@ -210,11 +219,13 @@ class _PromptedTextStatistic:
 
     The composable state is document text: ``encode_leaf`` extracts leaf
     text, ``merge`` concatenates, ``readout`` prompts the model on the
-    composed text. Law rows cost one model call per check: C1 audits leaf
-    readouts against gold leaf scores where they exist, C3 compares the
-    composed-text readout against the family's direct whole-tree prediction,
-    and C2 is the exact (call-free) identity check that merging with empty
-    text preserves the state. Predictors that cannot score a unit return
+    composed text. Its rows are realized readout proxies: the C1-targeted row
+    compares a leaf readout with an available gold leaf score, and the
+    C3-targeted row compares composed-text and direct whole-tree readouts.
+    Scalar agreement does not by itself witness the task-sufficiency relation
+    or universal full merge closure. This grammar exposes only leaf build and
+    binary merge; it has no unary recompression call, so C2 is not applicable
+    and no C2 row is emitted. Predictors that cannot score a unit return
     ``None`` and that row is skipped rather than fabricated.
     """
 
@@ -272,18 +283,6 @@ class _PromptedTextStatistic:
             state = ""
             for text in texts:
                 state = self.merge(state, text)
-            identity_holds = self.merge(state, "") == state and self.merge("", state) == state
-            rows.append(
-                LocalLawAuditRow(
-                    row_id=f"{tree_id}:idempotence",
-                    law_kind=LawKind.C2_IDEMPOTENCE,
-                    proxy_loss=0.0 if identity_holds else 1.0,
-                    oracle_loss=0.0 if identity_holds else 1.0,
-                    observed=True,
-                    propensity=1.0,
-                    metadata={**base_metadata, "check": "empty_merge_identity", "law_facet": "c2_idempotence"},
-                )
-            )
             if not bool(self.family.config.audit_laws):
                 continue
             depths = merge_depths(len(leaves), schedule="left_to_right") if leaves else []
@@ -309,7 +308,14 @@ class _PromptedTextStatistic:
                         observed=True,
                         propensity=1.0,
                         depth=int(depths[leaf_idx]) if leaf_idx < len(depths) else 0,
-                        metadata={**base_metadata, "check": "gold_leaf_readout", "law_facet": "c1_sufficiency"},
+                        metadata={
+                            **base_metadata,
+                            "check": "gold_leaf_readout",
+                            "law_facet": "c1_readout_proxy",
+                            "evidence_kind": "readout_proxy",
+                            "semantic_scope": "realized_call",
+                            "universal_relational_law": False,
+                        },
                     )
                 )
             composed = self.readout(state) if str(state).strip() else None
@@ -324,7 +330,14 @@ class _PromptedTextStatistic:
                         oracle_loss=loss,
                         observed=True,
                         propensity=1.0,
-                        metadata={**base_metadata, "check": "composed_vs_direct_readout", "law_facet": "c3b_compositionality"},
+                        metadata={
+                            **base_metadata,
+                            "check": "composed_vs_direct_readout",
+                            "law_facet": "c3_realized_readout_proxy",
+                            "evidence_kind": "readout_proxy",
+                            "semantic_scope": "realized_call",
+                            "universal_relational_law": False,
+                        },
                     )
                 )
         return tuple(rows)
@@ -422,6 +435,7 @@ def _chat_client_predict_fn(chat_client: Any) -> PredictFn:
         return method
     method = getattr(chat_client, "complete_chat", None)
     if callable(method):
+
         def predict_from_complete_chat(*, messages, config=None, **kwargs):
             del kwargs
             return method(
@@ -464,7 +478,12 @@ def _render_supervised_examples(traces: Sequence[Any]) -> str:
         metadata = dict(getattr(trace, "metadata", None) or {})
         label = metadata.get("oracle_target", metadata.get("teacher_score_native"))
         label_text = "unknown" if label is None else _compact_json(label)
-        unit_id = metadata.get("preference_unit_id") or metadata.get("doc_id") or metadata.get("tree_id") or idx
+        unit_id = (
+            metadata.get("preference_unit_id")
+            or metadata.get("doc_id")
+            or metadata.get("tree_id")
+            or idx
+        )
         unit_type = metadata.get("preference_unit_type") or "unit"
         text = str(getattr(trace, "text", getattr(trace, "content", "")) or "")
         rendered.append(f"- {unit_type}:{unit_id}, target={label_text}, text={text}")

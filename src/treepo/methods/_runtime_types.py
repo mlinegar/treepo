@@ -9,6 +9,8 @@ from typing import Any
 @dataclass
 class SplitMetrics:
     n: int
+    joint_f_l1: float | None = None
+    joint_f_l1_n: int = 0
     internal_f_pearson: float | None = None
     internal_f_mae: float | None = None
     external_expert_pearson: float | None = None
@@ -37,6 +39,7 @@ class IterationRecord:
     g_artifact: Any = None
     split_metrics: dict[str, SplitMetrics] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
+    g_mode: str = "undeclared"
 
 
 __all__ = ["IterationRecord", "SplitMetrics"]

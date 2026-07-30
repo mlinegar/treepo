@@ -7,11 +7,13 @@ directly. The family is a single learnable scalar ``c``
 :func:`local_law_objective_summary` in ``sampled_ipw`` mode — the
 returned ``objective`` *is* the trained ``f``.
 
-This is the Horvitz-Thompson / Hájek estimator of the mean root score
-under unequal sampling propensities. It is the simplest training
-problem where IPW correction matters: with confounded propensities
-(high-value trees sampled more often), the naive observed mean is
-biased; the IPW estimate is unbiased. Tests demonstrate both behaviors.
+This is the package's self-normalized Hájek ratio for the mean root score
+under unequal sampling propensities; it is not a Horvitz--Thompson estimator
+and is generally finite-sample biased. It is the simplest training problem
+where IPW correction matters: with confounded propensities (high-value trees
+sampled more often), it corrects the naive observed mean under the logged
+design. Tests demonstrate that correction without making an unbiasedness
+claim for the learned value, parameters, or predictions.
 
 Real backends (FNO, learned merges) plug in the same way from downstream
 packages: their ``train_f`` would build per-node rows from a forward pass and

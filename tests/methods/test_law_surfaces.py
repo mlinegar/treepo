@@ -1,8 +1,8 @@
-"""Every built-in family's statistic emits rows for all three law channels.
+"""Built-in statistics emit rows for the calls their grammar actually uses.
 
-The Lean development requires C1/C2/C3 for every family; these tests pin the
-new law surfaces for the learnable constant, the exact oracles, and the
-prompt-backed LLM/DSPy route.
+These tests pin the law surfaces for the learnable constant, exact oracles,
+and prompt-backed LLM/DSPy route. C2 is required only for a unary
+recompression call; the pure binary prompted-text statistic therefore omits it.
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ def _text_tree(tree_id: str, leaves: list[SimpleNamespace]) -> SimpleNamespace:
     )
 
 
-def test_llm_statistic_covers_all_three_laws_with_stub_predictor() -> None:
+def test_llm_statistic_emits_c1_c3_readout_proxies_without_fake_c2() -> None:
     # Deterministic stub: the "model" scores a document by its word count.
     def predict_fn(*, prompt: str) -> float:
         body = prompt.split("\n\n")[1] if "\n\n" in prompt else prompt
@@ -115,14 +115,16 @@ def test_llm_statistic_covers_all_three_laws_with_stub_predictor() -> None:
 
     rows = statistic.local_law_rows(trees)
 
-    assert _law_kinds(rows) == {LawKind.C1_LEAF, LawKind.C2_IDEMPOTENCE, LawKind.C3_MERGE}
+    assert _law_kinds(rows) == {LawKind.C1_LEAF, LawKind.C3_MERGE}
     by_id = {row.row_id: row for row in rows}
     # The stub is word-additive and text merge is concatenation, so both the
     # gold-leaf and composition checks close exactly.
     assert by_id["doc0:leaf:0"].proxy_loss == pytest.approx(0.0)
     assert by_id["doc0:leaf:1"].proxy_loss == pytest.approx(0.0)
     assert by_id["doc0:composition"].proxy_loss == pytest.approx(0.0)
-    assert by_id["doc0:idempotence"].proxy_loss == 0.0
+    assert "doc0:idempotence" not in by_id
+    assert by_id["doc0:leaf:0"].metadata["evidence_kind"] == "readout_proxy"
+    assert by_id["doc0:composition"].metadata["universal_relational_law"] is False
 
 
 def test_llm_law_audit_is_on_by_default() -> None:
@@ -140,7 +142,23 @@ def test_llm_law_audit_is_on_by_default() -> None:
 
     rows = statistic.local_law_rows(trees)
 
-    assert _law_kinds(rows) == {LawKind.C1_LEAF, LawKind.C2_IDEMPOTENCE, LawKind.C3_MERGE}
+    assert _law_kinds(rows) == {LawKind.C1_LEAF, LawKind.C3_MERGE}
+
+
+def test_llm_binary_grammar_emits_no_fake_c2_when_proxy_audit_is_off() -> None:
+    family = resolve_family("llm", {
+        "model": "stub",
+        "default_prediction": 0.0,
+        "audit_laws": False,
+    })
+    statistic = family.as_statistic()
+    assert statistic is not None
+
+    rows = statistic.local_law_rows([
+        _text_tree("doc0", [_leaf("alpha", score=1.0)])
+    ])
+
+    assert rows == ()
 
 
 def test_llm_statistic_flags_non_compositional_predictor() -> None:

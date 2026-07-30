@@ -139,7 +139,7 @@ def test_audit_rows_compute_corrected_losses_and_overlap() -> None:
     assert overlap.effective_sample_size > 0.0
 
 
-def test_triangle_local_law_residual_uses_audit_objective_as_transport_radius() -> None:
+def test_triangle_local_law_residual_allows_explicit_point_proxy_opt_in() -> None:
     rows = [
         LocalLawAuditRow(
             row_id="r0",
@@ -161,6 +161,7 @@ def test_triangle_local_law_residual_uses_audit_objective_as_transport_radius() 
     residual = triangle_local_law_residual_from_audit(
         audit=audit,
         radius_multiplier=2.0,
+        allow_point_estimate_proxy_radius=True,
         root_down_radius=0.3,
         overidentification_radius=0.05,
         source="unit_test_audit",
@@ -174,8 +175,9 @@ def test_triangle_local_law_residual_uses_audit_objective_as_transport_radius() 
     assert residual.total_radius == pytest.approx(1.25)
     assert residual.source == "unit_test_audit"
     assert residual.artifact_ids == ("audit_summary",)
-    assert residual.metadata["transport_source"] == "merge_triangle_local_laws"
-    assert residual.metadata["local_law_radius_source"] == "local_law_objective"
+    assert residual.metadata["transport_source"] == "local_law_point_estimate_proxy"
+    assert residual.metadata["local_law_radius_source"] == "point_estimate_proxy_opt_in"
+    assert residual.metadata["semantic_relational_certificate_proved_by_helper"] is False
     assert residual.metadata["local_law_objective_mode"] == "corrected_local_law"
     assert residual.metadata["local_law_row_count"] == 2
     assert residual.metadata["local_law_observed_count"] == 1
@@ -216,8 +218,12 @@ def test_local_law_audit_records_depth_discount_weighting_metadata() -> None:
     assert discounted["local_law_weighting"]["effective_weight_formula"] == (
         "node_weight * gamma_depth ** depth"
     )
-    assert discounted["local_law_weighting"]["by_depth"]["0"]["effective_weight_sum"] == pytest.approx(2.0)
-    assert discounted["local_law_weighting"]["by_depth"]["2"]["effective_weight_sum"] == pytest.approx(
+    assert discounted["local_law_weighting"]["by_depth"]["0"][
+        "effective_weight_sum"
+    ] == pytest.approx(2.0)
+    assert discounted["local_law_weighting"]["by_depth"]["2"][
+        "effective_weight_sum"
+    ] == pytest.approx(
         3.0 * 0.9**2,
     )
     assert discounted["local_law_weighting"]["propensity_role"] == "sampling_probability_not_weight"
@@ -284,6 +290,7 @@ def test_triangle_local_law_certificate_preserves_certificate_gamma_metadata() -
         reported_estimate=0.0,
         rows=rows,
         gamma_depth=0.9,
+        leaf_up_radius=0.1,
     )
 
     weighting = cert.metadata["two_channel_residual"]["metadata"]["local_law_weighting"]
@@ -291,7 +298,7 @@ def test_triangle_local_law_certificate_preserves_certificate_gamma_metadata() -
     assert weighting["by_depth"]["2"]["effective_weight_sum"] == pytest.approx(0.9**2)
 
 
-def test_triangle_local_law_residual_rejects_negative_derived_radius() -> None:
+def test_triangle_local_law_residual_requires_explicit_bound_or_proxy_opt_in() -> None:
     rows = [
         LocalLawAuditRow(
             row_id="r0",
@@ -303,8 +310,14 @@ def test_triangle_local_law_residual_rejects_negative_derived_radius() -> None:
         ),
     ]
 
-    with pytest.raises(ValueError, match="derived leaf_up_radius is negative"):
+    with pytest.raises(ValueError, match="caller-supplied finite-sample/transport bound"):
         triangle_local_law_residual_from_audit(rows=rows)
+
+    with pytest.raises(ValueError, match="derived leaf_up_radius is negative"):
+        triangle_local_law_residual_from_audit(
+            rows=rows,
+            allow_point_estimate_proxy_radius=True,
+        )
 
     residual = triangle_local_law_residual_from_audit(rows=rows, leaf_up_radius=0.0)
     assert residual.leaf_up_radius == pytest.approx(0.0)
@@ -350,9 +363,7 @@ def test_two_channel_certificate_maps_to_existing_radius_ledger() -> None:
     assert cert.radius_sum == pytest.approx(0.37)
     assert cert.total_bound == pytest.approx(0.57)
     assert cert.metadata["certificate_kind"] == "two_channel"
-    semantic_components = {
-        item.metadata["semantic_component"] for item in cert.component_evidence
-    }
+    semantic_components = {item.metadata["semantic_component"] for item in cert.component_evidence}
     assert semantic_components == {
         "leaf_up",
         "root_down",
@@ -360,7 +371,8 @@ def test_two_channel_certificate_maps_to_existing_radius_ledger() -> None:
         "conditional_average_envelope",
     }
     envelope_evidence = [
-        item for item in cert.component_evidence
+        item
+        for item in cert.component_evidence
         if item.metadata["semantic_component"] == "conditional_average_envelope"
     ][0]
     assert envelope_evidence.metadata["envelope_source"] == "external_workflow"
@@ -392,7 +404,8 @@ def test_common_mechanism_envelope_uses_observed_root_bound() -> None:
         0.31,
     )
     envelope_evidence = [
-        item for item in cert.component_evidence
+        item
+        for item in cert.component_evidence
         if item.metadata["semantic_component"] == "common_mechanism_envelope"
     ][0]
     assert envelope_evidence.metadata["envelope_source"] == "observed_root_errors"
@@ -688,7 +701,9 @@ def test_tree_record_round_trips_and_exports_preference_units(tmp_path: Path) ->
         write_tree_records_jsonl,
     )
 
-    leaf_state = TaskState(kind="manifesto_policy", counts={"qsentences": 1.0}, measures={"rile": 0.8})
+    leaf_state = TaskState(
+        kind="manifesto_policy", counts={"qsentences": 1.0}, measures={"rile": 0.8}
+    )
     tree = TreeRecord(
         tree_id="doc1",
         doc_id="doc1",
@@ -809,19 +824,22 @@ def test_preference_dataset_exports_hf_and_optimizer_views() -> None:
     from treepo.methods.preference import Candidate, PreferenceDataset, PreferenceRecord
 
     dataset = PreferenceDataset()
-    assert dataset.append(
-        PreferenceRecord(
-            record_id="score1",
-            unit_id="node1",
-            unit_type="qsentence",
-            target="g",
-            context="Summarize this node.",
-            candidates=(
-                Candidate(id="good", value="specific evidence", score=0.9),
-                Candidate(id="weak", value="generic text", score=0.2),
-            ),
+    assert (
+        dataset.append(
+            PreferenceRecord(
+                record_id="score1",
+                unit_id="node1",
+                unit_type="qsentence",
+                target="g",
+                context="Summarize this node.",
+                candidates=(
+                    Candidate(id="good", value="specific evidence", score=0.9),
+                    Candidate(id="weak", value="generic text", score=0.2),
+                ),
+            )
         )
-    ) is dataset
+        is dataset
+    )
     dataset.extend(
         [
             {
@@ -921,7 +939,9 @@ def test_fit_exports_preference_data_without_training_runtime_coupling(tmp_path:
     assert pref_artifacts["counts"]["units"] == 1
     assert Path(pref_artifacts["files"]["dpo"]).exists()
     assert Path(pref_artifacts["files"]["hf_dataset"]).exists()
-    manifest = json.loads((tmp_path / "treepo_methods_run_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (tmp_path / "treepo_methods_run_manifest.json").read_text(encoding="utf-8")
+    )
     assert manifest["spec"]["has_preference_data"] is True
     assert manifest["preference_data"]["counts"]["reward"] == 1
 
@@ -990,6 +1010,7 @@ def test_evidence_builder_has_stable_empty_sections() -> None:
     assert evidence["version"] == "0.1"
     assert evidence["run"]["family"] == "learnable_constant"
     assert evidence["root"]["present"] is False
+    assert evidence["run"]["g_mode"] == "undeclared"
     assert evidence["preferences"]["present"] is False
     assert evidence["statistic"]["present"] is False
     assert evidence["local_laws"]["present"] is False

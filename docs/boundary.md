@@ -31,8 +31,9 @@ dependencies too.
 
 Trainer applications, manifesto-training campaigns, deployment, and large
 simulation code register with the public `treepo` contracts from their own
-packages. DSPy and prompted-LLM families are included as provider-neutral
-wrappers; OpenAI-compatible endpoints use `api_base`, while downstream code
+packages. The prompted-LLM family is a provider-neutral inference/artifact
+wrapper; DSPy is a provider-neutral optimizer-backed joint-f/shared-g
+family. OpenAI-compatible endpoints use `api_base`, while downstream code
 supplies direct local programs or callables. Preference data export is included;
 policy optimization engines consume those records downstream.
 

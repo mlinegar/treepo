@@ -20,11 +20,11 @@ areas:
   - id: llm
     status: optional
     package: treepo.llm
-    note: OpenAI-compatible chat-payload and embedding-client helpers (hashing, HTTP, disk-cached) live behind treepo[llm].
+    note: Provider-neutral structured-JSON request/result/usage records are core-light; OpenAI-compatible chat and embedding clients live behind treepo[llm].
   - id: manifesto_rile
-    status: constants
+    status: ready
     package: treepo.tasks.manifesto
-    note: Manifesto/RILE constants are packaged; training integrations register from downstream packages.
+    note: Manifesto/RILE constants, full-document mass/readout state, and compact or CMP-56 joint component-vector adapters are packaged; training and provider integrations register downstream.
   - id: training
     status: optional
     package: treepo.training
@@ -45,9 +45,13 @@ areas:
     status: ready
     package: treepo.methods.fno
     note: Built-in generic neural-operator family over embedded leaf sequences; FNO and Conv1D are built-in operator kinds.
+  - id: semantic_forests
+    status: ready
+    package: treepo.forest
+    note: Named joint-vector identity for one shared learned g over a population of document C-Trees/views; not independent per-target fit orchestration.
   - id: app_families
     status: extension
-    note: Application runtimes register from downstream packages; DSPy is a provider-neutral built-in wrapper.
+    note: Application-specific runtimes register downstream; the optimizer-backed DSPy joint-f/shared-g family is built in behind treepo[dspy].
 
 entries:
   - path: src/treepo/bench
@@ -61,7 +65,7 @@ entries:
   - path: src/treepo/methods
     target: treepo.methods
     class: package
-    note: Public method contracts and built-in lightweight families.
+    note: Public method contracts and built-in lightweight families, including optimizer-backed DSPy joint-f/shared-g learning behind treepo[dspy].
   - path: src/treepo/training
     target: treepo.training
     class: package
@@ -74,6 +78,10 @@ entries:
     target: treepo.state
     class: package
     note: Public JSONable task-state and unit-reference records without optional dependencies.
+  - path: src/treepo/forest.py
+    target: treepo.forest
+    class: package
+    note: Public core-light coordinate/oracle provenance records and shared Semantic Forest schema identity.
   - path: src/treepo/finetune.py
     target: treepo.finetune
     class: package
@@ -97,4 +105,4 @@ entries:
   - path: downstream_packages
     target: external packages
     class: extension
-    note: Application runtimes live outside treepo; DSPy is a provider-neutral built-in wrapper.
+    note: Application-specific runtimes live outside treepo; optimizer-backed DSPy joint-f/shared-g learning is built in behind treepo[dspy].

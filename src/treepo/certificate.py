@@ -1,8 +1,14 @@
-"""Unified learning error certificates.
+"""Unified learning error certificate ledgers.
 
-Aggregates per-component error evidence (local-law, calibration, estimation,
-clipping) into a ``UnifiedLearningErrorCertificate`` with additive radii around
-a reported estimate.
+Aggregates caller-supplied per-component error evidence (local-law,
+calibration, estimation, clipping) into a
+``UnifiedLearningErrorCertificate`` with additive radii around a reported
+estimate. The constructors validate bookkeeping; they do not prove that an
+input radius has the advertised semantic, transport, or coverage property.
+
+The public ``delta`` / ``confidence_delta`` names are retained for
+compatibility. In current paper notation they are statistical tail allocation
+(``alpha``), not deployment relational failure risk ``delta_T``.
 """
 
 from __future__ import annotations
@@ -57,6 +63,8 @@ class UnifiedLearningComponentEvidence:
 
 @dataclass(frozen=True)
 class UnifiedLearningErrorCertificate:
+    """Additive component ledger; supplied radii require external justification."""
+
     reported_estimate: float
     local_law_radius: float = 0.0
     calibration_radius: float = 0.0
@@ -118,7 +126,7 @@ class UnifiedLearningErrorCertificate:
 
 @dataclass(frozen=True)
 class TwoChannelResidual:
-    """Leaf-up, root-down, and overidentification residual radii."""
+    """Caller-supplied leaf-up, root-down, and overidentification radii."""
 
     leaf_up_radius: float = 0.0
     root_down_radius: float = 0.0

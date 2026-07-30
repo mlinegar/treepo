@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from treepo.methods._run_manifest import json_default
+from treepo.methods._run_manifest import joint_target_schema, json_default
 
 RESULTS_VERSION = "0.1"
 RESULTS_FILENAME = "results.json"
@@ -36,6 +36,15 @@ PAIRED_ROW_FIELDS = {
     "prediction": "prediction_scalar",
     "gold": "expert_score",
     "teacher": "teacher_score",
+    "split": "split",
+}
+
+NAMED_VECTOR_ROW_FIELDS = {
+    "key": "tree_id",
+    "target_order": "target_order",
+    "prediction": "prediction_by_target",
+    "gold": "target_by_name",
+    "oracle_ids": "oracle_ids_by_target",
     "split": "split",
 }
 
@@ -53,20 +62,27 @@ def write_results_json(
     """Assemble and write the per-cell results artifact; return its path."""
 
     last = records[-1] if records else None
-    payload = {
+    paired_rows: dict[str, Any] = {
+        "files": [str(p) for p in (artifacts.get("prediction_records") or [])],
+        "fields": dict(PAIRED_ROW_FIELDS),
+    }
+    joint_schema = joint_target_schema(spec)
+    if joint_schema is not None:
+        paired_rows["named_vector_fields"] = dict(NAMED_VECTOR_ROW_FIELDS)
+
+    payload: dict[str, Any] = {
         "version": RESULTS_VERSION,
         "status": str(status),
         "cell": _cell_block(spec, summary),
         "metrics": _metrics_block(last, summary),
         "local_laws": _local_laws_block(artifacts),
-        "cost": _cost_block(
-            spec, records, summary, artifacts, wall_seconds=wall_seconds
-        ),
-        "paired_rows": {
-            "files": [str(p) for p in (artifacts.get("prediction_records") or [])],
-            "fields": dict(PAIRED_ROW_FIELDS),
-        },
+        "cost": _cost_block(spec, records, summary, artifacts, wall_seconds=wall_seconds),
+        "paired_rows": paired_rows,
+        "oracle_metric": dict(summary.get("oracle_metric") or {}),
+        "g_contract": dict(summary.get("g_contract") or {}),
     }
+    if joint_schema is not None:
+        payload.update(joint_schema)
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / RESULTS_FILENAME
     path.write_text(
@@ -81,6 +97,8 @@ def _cell_block(spec: Any, summary: Mapping[str, Any]) -> dict[str, Any]:
     axis = dict(getattr(spec, "axis", None) or {})
     return {
         "family": str(summary.get("family") or ""),
+        "g_mode": str(summary.get("g_mode") or "undeclared"),
+        "g_contract": dict(summary.get("g_contract") or {}),
         "schedule": str(summary.get("schedule") or ""),
         "seed": grid_axes.get("seed"),
         "axis": axis,
@@ -114,6 +132,12 @@ def _metrics_block(last: Any | None, summary: Mapping[str, Any]) -> dict[str, An
             "internal": _paired_error_stats(
                 split_rows, gold_field="teacher_score", recorded=recorded, prefix="internal_f"
             ),
+            "joint": {
+                "metric": "l1",
+                "point_distance": "sum_absolute_coordinate_error",
+                "mean_distance": recorded.get("joint_f_l1"),
+                "n": recorded.get("joint_f_l1_n", 0),
+            },
             # Per-dimension metrics carry through unpooled; pooling across
             # dimensions inflates Pearson and is banned by the schema.
             "per_dimension": recorded.get("per_dimension") or {},
@@ -190,9 +214,7 @@ def _cost_block(
     n_merge_rows = int(node_supervision.get("n_merge_rows") or 0)
 
     last = records[-1] if records else None
-    n_prediction_rows = len(
-        (getattr(last, "extra", None) or {}).get("prediction_rows") or []
-    )
+    n_prediction_rows = len((getattr(last, "extra", None) or {}).get("prediction_rows") or [])
 
     resummary_count = _resummary_ops(artifacts)
     return {
@@ -211,6 +233,9 @@ def _cost_block(
         },
         "one_time_compute": {
             "fit_wall_seconds": wall_seconds,
+            "configured_max_iterations": summary.get("configured_max_iterations"),
+            "f_update_count": summary.get("f_update_count"),
+            "g_update_count": summary.get("g_update_count"),
             "n_train_trees": node_supervision.get("n_trees"),
             "n_iterations": summary.get("n_iterations"),
         },
@@ -227,9 +252,17 @@ def _cost_block(
 
 
 def _node_supervision(artifacts: Mapping[str, Any]) -> dict[str, Any]:
-    g_artifact = artifacts.get("g")
-    if isinstance(g_artifact, Mapping):
-        block = g_artifact.get("node_supervision")
+    candidates = [
+        artifact
+        for artifact in (artifacts.get("f"), artifacts.get("g"))
+        if isinstance(artifact, Mapping) and isinstance(artifact.get("node_supervision"), Mapping)
+    ]
+    if candidates:
+        latest = max(
+            candidates,
+            key=lambda row: -1 if row.get("iteration") is None else int(row["iteration"]),
+        )
+        block = latest.get("node_supervision")
         if isinstance(block, Mapping):
             return dict(block)
     return {}
@@ -254,4 +287,10 @@ def _safe_float(value: Any) -> float | None:
     return out if out == out else None
 
 
-__all__ = ["PAIRED_ROW_FIELDS", "RESULTS_FILENAME", "RESULTS_VERSION", "write_results_json"]
+__all__ = [
+    "NAMED_VECTOR_ROW_FIELDS",
+    "PAIRED_ROW_FIELDS",
+    "RESULTS_FILENAME",
+    "RESULTS_VERSION",
+    "write_results_json",
+]

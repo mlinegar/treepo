@@ -13,7 +13,6 @@ from typing import Any, Mapping, Sequence
 
 from treepo.local_law import LocalLawAuditRow, audit_local_laws
 
-
 EVIDENCE_VERSION = "0.1"
 
 
@@ -32,7 +31,9 @@ def build_evidence(
     artifact_payload = dict(artifacts or {})
     preference_artifacts = _mapping(artifact_payload.get("preference_data"))
     statistic_artifact = _mapping(artifact_payload.get("statistic"))
-    prediction_files = [str(path) for path in list(artifact_payload.get("prediction_records") or [])]
+    prediction_files = [
+        str(path) for path in list(artifact_payload.get("prediction_records") or [])
+    ]
     local_law_payload = _local_law_payload(
         rows=local_law_rows,
         statistic_artifact=statistic_artifact,
@@ -44,6 +45,10 @@ def build_evidence(
         "run": {
             "family": str(summary_payload.get("family") or ""),
             "schedule": str(summary_payload.get("schedule") or ""),
+            "g_mode": str(summary_payload.get("g_mode") or "undeclared"),
+            "g_contract": _jsonable(_mapping(summary_payload.get("g_contract"))),
+            "f_update_count": int(summary_payload.get("f_update_count") or 0),
+            "g_update_count": int(summary_payload.get("g_update_count") or 0),
             "status": str(status),
             "n_iterations": int(summary_payload.get("n_iterations") or 0),
             "output_dir": str(summary_payload.get("output_dir") or ""),
@@ -94,7 +99,9 @@ def _local_law_payload(
     if explicit:
         return {
             "present": True,
-            "summary": _jsonable(_mapping(explicit.get("summary", explicit.get("local_law_objective")))),
+            "summary": _jsonable(
+                _mapping(explicit.get("summary", explicit.get("local_law_objective")))
+            ),
             "by_law_kind": _jsonable(_mapping(explicit.get("by_law_kind"))),
             "source": str(explicit.get("source") or "artifact"),
         }

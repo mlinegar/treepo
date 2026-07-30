@@ -51,6 +51,11 @@ print(json.dumps({
         "public": [
             "Candidate",
             "ComposableStatistic",
+            "G_MODES",
+            "G_MODE_FIXED",
+            "G_MODE_IDENTITY",
+            "G_MODE_LEARNED",
+            "OracleTargetSpec",
             "PreferenceDataset",
             "PreferenceRecord",
             "TaskState",
@@ -59,6 +64,9 @@ print(json.dumps({
             "__version__",
             "family_statistic",
             "fit",
+            "l1_oracle_metric_schema",
+            "normalize_g_mode",
+            "oracle_vector_l1",
             "state_from_value",
             "state_to_dict",
             "write_tree_visualization_html",
@@ -74,11 +82,14 @@ def test_treepo_methods_import_keeps_optional_modules_lazy() -> None:
 import json
 import sys
 import treepo.methods
-from treepo.methods import fit
+from treepo.methods import GTrainOutcome, fit
+from treepo.methods.runtime import GTrainOutcome as RuntimeGTrainOutcome
 heavy = ["datasets", "dspy", "openai", "pandas", "peft", "scipy", "sentence_transformers", "sklearn", "torch", "transformers", "trl", "vllm"]
 print(json.dumps({
     "heavy": {name: name in sys.modules for name in heavy},
     "fit_module": fit.__module__,
+    "g_outcome_module": GTrainOutcome.__module__,
+    "g_outcome_facade_identity": GTrainOutcome is RuntimeGTrainOutcome,
     "methods_exports_run": hasattr(treepo.methods, "run"),
     "methods_exports_list_methods": hasattr(treepo.methods, "list_methods"),
 }, sort_keys=True))
@@ -109,6 +120,8 @@ print(json.dumps({
             "vllm": False,
         },
         "fit_module": "treepo.methods.learning",
+        "g_outcome_module": "treepo.methods._runtime_loop",
+        "g_outcome_facade_identity": True,
         "methods_exports_run": False,
         "methods_exports_list_methods": False,
     }
@@ -274,7 +287,6 @@ def test_top_level_exposes_fit_and_preference_dataset_only() -> None:
 
 def test_benchmarks_are_not_top_level_exports() -> None:
     import importlib
-
 
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("treepo.runtime")

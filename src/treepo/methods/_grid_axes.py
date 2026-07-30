@@ -42,6 +42,7 @@ class GridAxes:
     """Validated view of the three first-class grid axes for one ``fit`` cell."""
 
     doc_gold_n: int | None = None
+    root_observed_doc_ids: tuple[str, ...] | None = None
     local_label_mix: str = DEFAULT_LOCAL_LABEL_MIX
     gold_fraction_p: float = 1.0
     distilled_labels_path: str | None = None
@@ -52,10 +53,13 @@ class GridAxes:
             raise ValueError(
                 f"doc_gold_n must be a non-negative int or None, got {self.doc_gold_n!r}"
             )
+        if self.root_observed_doc_ids is not None:
+            values = tuple(str(value) for value in self.root_observed_doc_ids)
+            if len(values) != len(set(values)):
+                raise ValueError("root_observed_doc_ids must not contain duplicates")
         if self.local_label_mix not in LOCAL_LABEL_MIXES:
             raise ValueError(
-                "local_label_mix must be one of "
-                f"{LOCAL_LABEL_MIXES}, got {self.local_label_mix!r}"
+                f"local_label_mix must be one of {LOCAL_LABEL_MIXES}, got {self.local_label_mix!r}"
             )
         p = float(self.gold_fraction_p)
         if p < 0.0 or p > 1.0:
@@ -64,8 +68,14 @@ class GridAxes:
     @classmethod
     def from_spec(cls, spec: Any) -> "GridAxes":
         doc_gold_n = getattr(spec, "doc_gold_n", None)
+        root_observed_doc_ids = getattr(spec, "root_observed_doc_ids", None)
         return cls(
             doc_gold_n=None if doc_gold_n is None else int(doc_gold_n),
+            root_observed_doc_ids=(
+                None
+                if root_observed_doc_ids is None
+                else tuple(str(value) for value in root_observed_doc_ids)
+            ),
             local_label_mix=str(getattr(spec, "local_label_mix", None) or DEFAULT_LOCAL_LABEL_MIX),
             gold_fraction_p=float(
                 getattr(spec, "gold_fraction_p", 1.0)
@@ -122,6 +132,7 @@ def select_gold_docs(
     *,
     doc_gold_n: int | None,
     seed: int,
+    root_observed_doc_ids: Sequence[str] | None = None,
 ) -> tuple[list[Any], dict[str, Any]]:
     """Pin a nested prefix of documents whose gold labels are used.
 
@@ -134,10 +145,34 @@ def select_gold_docs(
     doc_ids = [tree_doc_id(tree, idx) for idx, tree in enumerate(population)]
     n_total = len(population)
 
-    if doc_gold_n is None or int(doc_gold_n) >= n_total:
+    if root_observed_doc_ids is not None:
+        requested = [str(value) for value in root_observed_doc_ids]
+        if len(requested) != len(set(requested)):
+            raise ValueError("root_observed_doc_ids must not contain duplicates")
+        if len(doc_ids) != len(set(doc_ids)):
+            raise ValueError(
+                "explicit root_observed_doc_ids need unique document ids in the training pool"
+            )
+        missing = sorted(set(requested).difference(doc_ids))
+        if missing:
+            raise ValueError(
+                f"root_observed_doc_ids contains ids absent from the training pool: {missing[:5]!r}"
+            )
+        if doc_gold_n is not None and int(doc_gold_n) != len(requested):
+            raise ValueError(
+                "doc_gold_n must equal len(root_observed_doc_ids) when both are supplied "
+                f"(got {doc_gold_n!r} and {len(requested)})"
+            )
+        requested_set = set(requested)
+        selected = [tree for tree, doc_id in zip(population, doc_ids) if doc_id in requested_set]
+        selected_ids = list(requested)
+        prefix_nested = False
+        selection_source = "explicit_root_observed_doc_ids"
+    elif doc_gold_n is None or int(doc_gold_n) >= n_total:
         selected = list(population)
         selected_ids = list(doc_ids)
         prefix_nested = False
+        selection_source = "all_documents"
     else:
         k = max(0, int(doc_gold_n))
         order = list(range(n_total))
@@ -146,6 +181,7 @@ def select_gold_docs(
         selected = [population[i] for i in prefix]
         selected_ids = [doc_ids[i] for i in prefix]
         prefix_nested = True
+        selection_source = "seeded_prefix"
 
     provenance = {
         "doc_gold_n": None if doc_gold_n is None else int(doc_gold_n),
@@ -154,6 +190,7 @@ def select_gold_docs(
         "selected_count": len(selected_ids),
         "selected_doc_ids": selected_ids,
         "nested_prefix": prefix_nested,
+        "selection_source": selection_source,
     }
     return selected, provenance
 
@@ -194,6 +231,43 @@ def resolve_label_mix(
             units.extend(tree_node_units(tree, idx))
         n_nodes = len(units)
         p = float(axes.gold_fraction_p)
+        explicit_units = backend_config.get("supervised_node_units")
+        if explicit_units is not None:
+            selected_units = [str(value) for value in explicit_units]
+            if len(selected_units) != len(set(selected_units)):
+                raise ValueError("backend supervised_node_units must not contain duplicates")
+            missing = sorted(set(selected_units).difference(units))
+            if missing:
+                raise ValueError(
+                    "backend supervised_node_units contains ids absent from the "
+                    f"training pool: {missing[:5]!r}"
+                )
+            declared_population = int(
+                backend_config.get("supervised_node_population_size", n_nodes)
+            )
+            if declared_population < len(selected_units):
+                raise ValueError(
+                    "supervised_node_population_size cannot be smaller than the "
+                    "explicit supervised_node_units mask"
+                )
+            provenance.update(
+                {
+                    "gold_fraction_p": p,
+                    "population_node_count": declared_population,
+                    "loaded_leaf_unit_count": n_nodes,
+                    "selected_node_count": len(selected_units),
+                    "selected_node_units": selected_units,
+                    "selection_source": "backend_supervised_node_units",
+                    "selection_probability": (
+                        len(selected_units) / declared_population
+                        if declared_population > 0
+                        else 0.0
+                    ),
+                    "population_id": backend_config.get("supervised_node_population_id"),
+                    "state_source": "f_states",
+                }
+            )
+            return provenance
         if p >= 1.0:
             k = n_nodes
         elif p <= 0.0:
@@ -209,6 +283,8 @@ def resolve_label_mix(
                 "population_node_count": n_nodes,
                 "selected_node_count": len(chosen),
                 "selected_node_units": [units[i] for i in chosen],
+                "selection_source": "seeded_prefix",
+                "selection_probability": (len(chosen) / n_nodes if n_nodes else 0.0),
                 "state_source": "f_states",  # gold-leak guard (project memory)
             }
         )
@@ -226,7 +302,9 @@ def resolve_label_mix(
             "treepo.distilled and trains on them with no LLM client."
         )
     if labels_path:
-        provenance.update({"labels_source": "cached_jsonl", "distilled_labels_path": str(labels_path)})
+        provenance.update(
+            {"labels_source": "cached_jsonl", "distilled_labels_path": str(labels_path)}
+        )
     else:
         provenance.update(
             {
@@ -244,18 +322,30 @@ def apply_grid_axes(
     backend_config: Mapping[str, Any],
 ) -> tuple[list[Any], dict[str, Any]]:
     """Apply the doc-gold and label-mix axes; return traces + full provenance."""
+    population = list(traces or ())
     selected, doc_provenance = select_gold_docs(
-        traces, doc_gold_n=axes.doc_gold_n, seed=axes.seed
+        population,
+        doc_gold_n=axes.doc_gold_n,
+        seed=axes.seed,
+        root_observed_doc_ids=axes.root_observed_doc_ids,
     )
-    label_provenance = resolve_label_mix(
-        selected, axes=axes, backend_config=backend_config
+    masked_full_pool = axes.root_observed_doc_ids is not None
+    training_traces = population if masked_full_pool else selected
+    doc_provenance.update(
+        {
+            "observation_mode": (
+                "masked_full_training_pool" if masked_full_pool else "training_subset"
+            ),
+            "training_pool_count": len(training_traces),
+        }
     )
+    label_provenance = resolve_label_mix(training_traces, axes=axes, backend_config=backend_config)
     provenance = {
         "seed": int(axes.seed),
         "doc_gold": doc_provenance,
         "local_label_mix": label_provenance,
     }
-    return selected, provenance
+    return training_traces, provenance
 
 
 def expand_grid_cells(
@@ -277,9 +367,7 @@ def expand_grid_cells(
     mixes = tuple(str(m) for m in (local_label_mixes or (DEFAULT_LOCAL_LABEL_MIX,)))
     for mix in mixes:
         if mix not in LOCAL_LABEL_MIXES:
-            raise ValueError(
-                f"local_label_mix must be one of {LOCAL_LABEL_MIXES}, got {mix!r}"
-            )
+            raise ValueError(f"local_label_mix must be one of {LOCAL_LABEL_MIXES}, got {mix!r}")
     base_cell = dict(base or {})
     cells: list[dict[str, Any]] = []
     for seed, doc_gold_n, mix, leaf_count in product(

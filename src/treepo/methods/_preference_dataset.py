@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
 from treepo.methods._preference_normalize import (
-    _CANDIDATE_FIELDS,
+    _PROPENSITY_INPUT_FIELDS,
     _TREE_FIELDS,
     _UNIT_FIELDS,
     _bool,
@@ -36,9 +36,13 @@ from treepo.methods._preference_normalize import (
     _optional_float,
     _optional_int,
     _optional_str,
+    _preference_metadata,
     _preferred_ids,
+    _resolve_preference_propensity,
+    _resolve_preference_weights,
     _rows_from_table,
     _sample_weight,
+    _unit_sample_weight,
 )
 from treepo.methods._preference_views import (
     _candidate_record,
@@ -81,9 +85,13 @@ class Candidate:
                 score=_optional_float(row.get("score", row.get("reward"))),
                 rank=_optional_int(row.get("rank")),
                 preferred=_bool(row.get("preferred", False)),
-                metadata=dict(_maybe_json(row.get("metadata_json", row.get("metadata") or {})) or {}),
+                metadata=dict(
+                    _maybe_json(row.get("metadata_json", row.get("metadata") or {})) or {}
+                ),
             )
-        raise TypeError(f"candidate entries must be Candidate or mapping; got {type(value).__name__}")
+        raise TypeError(
+            f"candidate entries must be Candidate or mapping; got {type(value).__name__}"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -122,12 +130,41 @@ class PreferenceRecord:
     parent_id: str | None = None
     left_child_id: str | None = None
     right_child_id: str | None = None
+    precomputed_sample_weight: float | None = field(default=None, repr=False)
+    propensity_source: str = "PreferenceRecord.propensity"
 
     def __post_init__(self) -> None:
         if self.target not in {"f", "g", "both"}:
             raise ValueError("target must be 'f', 'g', or 'both'")
-        if float(self.propensity) <= 0.0:
-            raise ValueError("propensity must be positive")
+        metadata = dict(self.metadata or {})
+        resolved = _resolve_preference_propensity(
+            {"effective_propensity": self.propensity},
+            metadata=metadata,
+        )
+        weight_row: dict[str, Any] = {"weight": self.weight}
+        if self.precomputed_sample_weight is not None:
+            weight_row["sample_weight"] = self.precomputed_sample_weight
+        weight, sample_weight, sample_weight_source = _resolve_preference_weights(
+            weight_row,
+            propensity=resolved.propensity,
+        )
+        propensity_source = str(self.propensity_source or "PreferenceRecord.propensity").strip()
+        metadata.update(
+            {
+                "propensity_source": propensity_source,
+                "resolved_propensity": resolved.propensity,
+                "sample_weight_source": sample_weight_source,
+            }
+        )
+        object.__setattr__(self, "weight", weight)
+        object.__setattr__(self, "propensity", resolved.propensity)
+        object.__setattr__(
+            self,
+            "precomputed_sample_weight",
+            sample_weight if self.precomputed_sample_weight is not None else None,
+        )
+        object.__setattr__(self, "propensity_source", propensity_source)
+        object.__setattr__(self, "metadata", metadata)
         object.__setattr__(
             self,
             "candidates",
@@ -157,6 +194,12 @@ class PreferenceRecord:
                 )
                 for candidate in parsed_candidates
             ]
+        metadata = _preference_metadata(row)
+        resolved = _resolve_preference_propensity(row, metadata=metadata)
+        weight, sample_weight, _ = _resolve_preference_weights(
+            row,
+            propensity=resolved.propensity,
+        )
         return cls(
             record_id=str(row.get("record_id") or row.get("id") or ""),
             unit_id=str(row.get("unit_id") or row.get("node_id") or row.get("doc_id") or ""),
@@ -164,9 +207,9 @@ class PreferenceRecord:
             target=str(row.get("target") or "g"),  # type: ignore[arg-type]
             context=_maybe_json(row.get("context_json", row.get("context", row.get("prompt", "")))),
             candidates=tuple(parsed_candidates),
-            weight=float(row.get("weight", row.get("sample_weight", 1.0)) or 1.0),
-            propensity=float(row.get("propensity", row.get("joint_propensity", 1.0)) or 1.0),
-            metadata=dict(_maybe_json(row.get("metadata_json", row.get("metadata") or {})) or {}),
+            weight=weight,
+            propensity=resolved.propensity,
+            metadata=metadata,
             tree_id=_optional_str(row.get("tree_id")),
             doc_id=_optional_str(row.get("doc_id", row.get("source_doc_id"))),
             node_id=_optional_str(row.get("node_id")),
@@ -175,15 +218,46 @@ class PreferenceRecord:
             parent_id=_optional_str(row.get("parent_id")),
             left_child_id=_optional_str(row.get("left_child_id")),
             right_child_id=_optional_str(row.get("right_child_id")),
+            precomputed_sample_weight=(
+                sample_weight if row.get("sample_weight") is not None else None
+            ),
+            propensity_source=resolved.source,
         )
 
-    def sample_weight(self, *, min_propensity: float = 1e-8, max_weight: float | None = None) -> float:
-        value = float(self.weight) / max(float(self.propensity), float(min_propensity))
+    def sample_weight(
+        self,
+        *,
+        min_propensity: float = 1e-8,
+        max_weight: float | None = None,
+    ) -> float:
+        value = _sample_weight(
+            self.weight,
+            self.propensity,
+            precomputed=self.precomputed_sample_weight,
+            min_propensity=min_propensity,
+        )
         if max_weight is not None:
-            value = min(value, float(max_weight))
+            limit = float(max_weight)
+            if limit <= 0.0:
+                raise ValueError("max_weight must be positive")
+            value = min(value, limit)
         return float(value)
 
     def to_unit_row(self) -> dict[str, Any]:
+        sample_weight = self.sample_weight()
+        sample_weight_source = (
+            "precomputed_sample_weight"
+            if self.precomputed_sample_weight is not None
+            else "computed_weight_over_propensity"
+        )
+        metadata = dict(self.metadata or {})
+        metadata.update(
+            {
+                "propensity_source": self.propensity_source,
+                "resolved_propensity": self.propensity,
+                "sample_weight_source": sample_weight_source,
+            }
+        )
         row = {
             "unit_id": str(self.unit_id),
             "unit_type": str(self.unit_type),
@@ -191,8 +265,10 @@ class PreferenceRecord:
             "context": self.context,
             "weight": float(self.weight),
             "propensity": float(self.propensity),
-            "sample_weight": self.sample_weight(),
-            "metadata": dict(self.metadata or {}),
+            "sample_weight": sample_weight,
+            "propensity_source": self.propensity_source,
+            "sample_weight_source": sample_weight_source,
+            "metadata": metadata,
             "record_id": str(self.record_id or self.unit_id),
         }
         for key in _TREE_FIELDS:
@@ -276,11 +352,15 @@ class PreferenceDataset:
         )
 
     @classmethod
-    def from_records(cls, records: Sequence[PreferenceRecord | Mapping[str, Any]]) -> "PreferenceDataset":
+    def from_records(
+        cls, records: Sequence[PreferenceRecord | Mapping[str, Any]]
+    ) -> "PreferenceDataset":
         units: list[dict[str, Any]] = []
         candidates: list[dict[str, Any]] = []
         for item in records:
-            record = item if isinstance(item, PreferenceRecord) else PreferenceRecord.from_mapping(item)
+            record = (
+                item if isinstance(item, PreferenceRecord) else PreferenceRecord.from_mapping(item)
+            )
             unit = record.to_unit_row()
             units.append(unit)
             for candidate in record.candidates:
@@ -297,34 +377,44 @@ class PreferenceDataset:
     def from_flat_rows(cls, rows: Sequence[Mapping[str, Any]]) -> "PreferenceDataset":
         units_by_id: dict[str, dict[str, Any]] = {}
         candidates: list[dict[str, Any]] = []
+        sampling_fields = tuple(dict.fromkeys((*_UNIT_FIELDS, *_PROPENSITY_INPUT_FIELDS)))
         for raw in rows:
             row = dict(raw)
             unit_id = str(row.get("unit_id") or row.get("node_id") or row.get("doc_id") or "")
             if not unit_id:
                 unit_id = str(row.get("record_id") or row.get("id") or len(units_by_id))
             if unit_id not in units_by_id:
-                units_by_id[unit_id] = _normalize_unit_row(
-                    {
-                        **{key: row.get(key) for key in _UNIT_FIELDS if key in row},
-                        "unit_id": unit_id,
-                        "unit_type": row.get("unit_type", row.get("kind", "unit")),
-                        "target": row.get("target", "g"),
-                        "context": _maybe_json(row.get("context_json", row.get("context", row.get("prompt", "")))),
-                        "weight": row.get("weight", row.get("sample_weight", 1.0)),
-                        "propensity": row.get("propensity", row.get("joint_propensity", 1.0)),
-                        "metadata": _maybe_json(row.get("unit_metadata", row.get("metadata", {}))) or {},
-                    }
-                )
+                units_by_id[unit_id] = {
+                    **{key: row.get(key) for key in sampling_fields if key in row},
+                    "unit_id": unit_id,
+                    "unit_type": row.get("unit_type", row.get("kind", "unit")),
+                    "target": row.get("target", "g"),
+                    "context": _maybe_json(
+                        row.get("context_json", row.get("context", row.get("prompt", "")))
+                    ),
+                    "metadata": _maybe_json(row.get("unit_metadata", row.get("metadata", {})))
+                    or {},
+                }
             candidates.append(
                 _normalize_candidate_row(
                     {
                         "unit_id": unit_id,
-                        "candidate_id": row.get("candidate_id", row.get("id", row.get("response_id", ""))),
-                        "value": _maybe_json(row.get("value_json", row.get("value", row.get("response", "")))),
+                        "candidate_id": row.get(
+                            "candidate_id", row.get("id", row.get("response_id", ""))
+                        ),
+                        "value": _maybe_json(
+                            row.get(
+                                "value_json",
+                                row.get("value", row.get("response", "")),
+                            )
+                        ),
                         "score": row.get("score", row.get("reward")),
                         "rank": row.get("rank"),
                         "preferred": row.get("preferred", False),
-                        "metadata": _maybe_json(row.get("candidate_metadata", row.get("metadata", {}))) or {},
+                        "metadata": _maybe_json(
+                            row.get("candidate_metadata", row.get("metadata", {}))
+                        )
+                        or {},
                     }
                 )
             )
@@ -342,7 +432,9 @@ class PreferenceDataset:
         self.candidates.extend(other.candidates)
         return self
 
-    def extend(self, records: Sequence[PreferenceRecord | Mapping[str, Any]]) -> "PreferenceDataset":
+    def extend(
+        self, records: Sequence[PreferenceRecord | Mapping[str, Any]]
+    ) -> "PreferenceDataset":
         for record in records:
             self.append(record)
         return self
@@ -385,9 +477,7 @@ class PreferenceDataset:
             if row.get("target") == target or row.get("target") == "both" or target == "both"
         ]
         unit_ids = {str(row["unit_id"]) for row in unit_rows}
-        candidate_rows = [
-            row for row in self.candidates if str(row.get("unit_id")) in unit_ids
-        ]
+        candidate_rows = [row for row in self.candidates if str(row.get("unit_id")) in unit_ids]
         return PreferenceDataset(units=unit_rows, candidates=candidate_rows)
 
     def to_dict(self) -> dict[str, Any]:
@@ -404,12 +494,13 @@ class PreferenceDataset:
         return {
             "n_units": len(self.units),
             "n_candidates": len(self.candidates),
-            "targets": sorted({str(row.get("target") or "") for row in self.units if row.get("target")}),
-            "unit_types": sorted({str(row.get("unit_type") or "") for row in self.units if row.get("unit_type")}),
-            "mean_sample_weight": _mean(
-                _sample_weight(row.get("weight", 1.0), row.get("propensity", 1.0))
-                for row in self.units
+            "targets": sorted(
+                {str(row.get("target") or "") for row in self.units if row.get("target")}
             ),
+            "unit_types": sorted(
+                {str(row.get("unit_type") or "") for row in self.units if row.get("unit_type")}
+            ),
+            "mean_sample_weight": _mean(_unit_sample_weight(row) for row in self.units),
         }
 
     def to_hf_dataset_dict(self) -> Any:
@@ -442,17 +533,16 @@ class PreferenceDataset:
                 for row in self._pairwise_records(unit, format_name="reward")
             ]
         if format == "grpo":
-            return [
-                row
-                for unit in self.units
-                if (row := self._grpo_record(unit)) is not None
-            ]
+            return [row for unit in self.units if (row := self._grpo_record(unit)) is not None]
         raise ValueError("format must be 'general', 'supervised', 'dpo', 'reward', or 'grpo'")
 
     def save(self, path: Path | str) -> Path:
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True, default=_json_default), encoding="utf-8")
+        out.write_text(
+            json.dumps(self.to_dict(), indent=2, sort_keys=True, default=_json_default),
+            encoding="utf-8",
+        )
         return out
 
     @classmethod
@@ -461,18 +551,15 @@ class PreferenceDataset:
         return cls.from_value(payload)
 
     def _unit_candidates(self, unit_id: str) -> list[dict[str, Any]]:
-        return [
-            row for row in self.candidates if str(row.get("unit_id")) == str(unit_id)
-        ]
+        return [row for row in self.candidates if str(row.get("unit_id")) == str(unit_id)]
 
     def _general_record(self, unit: Mapping[str, Any]) -> dict[str, Any]:
         unit_id = str(unit["unit_id"])
         return {
             **dict(unit),
-            "sample_weight": _sample_weight(unit.get("weight", 1.0), unit.get("propensity", 1.0)),
+            "sample_weight": _unit_sample_weight(unit),
             "candidates": [
-                _candidate_record(candidate)
-                for candidate in self._unit_candidates(unit_id)
+                _candidate_record(candidate) for candidate in self._unit_candidates(unit_id)
             ],
         }
 
@@ -491,13 +578,15 @@ class PreferenceDataset:
                         "candidate_id": candidate.get("candidate_id"),
                         "score": candidate.get("score"),
                         "rank": candidate.get("rank"),
-                        "sample_weight": _sample_weight(unit.get("weight", 1.0), unit.get("propensity", 1.0)),
+                        "sample_weight": _unit_sample_weight(unit),
                         "metadata": _export_metadata(unit, candidate, format_name="supervised"),
                     }
                 )
         return rows
 
-    def _pairwise_records(self, unit: Mapping[str, Any], *, format_name: str) -> list[dict[str, Any]]:
+    def _pairwise_records(
+        self, unit: Mapping[str, Any], *, format_name: str
+    ) -> list[dict[str, Any]]:
         pairs = _pair_candidates(self._unit_candidates(str(unit["unit_id"])))
         rows: list[dict[str, Any]] = []
         for left, right in pairs:
@@ -509,7 +598,7 @@ class PreferenceDataset:
                 "prompt": _context_text(unit.get("context", "")),
                 "chosen": _candidate_text(chosen),
                 "rejected": _candidate_text(rejected),
-                "sample_weight": _sample_weight(unit.get("weight", 1.0), unit.get("propensity", 1.0)),
+                "sample_weight": _unit_sample_weight(unit),
                 "metadata": _export_metadata(unit, chosen, rejected, format_name=format_name),
             }
             if format_name == "reward":
@@ -531,7 +620,7 @@ class PreferenceDataset:
                 None if candidate.get("score") is None else float(candidate["score"])
                 for candidate in candidates
             ],
-            "sample_weight": _sample_weight(unit.get("weight", 1.0), unit.get("propensity", 1.0)),
+            "sample_weight": _unit_sample_weight(unit),
             "metadata": _export_metadata(unit, format_name="grpo"),
         }
 
@@ -540,7 +629,14 @@ def _record_from_pairwise(row: Mapping[str, Any]) -> PreferenceRecord:
     response_a = row.get("response_a", row.get("summary_a", row.get("candidate_a", "")))
     response_b = row.get("response_b", row.get("summary_b", row.get("candidate_b", "")))
     preferred = row.get("preferred", row.get("winner", "tie"))
-    preferred = {"a": "A", "left": "A", "chosen_a": "A", "b": "B", "right": "B", "chosen_b": "B"}.get(
+    preferred = {
+        "a": "A",
+        "left": "A",
+        "chosen_a": "A",
+        "b": "B",
+        "right": "B",
+        "chosen_b": "B",
+    }.get(
         str(preferred),
         preferred,
     )
@@ -559,22 +655,37 @@ def _record_from_pairwise(row: Mapping[str, Any]) -> PreferenceRecord:
     if preferred == "tie":
         candidate_a = Candidate(id="A", value=response_a, score=candidate_a.score, rank=1)
         candidate_b = Candidate(id="B", value=response_b, score=candidate_b.score, rank=1)
+    metadata = _preference_metadata(row)
+    resolved = _resolve_preference_propensity(row, metadata=metadata)
+    weight, sample_weight, _ = _resolve_preference_weights(
+        row,
+        propensity=resolved.propensity,
+    )
+    metadata = {
+        "law_type": row.get("law_type", "preference"),
+        "confidence": float(row.get("confidence", 1.0) or 1.0),
+        "reasoning": str(row.get("reasoning") or ""),
+        **metadata,
+    }
     return PreferenceRecord(
         record_id=str(row.get("pair_id") or row.get("example_id") or row.get("id") or ""),
-        unit_id=str(row.get("source_example_id") or row.get("unit_id") or row.get("doc_id") or row.get("pair_id") or ""),
+        unit_id=str(
+            row.get("source_example_id")
+            or row.get("unit_id")
+            or row.get("doc_id")
+            or row.get("pair_id")
+            or ""
+        ),
         unit_type=str(row.get("unit_type") or "pair"),
         target=str(row.get("target") or "g"),  # type: ignore[arg-type]
         context=row.get("prompt") or _prompt_from_pair(row),
         candidates=(candidate_a, candidate_b),
-        weight=float(row.get("weight", row.get("sample_weight", 1.0)) or 1.0),
-        propensity=float(row.get("propensity", row.get("joint_propensity", 1.0)) or 1.0),
-        metadata={
-            "law_type": row.get("law_type", "preference"),
-            "confidence": float(row.get("confidence", 1.0) or 1.0),
-            "reasoning": str(row.get("reasoning") or ""),
-            **dict(row.get("metadata") or {}),
-        },
+        weight=weight,
+        propensity=resolved.propensity,
+        metadata=metadata,
         doc_id=_optional_str(row.get("source_doc_id", row.get("doc_id"))),
+        precomputed_sample_weight=(sample_weight if row.get("sample_weight") is not None else None),
+        propensity_source=resolved.source,
     )
 
 

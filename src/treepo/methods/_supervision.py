@@ -2,12 +2,14 @@
 
 A supervision level is a named cell in the supervision grid: one concrete
 assignment of the relative ``root`` / ``leaf`` / ``merge`` node weights the
-neural-operator families consume. The level names and weight values mirror the
-ThinkingTrees ladder's ``--supervision`` vocabulary exactly, so a cell trained
-here and a cell trained there carry the same name and mean the same loss:
+node-supervision-capable families consume. The level names and weight values
+mirror the ThinkingTrees ladder's ``--supervision`` vocabulary exactly, so a
+cell trained here and a cell trained there carry the same name and mean the
+same loss:
 
 * ``default`` — identity level: no overrides; family config (or its defaults)
-  passes through unchanged.
+  passes through unchanged. Neural-operator/FNO defaults are root-only
+  (1/0/0), while DSPy preserves its node-wide historical default (1/1/1).
 * ``root`` — root-only supervision (1/0/0): fit the holistic document label at
   the root and leave nodes unsupervised.
 * ``leaf`` — leaf supervision only (0/1/0): supervise every labeled leaf
@@ -41,7 +43,9 @@ SUPERVISION_LEVELS: Mapping[str, Mapping[str, float]] = {
 DEFAULT_SUPERVISION_LEVEL = "default"
 
 #: Registered family names whose config consumes the node-weight knobs.
-NODE_SUPERVISION_FAMILIES: frozenset[str] = frozenset({"neural_operator", "fno"})
+NODE_SUPERVISION_FAMILIES: frozenset[str] = frozenset(
+    {"neural_operator", "fno", "dspy"}
+)
 
 
 def normalize_supervision_level(value: Any) -> str:

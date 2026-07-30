@@ -96,6 +96,15 @@ def test_grid_axes_from_spec_reads_first_class_fields() -> None:
     assert spec.to_dict()["local_label_mix"] == "gold_fraction"
 
 
+def test_root_observed_ids_round_trip_as_an_explicit_empty_mask() -> None:
+    from treepo.methods.contracts import CTreePOLearningSpec
+
+    spec = CTreePOLearningSpec.from_mapping({"family": "fno", "root_observed_doc_ids": []})
+    assert spec.root_observed_doc_ids == ()
+    assert spec.to_dict()["root_observed_doc_ids"] == []
+    assert GridAxes.from_spec(spec).root_observed_doc_ids == ()
+
+
 # --- doc_gold_n: pinned + nested -------------------------------------------
 
 
@@ -168,7 +177,9 @@ def test_llm_distilled_requires_a_configured_source() -> None:
     # An explicit cached-labels path resolves it too.
     via_path = resolve_label_mix(
         _docs(2),
-        axes=GridAxes(local_label_mix="llm_distilled", distilled_labels_path="teacher_node_rows.jsonl"),
+        axes=GridAxes(
+            local_label_mix="llm_distilled", distilled_labels_path="teacher_node_rows.jsonl"
+        ),
         backend_config={},
     )
     assert via_path["labels_source"] == "cached_jsonl"
@@ -201,7 +212,95 @@ def test_apply_grid_axes_returns_selected_and_provenance() -> None:
     assert len(selected) == 4
     assert provenance["seed"] == 2
     assert provenance["doc_gold"]["selected_count"] == 4
+    assert provenance["doc_gold"]["observation_mode"] == "training_subset"
+    assert provenance["doc_gold"]["training_pool_count"] == 4
     assert provenance["local_label_mix"]["mix"] == "gold_fraction"
+    assert provenance["local_label_mix"]["population_node_count"] == 12
+
+
+def test_explicit_root_mask_keeps_full_pool_and_samples_local_units_globally() -> None:
+    docs = _docs(12, leaves_per=4)
+    axes = GridAxes(
+        doc_gold_n=3,
+        root_observed_doc_ids=("d1", "d5", "d9"),
+        local_label_mix="gold_fraction",
+        gold_fraction_p=0.5,
+        seed=2,
+    )
+    training, provenance = apply_grid_axes(docs, axes=axes, backend_config={})
+
+    assert len(training) == 12
+    doc_gold = provenance["doc_gold"]
+    assert doc_gold["selected_doc_ids"] == ["d1", "d5", "d9"]
+    assert doc_gold["selected_count"] == 3
+    assert doc_gold["training_pool_count"] == 12
+    assert doc_gold["observation_mode"] == "masked_full_training_pool"
+    local = provenance["local_label_mix"]
+    assert local["population_node_count"] == 48
+    assert local["selected_node_count"] == 24
+
+
+def test_explicit_root_mask_rejects_unknown_duplicate_and_count_mismatch() -> None:
+    docs = _docs(4)
+    with pytest.raises(ValueError, match="absent"):
+        apply_grid_axes(
+            docs,
+            axes=GridAxes(root_observed_doc_ids=("missing",)),
+            backend_config={},
+        )
+    with pytest.raises(ValueError, match="duplicates"):
+        GridAxes(root_observed_doc_ids=("d0", "d0"))
+    with pytest.raises(ValueError, match="must equal"):
+        apply_grid_axes(
+            docs,
+            axes=GridAxes(doc_gold_n=2, root_observed_doc_ids=("d0",)),
+            backend_config={},
+        )
+
+
+def test_explicit_backend_node_mask_is_authoritative_in_provenance() -> None:
+    docs = _docs(3, leaves_per=2)
+    selected = ("d0::q0_0", "d2::q2_1")
+    provenance = resolve_label_mix(
+        docs,
+        axes=GridAxes(local_label_mix="gold_fraction", gold_fraction_p=0.25, seed=5),
+        backend_config={
+            "supervised_node_units": selected,
+            "supervised_node_population_size": 5,
+            "supervised_node_population_id": "nonterminal_leaf_spans_v1",
+        },
+    )
+    assert provenance["selected_node_units"] == list(selected)
+    assert provenance["selection_source"] == "backend_supervised_node_units"
+    assert provenance["population_node_count"] == 5
+    assert provenance["selection_probability"] == pytest.approx(0.4)
+    assert provenance["population_id"] == "nonterminal_leaf_spans_v1"
+
+
+def test_zero_local_budget_is_empty_globally_and_explicit_empty_is_preserved() -> None:
+    docs = _docs(4, leaves_per=3)
+    axes = GridAxes(local_label_mix="gold_fraction", gold_fraction_p=0.0, seed=5)
+
+    generated = resolve_label_mix(docs, axes=axes, backend_config={})
+    assert generated["population_node_count"] == 12
+    assert generated["selected_node_count"] == 0
+    assert generated["selected_node_units"] == []
+    assert generated["selection_probability"] == 0.0
+
+    explicit = resolve_label_mix(
+        docs,
+        axes=axes,
+        backend_config={
+            "supervised_node_units": (),
+            "supervised_node_population_size": 12,
+            "supervised_node_population_id": "nonterminal_leaf_spans_v1",
+        },
+    )
+    assert explicit["selection_source"] == "backend_supervised_node_units"
+    assert explicit["selected_node_count"] == 0
+    assert explicit["selected_node_units"] == []
+    assert explicit["selection_probability"] == 0.0
+    assert explicit["population_id"] == "nonterminal_leaf_spans_v1"
 
 
 # --- end-to-end provenance through fit() -----------------------------------
@@ -257,9 +356,37 @@ def test_fit_persists_grid_axes_provenance(tmp_path: Path) -> None:
         }
     )
     assert (
-        again.summary["grid_axes"]["doc_gold"]["selected_doc_ids"]
-        == doc_gold["selected_doc_ids"]
+        again.summary["grid_axes"]["doc_gold"]["selected_doc_ids"] == doc_gold["selected_doc_ids"]
     )
+
+
+def test_root_mask_rejects_family_that_would_ignore_it(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="root-observation-mask support"):
+        fit(
+            {
+                "family": "learnable_constant",
+                "train_data": _docs(4),
+                "eval_data": _docs(2),
+                "root_observed_doc_ids": ("d0",),
+                "backend_config": {"output_dir": str(tmp_path)},
+            }
+        )
+
+
+def test_backend_only_root_mask_is_rejected_as_untracked(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="top-level treepo.fit spec field"):
+        fit(
+            {
+                "family": "fno",
+                "train_data": _markov_trees(4, seed=2, split="train"),
+                "eval_data": _markov_trees(2, seed=3, split="test"),
+                "backend_config": {
+                    **_tiny_fno_config(),
+                    "output_dir": str(tmp_path),
+                    "root_observed_doc_ids": (),
+                },
+            }
+        )
 
 
 # --- example grid helper crosses the seeds axis ----------------------------
