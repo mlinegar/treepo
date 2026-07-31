@@ -18,7 +18,7 @@ setup live in `example_setup/` so the runnable files stay readable.
 | `run_manifesto_end_to_end.py` | Full Manifesto/RILE package walkthrough: sampled docs/qsentences, `treepo.fit(...)`, evidence JSON, and root/qsentence/both reward exports. |
 | `run_manifesto_replications.py` | Central Manifesto/RILE replication shape: root document labels, sampled document-unit labels, and optional preference exports for DPO/reward/GRPO. |
 | `run_manifesto_reward_mechanisms.py` | Trainer-neutral Manifesto preference exports for root-only, qsentence-only, and combined DPO/reward/GRPO views. |
-| `run_manifesto_semantic_forest_grid.py` | Two isomorphic grids: DSPy and FNO each cross K={1,3,57} with `{full_doc_direct,ctree_base_summary,ctree_recursive}` (nine reported views per family; 18 total). For each fixed K/family, `ctree_recursive` learns one `f,g` pair and `ctree_base_summary` evaluates those exact artifacts without updating them. All K use one ordered named-vector API and sum-L1 endpoint. `--dspy-execution offline_fixture` is the deterministic analytic-g smoke and is never learned-g evidence. |
+| `run_manifesto_semantic_forest_grid.py` | Two isomorphic grids: DSPy and FNO each cross K={1,3,57} with `{full_doc_direct,ctree_base_summary,ctree_recursive}` (nine reported views per family; 18 total). For each fixed K/family, `ctree_recursive` learns one `f,g` pair; `ctree_base_summary` reuses the exact pair and `full_doc_direct` reuses the exact `f` with canonical identity `g`, both without updates. All K use one ordered named-vector API and sum-L1 endpoint. `--dspy-execution offline_fixture` is the deterministic analytic-g smoke and is never learned-g evidence. |
 | `run_finetune_views.py` | Task-neutral fine-tuning export skeleton: one `PreferenceDataset` feeds embedding pairs/triplets/ranked rows plus SFT/DPO/reward/GRPO rows. |
 | `run_manifesto_finetune_views.py` | Manifesto/RILE fine-tuning exports: root `f` rows, qsentence `g` rows, and qsentence pairwise/ranked candidate views. |
 | `run_preference_optimizer_views.py` | Task-neutral optimizer-view skeleton: one `PreferenceDataset` feeds supervised DSPy prompts plus DPO/reward/GRPO projections. |
@@ -30,19 +30,20 @@ The Manifesto Semantic-Forest grid sends an explicit `g_mode` with every
 `treepo.fit(...)` call, while K={1,3,57} all retain the same ordered named-vector
 API and document-mean sum-L1 endpoint:
 
-- `full_doc_direct`: `f(X)`, one leaf, zero internal calls, identity `g`
-  elided, `schedule="f"`;
+- `full_doc_direct`: `f(reduce_g(T)) = f(X)`, one leaf, zero internal calls,
+  explicit package-owned `g(X)=X`, `schedule="f"`, and the recursive source's
+  exact `f` artifact;
 - `ctree_recursive`: `f(reduce_g(T))`, four leaves and three internal calls;
   learned DSPy and FNO train one `f,g` pair; and
-- `ctree_base_summary`: `f(g(X))`, one leaf and zero internal calls, evaluated
+- `ctree_base_summary`: `f(reduce_g(T)) = f(g(X))`, one leaf and zero internal calls, evaluated
   with that recursive cell's exact `f,g` artifacts and zero optimizer updates.
 
 `reduce_g` is the fold induced by `g`, not a separate learner. A singleton
 view therefore measures cross-leaf reuse rather than training another model.
 The recursive source path retains the requested `schedule="fg"` iterations;
-the singleton view executes iteration zero only. Explicit
+both singleton views execute iteration zero only. Explicit
 `dspy_execution="offline_fixture"` uses one fixed analytic `g` and shares the
-same fitted `f` artifact across its two C-Tree views.
+same fitted `f` artifact across all three reported views.
 
 Only the ordered target catalog and output width change with K; the scalar raw
 RILE projection is reporting-only. Each emitted `target_by_name` mapping is

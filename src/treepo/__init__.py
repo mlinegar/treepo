@@ -10,6 +10,7 @@ except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.2.0"
 
 _LAZY_EXPORTS = {
+    "align_model_artifacts": ("treepo.methods.artifact_alignment", "align_model_artifacts"),
     "fit": ("treepo.learning", "fit"),
     "OracleTargetSpec": ("treepo.forest", "OracleTargetSpec"),
     "l1_oracle_metric_schema": ("treepo.forest", "l1_oracle_metric_schema"),
@@ -46,6 +47,7 @@ def __getattr__(name: str):
 
 __all__ = [
     "__version__",
+    "align_model_artifacts",
     "Candidate",
     "ComposableStatistic",
     "PreferenceDataset",

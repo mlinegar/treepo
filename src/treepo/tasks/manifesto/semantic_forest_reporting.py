@@ -524,8 +524,8 @@ def _validate_shared_g_training_support(
 
 def _validate_representation_path_identity(identity: Mapping[str, Any]) -> None:
     contracts = {
-        "full_doc_direct": ("singleton", 1, 0, "f_direct", 0, False),
-        "ctree_base_summary": ("singleton", 1, 0, "f_after_g", 1, False),
+        "full_doc_direct": ("singleton", 1, 0, "f_after_reduce_g", 1, False),
+        "ctree_base_summary": ("singleton", 1, 0, "f_after_reduce_g", 1, False),
         "ctree_recursive": ("recursive", 4, 3, "f_after_reduce_g", 4, True),
     }
     representation_path = str(identity["representation_path"])
@@ -535,6 +535,10 @@ def _validate_representation_path_identity(identity: Mapping[str, Any]) -> None:
         raise ValueError(
             f"identity.representation_path is invalid: {representation_path!r}"
         ) from exc
+    if representation_path == "full_doc_direct" and identity["g_mode"] != "identity":
+        raise ValueError(
+            "identity.g_mode must be 'identity' for representation_path='full_doc_direct'"
+        )
 
     fields = (
         "topology_kind",

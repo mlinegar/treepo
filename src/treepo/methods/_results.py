@@ -79,6 +79,7 @@ def write_results_json(
         "cost": _cost_block(spec, records, summary, artifacts, wall_seconds=wall_seconds),
         "paired_rows": paired_rows,
         "oracle_metric": dict(summary.get("oracle_metric") or {}),
+        "model_artifact_contract": dict(summary.get("model_artifact_contract") or {}),
         "g_contract": dict(summary.get("g_contract") or {}),
     }
     if joint_schema is not None:
@@ -100,6 +101,7 @@ def _cell_block(spec: Any, summary: Mapping[str, Any]) -> dict[str, Any]:
         "g_mode": str(summary.get("g_mode") or "undeclared"),
         "g_contract": dict(summary.get("g_contract") or {}),
         "schedule": str(summary.get("schedule") or ""),
+        "model_artifact_contract": dict(summary.get("model_artifact_contract") or {}),
         "seed": grid_axes.get("seed"),
         "axis": axis,
         "supervision": dict(summary.get("supervision") or {}),

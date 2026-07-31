@@ -67,9 +67,14 @@ induced by the single recorded `g` artifact:
 Any leaf-call and internal-call counts describe support on which that one
 operator was exercised; they do not identify separate parameters, artifacts,
 or learners.
+`run.model_artifact_contract` mirrors the package-wide source/reuse contract:
+all modes execute `f(reduce_g(T))`; aligned views reuse the exact source `f`
+and either the exact source `g` or the package's canonical identity `g`.
+Digests and source/scope IDs make that identity checkable across result,
+manifest, evidence, and grid artifacts.
 
-- `operator=fixed_identity` for an identity/elided state mechanism, independent
-  of whether the declared topology has zero or positive merge applications;
+- `operator=fixed_identity` for the package-owned `g(x)=x` mechanism on the
+  direct singleton path, with one materialized leaf application;
 - `operator=fixed_nonidentity_or_family_owned` for an explicit concrete
   deterministic/frozen operator supplied under `g_mode=fixed`;
 - `operator=learned_shared` only when `learned_this_run=true` and
@@ -87,10 +92,11 @@ nontrainable, family-validated operators; identity is package-owned.
 Missing mode provenance is `undeclared`, never silently `learned`.
 
 A singleton C-Tree has one leaf and zero merge applications, regardless of
-`g_mode`. `full_doc_direct` uses `f(X)` and may elide the identity leaf
-invocation. `ctree_base_summary` uses `f(g(X))`: its sole nonidentity `g` call
-has a realized C1 population, while its realized C3 population is empty. That
-empty stratum is structural absence and must not be read as a C3 pass.
+`g_mode`. `full_doc_direct` uses `f(reduce_g(T)) = f(X)` with the explicit
+canonical equation `g(X)=X`. `ctree_base_summary` uses
+`f(reduce_g(T)) = f(g(X))`: its sole nonidentity `g` call has a realized C1
+population, while its realized C3 population is empty. That empty stratum is
+structural absence and must not be read as a C3 pass.
 
 A realized singleton `g` update is evidence that the shared operator was
 updated from leaf-call support; it is not learned-composition or internal-call

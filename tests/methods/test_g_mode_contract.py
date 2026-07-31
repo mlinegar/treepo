@@ -362,6 +362,9 @@ def test_identity_public_fit_is_f_only_and_persists_complete_provenance(
         "merge_call_count": 0,
         "same_g_across_node_roles": True,
         "reduce_g_is_derived": True,
+        "leaf_call_count_per_singleton": 1,
+        "leaf_call_semantics": "g(x)=x",
+        "universal_execution": "f(reduce_g(T))",
     }
     assert result.status == "success"
     assert len(family.f_calls) == 1
@@ -392,6 +395,8 @@ def test_identity_public_fit_is_f_only_and_persists_complete_provenance(
     assert result.summary["f_update_count"] == 1
     assert result.summary["g_update_count"] == 0
     assert contract == {
+        "universal_execution": "f(reduce_g(T))",
+        "identity_equation": "g(x)=x",
         "mode": "identity",
         "operator": "fixed_identity",
         "initial_g_artifact_present": False,
@@ -419,8 +424,8 @@ def test_identity_public_fit_is_f_only_and_persists_complete_provenance(
         "declared_leaf_count": 1,
         "leaf_g_application_count_per_tree": 1,
         "merge_application_count_per_tree": 0,
-        "leaf_g_application_materialization": "semantic_identity_elided",
-        "leaf_g_materialized_application_count_per_tree": 0,
+        "leaf_g_application_materialization": "package_canonical_identity",
+        "leaf_g_materialized_application_count_per_tree": 1,
         "singleton": True,
         "direct": True,
         "summarized": False,
@@ -441,6 +446,9 @@ def test_identity_public_fit_is_f_only_and_persists_complete_provenance(
     results = json.loads(Path(result.artifacts["results_json"]).read_text(encoding="utf-8"))
     evidence = result.artifacts["evidence"]
 
+    assert (
+        manifest["summary"]["model_artifact_contract"] == result.summary["model_artifact_contract"]
+    )
     assert manifest["spec"]["g_mode"] == "identity"
     assert manifest["spec"]["schedule"] == "f"
     assert manifest["summary"]["g_contract"] == contract
@@ -452,13 +460,14 @@ def test_identity_public_fit_is_f_only_and_persists_complete_provenance(
     assert results["cost"]["one_time_compute"]["g_update_count"] == 0
     assert evidence["run"]["g_mode"] == "identity"
     assert evidence["run"]["g_contract"] == contract
+    assert evidence["run"]["model_artifact_contract"] == result.summary["model_artifact_contract"]
     assert evidence["run"]["f_update_count"] == 1
     assert evidence["run"]["g_update_count"] == 0
 
 
 @pytest.mark.parametrize(
     "representation",
-    ["full_doc", "full_doc_direct", "ctree_base_summary", "ctree"],
+    ["full_doc", "ctree_base_summary", "ctree"],
 )
 @pytest.mark.parametrize("g_mode", ["identity", "fixed", "learned"])
 def test_singleton_ctree_accepts_every_g_mode_and_alias(
@@ -483,9 +492,7 @@ def test_singleton_ctree_accepts_every_g_mode_and_alias(
     assert contract["topology_kind"] == "singleton"
     assert contract["declared_leaf_count"] == 1
     assert contract["leaf_g_application_count_per_tree"] == 1
-    assert contract["leaf_g_materialized_application_count_per_tree"] == (
-        0 if g_mode == "identity" else 1
-    )
+    assert contract["leaf_g_materialized_application_count_per_tree"] == 1
     assert contract["merge_application_count_per_tree"] == 0
     assert contract["singleton"] is True
     assert contract["composition_present"] is False
@@ -503,6 +510,38 @@ def test_singleton_ctree_accepts_every_g_mode_and_alias(
     assert contract["merge_domain_training_observed"] is False
     assert contract["shared_g_updated_with_merge_domain"] is False
     assert len(family.g_calls) == (1 if g_mode == "learned" else 0)
+
+
+@pytest.mark.parametrize("g_mode", ["fixed", "learned"])
+def test_full_doc_direct_requires_canonical_identity_g(
+    tmp_path: Path,
+    g_mode: str,
+) -> None:
+    family = RecordingFamily()
+    config = _fit_config(
+        tmp_path / g_mode,
+        family,
+        g_mode=g_mode,
+        representation="full_doc_direct",
+    )
+    if g_mode == "fixed":
+        config["initial_artifacts"] = {"g": _fixed_g()}
+
+    with pytest.raises(ValueError, match="full_doc_direct.*g_mode='identity'"):
+        treepo.fit(config)
+    assert family.f_calls == family.g_calls == []
+
+
+def test_full_doc_direct_fine_path_requires_identity_with_coarse_full_doc(
+    tmp_path: Path,
+) -> None:
+    family = RecordingFamily()
+    config = _fit_config(tmp_path, family, g_mode="learned", representation="full_doc")
+    config["axis"]["representation_path"] = "full_doc_direct"
+
+    with pytest.raises(ValueError, match="full_doc_direct.*g_mode='identity'"):
+        treepo.fit(config)
+    assert family.f_calls == family.g_calls == []
 
 
 def test_identity_g_is_rejected_on_a_recursive_ctree(tmp_path: Path) -> None:

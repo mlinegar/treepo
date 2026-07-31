@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Every representation executes `f(reduce_g(T))`; `full_doc_direct`
+  materializes the package-owned identity equation `g(x)=x` instead of
+  bypassing `g`.
+- Added `treepo.align_model_artifacts(...)` and
+  `treepo.fit(..., artifact_source=...)` for evaluation-only, zero-update
+  views that reuse exact source artifacts. Results, manifests, evidence, and
+  grid reports expose a validated `model_artifact_contract`.
+
 ## v0.1.1 — first release
 
 Shipped public surface:

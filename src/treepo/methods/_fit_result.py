@@ -12,6 +12,7 @@ from treepo.forest import l1_oracle_metric_schema
 from treepo.methods._results import write_results_json
 from treepo.methods._run_manifest import joint_target_schema, json_default, write_manifest
 from treepo.methods._topology_contract import resolve_topology_contract
+from treepo.methods.artifact_alignment import build_model_artifact_contract
 from treepo.methods.contracts import (
     G_MODE_FIXED,
     G_MODE_IDENTITY,
@@ -54,6 +55,12 @@ def build_result(
     artifacts: dict[str, Any] = (
         {"f": last.f_artifact, "g": last.g_artifact} if last is not None else {}
     )
+    model_artifact_contract = build_model_artifact_contract(
+        spec=spec,
+        artifacts=artifacts,
+        output_dir=output_dir,
+    )
+    artifacts["model_artifact_contract"] = model_artifact_contract
     write_prediction_records(output_dir, records)
     prediction_records = collect_prediction_records(output_dir)
     if prediction_records:
@@ -81,6 +88,7 @@ def build_result(
     summary["g_contract"] = g_contract
     summary["configured_max_iterations"] = g_contract["configured_max_iterations"]
     summary["f_update_count"] = g_contract["f_update_count"]
+    summary["model_artifact_contract"] = model_artifact_contract
     summary["g_update_count"] = g_contract["g_update_count"]
     summary["oracle_metric"] = l1_oracle_metric_schema()
     joint_schema = joint_target_schema(spec)
@@ -210,7 +218,7 @@ def g_contract_payload(spec: Any, records: Sequence[Any]) -> dict[str, Any]:
         fit_status = "not_trainable"
         skipped_g = "identity"
         merge_calls = 0
-        materialization = "semantic_identity_elided"
+        materialization = "package_canonical_identity"
     elif mode == G_MODE_FIXED:
         operator = "fixed_nonidentity_or_family_owned"
         fit_status = "not_trainable"
@@ -250,6 +258,8 @@ def g_contract_payload(spec: Any, records: Sequence[Any]) -> dict[str, Any]:
         g_training_role_evidence_source,
     ) = _g_training_support(g_call_records, topology=topology)
     return {
+        "universal_execution": "f(reduce_g(T))",
+        "identity_equation": "g(x)=x" if mode == G_MODE_IDENTITY else None,
         "mode": mode,
         "operator": operator,
         "initial_g_artifact_present": initial_g_artifact_present,
@@ -284,9 +294,7 @@ def g_contract_payload(spec: Any, records: Sequence[Any]) -> dict[str, Any]:
         "leaf_g_application_count_per_tree": leaf_applications,
         "merge_application_count_per_tree": merge_applications,
         "leaf_g_application_materialization": materialization,
-        "leaf_g_materialized_application_count_per_tree": (
-            0 if mode == G_MODE_IDENTITY else leaf_applications
-        ),
+        "leaf_g_materialized_application_count_per_tree": leaf_applications,
         "singleton": singleton,
         "direct": direct,
         "summarized": summarized,

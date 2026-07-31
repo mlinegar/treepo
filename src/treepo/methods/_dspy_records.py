@@ -173,9 +173,9 @@ def f_training_records(
     the preferred f target.  When a current learned g is supplied,
     ``reduce_states`` may replace reference states with its node-wise outputs.
     Gold targets remain output fields only. ``allow_identity_g_input`` is the
-    separate direct-readout contract: when the runtime supplied canonical
-    identity g, f consumes raw node text even when fabricating an identity
-    target for a learned g remains disabled.
+    canonical singleton equation: when the runtime supplies ``g(x)=x``, the
+    resulting state consumed by f is raw node text even though fabricating an
+    identity target for a learned g remains disabled.
     """
 
     rows: list[dict[str, Any]] = []

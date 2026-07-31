@@ -90,6 +90,9 @@ def canonical_g_artifact(g_mode: str) -> dict[str, Any]:
         "trainable": False,
         "train_g_enabled": False,
         "merge_call_count": 0,
+        "leaf_call_count_per_singleton": 1,
+        "leaf_call_semantics": "g(x)=x",
+        "universal_execution": "f(reduce_g(T))",
         "same_g_across_node_roles": True,
         "reduce_g_is_derived": True,
     }

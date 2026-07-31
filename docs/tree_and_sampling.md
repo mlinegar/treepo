@@ -33,13 +33,20 @@ Every recursive binary C-Tree has `L >= 1` leaves and exactly `M = L - 1`
 merge applications. With `L = 1`, the root and leaf are the same logical node
 and `M = 0`. The package names three derived paths:
 
-- `full_doc_direct`: singleton `f(X)` with identity `g` elided;
-- `ctree_base_summary`: singleton `f(g(X))` with one nonidentity `g` call; and
+- `full_doc_direct`: singleton `f(reduce_g(T)) = f(X)` with one canonical
+  identity call `g(X)=X`;
+- `ctree_base_summary`: singleton `f(reduce_g(T)) = f(g(X))` with one nonidentity `g` call; and
 - `ctree_recursive`: `f(reduce_g(T))` with `L >= 2` and active internal calls.
 
 `full_doc` names full-span singleton geometry; `ctree` is the umbrella grammar
 and therefore includes both singleton and recursive C-Trees.
 
+In an artifact-aligned comparison, the recursive path is the only fitted
+source. Every singleton view has `axis.max_iterations=0` and reuses its exact
+`f`. The summarized singleton also reuses the exact source `g`; the direct
+singleton substitutes only the package's canonical identity `g`. The
+`model_artifact_contract` records source/scope IDs and validates these exact
+choices package-wide.
 In the summarized singleton, the sole `g(X)` call creates a realized C1
 obligation. There are no internal nodes, so the realized C3 population is
 empty. That is structural absence, not a C3 pass. An update changes the same

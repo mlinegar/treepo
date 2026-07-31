@@ -48,6 +48,9 @@ def build_evidence(
             "g_mode": str(summary_payload.get("g_mode") or "undeclared"),
             "g_contract": _jsonable(_mapping(summary_payload.get("g_contract"))),
             "f_update_count": int(summary_payload.get("f_update_count") or 0),
+            "model_artifact_contract": _jsonable(
+                _mapping(summary_payload.get("model_artifact_contract"))
+            ),
             "g_update_count": int(summary_payload.get("g_update_count") or 0),
             "status": str(status),
             "n_iterations": int(summary_payload.get("n_iterations") or 0),

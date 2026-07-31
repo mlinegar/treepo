@@ -81,6 +81,13 @@ def test_results_json_written_and_linked(tmp_path: Path) -> None:
     payload = _load_results(tmp_path)
     assert payload["version"] == "0.1"
     assert payload["status"] == "success"
+    contract = result.summary["model_artifact_contract"]
+    assert contract["universal_execution"] == "f(reduce_g(T))"
+    assert payload["model_artifact_contract"] == contract
+    assert payload["cell"]["model_artifact_contract"] == contract
+    assert result.artifacts["model_artifact_contract"] == contract
+    assert result.artifacts["evidence"]["run"]["model_artifact_contract"] == contract
+
     assert result.summary["results_path"] == str(tmp_path / RESULTS_FILENAME)
     assert result.artifacts["results_json"] == str(tmp_path / RESULTS_FILENAME)
 

@@ -22,8 +22,9 @@ The C-Tree grammar and execution paths have one meaning across `K=1`, `K=3`,
 and `K=57`. A binary C-Tree has `L >= 1` leaves and exactly `M = L - 1`
 merge applications:
 
-- `full_doc_direct` is singleton `F(X)` with identity `g` elided;
-- `ctree_base_summary` is singleton `F(g(X))`, with one call to a fixed or
+- `full_doc_direct` is singleton `F(reduce_g(T)) = F(X)`, with one canonical
+  identity call `g(X)=X`;
+- `ctree_base_summary` is singleton `F(reduce_g(T)) = F(g(X))`, with one call to a fixed or
   learned nonidentity `g` and no internal calls; and
 - `ctree_recursive` is `F(reduce_g(T))` with `L >= 2`, where the same `g` is
   called at leaves and internal nodes.
@@ -47,6 +48,12 @@ Target width changes none of this: every width uses the same `treepo.fit(...)`
 API, ordered named-vector target contract, and document-level sum-L1
 evaluation. The sole `K=1` coordinate is projected to a scalar only for
 compatibility reporting.
+The packaged comparison grid fits only `ctree_recursive` for each target
+width/family. `ctree_base_summary` reuses that exact `(f,g)` pair;
+`full_doc_direct` reuses the exact `f` with canonical identity `g`. Both are
+zero-update evaluation views. The reported contrast therefore changes
+topology/`g` policy around one fitted `f`; it is not a comparison of three
+independently trained models.
 
 ## Exact targets
 
@@ -112,11 +119,11 @@ summarization, recursive composition, supervision, and target width separate.
 
 | Arm | Input | Learned target | Supervision | What it identifies |
 |---|---|---|---|---|
-| `FD-Y` | `full_doc_direct`: `f(X)` | scalar RILE | published root labels | direct full-document readout baseline |
-| `SD-Y` | `ctree_base_summary`: `f(g(X))`, no internal calls | scalar RILE | the same observed root labels | effect of one `g` call without recursive composition |
+| `FD-Y` | `full_doc_direct`: `f(reduce_g(T))`, `g(X)=X` | scalar RILE | published root labels | identity-policy full-document view of the shared `f` |
+| `SD-Y` | `ctree_base_summary`: `f(reduce_g(T))=f(g(X))`, no internal calls | scalar RILE | the same observed root labels | effect of one `g` call without recursive composition |
 | `CT-Y-root` | multi-leaf `ctree_recursive` | scalar RILE | the same observed root labels | incremental recursive-composition effect |
 | `CT-Y-local` | multi-leaf `ctree_recursive` | scalar RILE | separately budgeted root and local labels | value of local supervision |
-| `FD-W` | `full_doc_direct` | component vector | component bundle | target-factorization effect with `f` only |
+| `FD-W` | `full_doc_direct` | component vector | component bundle | target-factorization effect with shared `f` and identity `g` |
 | `SD-W` | `ctree_base_summary` | one joint component vector | the same component bundle design | joint effect of one `g` call without internal calls |
 | `SF-W` | multi-leaf `ctree_recursive` | one joint component vector | the same component bundle design | Semantic Forest composition arm |
 
@@ -357,11 +364,12 @@ K in {1, 3, 57}
 ```
 
 K changes only the ordered `OracleTargetSpec` catalog and output width. The
-three paths separately identify direct readout, one singleton `g` call, and
-recursive application of that same `g`. They use the same
-documents, target construction, reporting schema, and one `treepo.fit(...)`
-call per cell; topology changes through ordinary axis/config values rather than
-a separate API.
+three paths isolate at evaluation canonical identity, one singleton
+nonidentity `g` call, and recursive application of that source `g`. They use
+the same fitted source `f`, documents, target construction, reporting schema,
+and one `treepo.fit(...)` call per reported cell (zero updates for the two
+aligned views); topology changes through ordinary axis/config values rather
+than a separate API.
 
 Family changes only the DSPy-versus-FNO backend adapter. Target construction,
 exact-key parsing, document roster, sum-L1 point distance, raw-RILE projection,

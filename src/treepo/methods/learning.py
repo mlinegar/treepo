@@ -22,6 +22,7 @@ from treepo.methods._supervision import (
     supervision_provenance,
 )
 from treepo.methods._topology_contract import TopologyContract, resolve_topology_contract
+from treepo.methods.artifact_alignment import validate_artifact_alignment_before_fit
 from treepo.methods.contracts import (
     G_MODE_IDENTITY,
     G_MODE_LEARNED,
@@ -40,6 +41,7 @@ def fit(spec: Any) -> Any:
     axis = dict(spec.axis or {})
     initial = spec.initial_artifacts or {}
     oracle_targets = tuple(getattr(spec, "oracle_targets", ()) or ())
+    validate_artifact_alignment_before_fit(spec)
     _apply_oracle_vector_schema(backend_config, oracle_targets)
 
     # First-class supervision-grid axes: pin the document subset and resolve the
@@ -197,6 +199,18 @@ def _require_g_mode_topology(
         axis=axis,
         backend_config=backend_config,
     )
+    backend_metadata = dict(backend_config.get("metadata") or {})
+    representation_path = str(
+        axis.get("representation_path")
+        or backend_metadata.get("representation_path")
+        or topology.representation
+        or ""
+    )
+    if representation_path == "full_doc_direct" and g_mode != G_MODE_IDENTITY:
+        raise ValueError(
+            "representation='full_doc_direct' requires g_mode='identity'; "
+            "use ctree_base_summary for a nonidentity singleton g"
+        )
     if g_mode == G_MODE_IDENTITY and topology.composition_present:
         raise ValueError(
             "g_mode='identity' is only defined on a singleton direct path; "

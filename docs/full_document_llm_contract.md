@@ -12,12 +12,14 @@ tree merges. It does not, by itself, fix `g_mode`. In the recursive C-Tree
 grammar this is the `L = 1`, `M = L - 1 = 0` base case.
 
 The structured adapter documented here is specifically the
-`full_doc_direct` comparator: it computes `f(X)`, treats `g` as identity and
-operationally elides the call, and fits only `f`. Its operator status is
-`fixed_identity` and it must not be reported as having learned `g`.
+`full_doc_direct` comparator: it computes the universal equation
+`f(reduce_g(T))` on one leaf and materializes the package-owned identity
+`g(X)=X`. Its operator status is `fixed_identity` and it must not be reported
+as having learned `g`. In an aligned comparison it reuses the exact source
+`f` at zero iterations rather than fitting a separate direct model.
 
 A summarized singleton is also a valid full-span C-Tree. Its path is
-`ctree_base_summary`, it computes `f(g(X))`, and it may call a fixed or learned
+`ctree_base_summary`, it computes `f(reduce_g(T)) = f(g(X))`, and it may call a fixed or learned
 nonidentity `g` once even though it has no internal nodes. A realized update
 changes the same shared `g` that a larger tree would use recursively, but the
 singleton supplies no internal-call or C3 evidence for learned composition.

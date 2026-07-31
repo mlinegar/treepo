@@ -17,15 +17,21 @@ target-owned artifacts. `cell.g_mode` records configured policy;
 `g_contract` records realized operator, fit status, warm-start presence, and
 separate call/update counts. The mechanism is called learned in this run only
 when `g_contract.learned_this_run=true`; a verified learned warm start is
-reported separately as `learned_shared_reused`.
+reported separately as `learned_shared_reused`. `model_artifact_contract`
+records the universal equation `f(reduce_g(T))`, artifact digests, source and
+scope IDs, exact-`f` reuse, and either exact source-`g` reuse or canonical
+identity `g`. Aligned cells are evaluation-only and require
+`axis.max_iterations=0`.
 
 Every binary C-Tree has
 `L >= 1` leaves and `M = L - 1` merge applications. `full_doc` is full-span
 singleton geometry, not a synonym for identity; `ctree` is the recursive
 grammar and includes that singleton. `cell.execution_path` distinguishes:
 
-- `full_doc_direct`: `f(X)` with identity `g` elided;
-- `ctree_base_summary`: `f(g(X))`, with one `g` call and no internal call; and
+- `full_doc_direct`: `f(reduce_g(T)) = f(X)` with one materialized canonical
+  identity call `g(X)=X`;
+- `ctree_base_summary`: `f(reduce_g(T)) = f(g(X))`, with one nonidentity `g`
+  call and no internal call; and
 - `ctree_recursive`: `f(reduce_g(T))` with `L >= 2` and `M >= 1`, where every
   leaf and internal node invokes the same `g` artifact.
 
@@ -96,6 +102,12 @@ name a separate estimand.
   `fit_status`, `learned_this_run`, `initial_g_artifact_present`, and
   `train_g_call_count`/`g_update_count` describe attempts and realized updates
   separately.
+- **`model_artifact_contract`** — the package-wide model identity block. A
+  reuse cell records `mode="reuse"`, the recursive source pair digest,
+  `f_alignment="exact_source_artifact"`, and either
+  `g_alignment="exact_source_artifact"` or
+  `g_alignment="canonical_identity"`. The same block is mirrored under
+  `cell` and in `FitResult.summary`/`FitResult.artifacts`.
 - **`metrics`** — `pooled_across_dimensions: false` always;
   `splits.<split>` carries:
   - `external` / `internal`: `n`, `pearson_r`, `mae_native`, and

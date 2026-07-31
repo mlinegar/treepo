@@ -23,6 +23,7 @@ from treepo.methods.contracts import (
 _LAZY_EXPORTS = {
     "canonical_defaults": ("treepo.methods.canonical_defaults", None),
     "load_dataclass": ("treepo.methods.canonical_defaults", "load_dataclass"),
+    "align_model_artifacts": ("treepo.methods.artifact_alignment", "align_model_artifacts"),
     "fit": ("treepo.methods.learning", "fit"),
     "GTrainOutcome": ("treepo.methods.runtime", "GTrainOutcome"),
     "Candidate": ("treepo.methods.preference", "Candidate"),
@@ -49,6 +50,7 @@ def __getattr__(name: str):
 
 
 __all__ = [
+    "align_model_artifacts",
     "Candidate",
     "PreferenceRecord",
     "PreferenceDataset",

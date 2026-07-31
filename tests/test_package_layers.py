@@ -62,6 +62,7 @@ print(json.dumps({
             "TreeNode",
             "TreeRecord",
             "__version__",
+            "align_model_artifacts",
             "family_statistic",
             "fit",
             "l1_oracle_metric_schema",

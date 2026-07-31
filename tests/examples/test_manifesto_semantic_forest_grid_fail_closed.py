@@ -34,16 +34,20 @@ def test_fit_success_with_parse_drop_fails_exact_roster_coverage(
             status="success",
             metrics={},
             artifacts={"f": {"kind": "test_f"}, "g": {"kind": "test_g"}},
-            summary={"family": "dspy"},
+            summary={
+                "family": "dspy",
+                "model_artifact_contract": {"mode": "independent"},
+            },
             manifest_path=None,
             history=[{"extra": {"prediction_rows": []}}],
         )
 
-    cell = grid.build_grid_plan(
+    cells = grid.build_grid_plan(
         tmp_path,
         seed=31,
         dspy_execution="offline_fixture",
-    )[0]
+    )
+    cell = next(cell for cell in cells if cell.representation_path == "ctree_recursive")
     report = grid.fit_grid_cell(cell, fit_fn=parse_drop_fit)
     coverage = report["prediction_coverage"]
 
@@ -78,18 +82,22 @@ def test_duplicate_id_cannot_hide_a_missing_eval_document(tmp_path: Path) -> Non
         return SimpleNamespace(
             status="success",
             metrics={"joint_f_l1": 0.0},
-            summary={"family": "dspy"},
+            summary={
+                "family": "dspy",
+                "model_artifact_contract": {"mode": "independent"},
+            },
             artifacts={"f": {"kind": "test_f"}, "g": {"kind": "test_g"}},
             manifest_path=None,
             history=[{"extra": {"prediction_rows": rows}}],
         )
 
-    cell = grid.build_family_grid_plan(
+    cells = grid.build_family_grid_plan(
         tmp_path,
         "dspy",
         seed=37,
         dspy_execution="offline_fixture",
-    )[0]
+    )
+    cell = next(cell for cell in cells if cell.representation_path == "ctree_recursive")
     report = grid.fit_grid_cell(cell, fit_fn=duplicate_fit)
     coverage = report["prediction_coverage"]
     evaluation_ids = [tree.tree_id for tree in seen_configs[0]["eval_data"]]
@@ -122,7 +130,10 @@ def test_spoofed_gold_vector_cannot_authenticate_itself(tmp_path: Path) -> None:
         return SimpleNamespace(
             status="success",
             metrics={"joint_f_l1": 0.0},
-            summary={"family": "dspy"},
+            summary={
+                "family": "dspy",
+                "model_artifact_contract": {"mode": "independent"},
+            },
             manifest_path=None,
             artifacts={"f": {"kind": "test_f"}, "g": {"kind": "test_g"}},
             history=[{"extra": {"prediction_rows": rows}}],
@@ -130,7 +141,7 @@ def test_spoofed_gold_vector_cannot_authenticate_itself(tmp_path: Path) -> None:
 
     cell = grid.GridCell(
         target_width=3,
-        representation_path="full_doc_direct",
+        representation_path="ctree_recursive",
         family="dspy",
         seed=43,
         output_dir=tmp_path / "spoofed_gold",

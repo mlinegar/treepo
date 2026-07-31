@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """Run two isomorphic tiny Manifesto Semantic-Forest grids.
 
-The experiment itself is deliberately just a loop around the one public API::
+The experiment is a source-first loop around the public package API::
 
     for family in ("dspy", "fno"):
         for target_width in (1, 3, 57):
-            for representation_path in (
-                "full_doc_direct",
-                "ctree_base_summary",
-                "ctree_recursive",
-            ):
-                fit_kwargs = {...}  # targets, tree records, and family backend
-                result = treepo.fit(**fit_kwargs)
+            source = treepo.fit(
+                configs[family][target_width]["ctree_recursive"]
+            )
+            for representation_path in ("full_doc_direct", "ctree_base_summary"):
+                view_config = treepo.align_model_artifacts(
+                    configs[family][target_width][representation_path], source
+                )
+                view = treepo.fit(view_config)
 
-``run_family_grid(...)`` contains that literal two-axis loop for one family;
+``run_family_grid(...)`` implements that lifecycle for one family;
 ``run_complete_grid(...)`` calls it once for DSPy and once for FNO. Everything
-else in this file constructs the tiny fixture or validates/reports a result.
+else constructs the tiny fixture or validates/reports a result.
 
 K=1 uses the same exact named-vector I/O path as K=3 and K=57.  Its sole
 coordinate is ``rile_normalized`` in [0,1], with the reporting-only readout
@@ -24,19 +25,19 @@ joint vector endpoint; there is no K=1 scalar API or metric branch.
 
 The path/backend pair declares one explicit topology and ``g_mode`` contract:
 
-* ``full_doc_direct`` is a singleton direct readout, ``f(X)``, with one leaf,
-  no ``g`` application, ``g_mode="identity"``, and no composition;
-* ``ctree_base_summary`` is a singleton summarized readout, ``f(g(X))``,
+* ``full_doc_direct`` is ``f(reduce_g(T)) = f(X)`` on one leaf, with one
+  package-owned identity application ``g(X)=X`` and no composition;
+* ``ctree_base_summary`` is ``f(reduce_g(T)) = f(g(X))`` on one leaf,
   with one leaf, one leaf-``g`` application, and no merge composition;
 * ``ctree_recursive`` is the four-leaf, three-merge compositional readout.
 
-Optimizer-backed DSPy and FNO each learn one shared ``g`` on both C-Tree paths;
+Optimizer-backed DSPy and FNO fit only the recursive source's one ``f,g`` pair;
 ``reduce_g`` is only the derived recursive fold of that same operator. The
-learned-grid default is the recovered ``f -> g -> f`` sequence, so the final
-readout is fitted against states produced by the current ``g``. A
-singleton fit supplies only the leaf-input training domain, while a recursive
-fit can additionally supply the merge-input domain. Direct cells retain
-``g_mode="identity"`` and learn only the vector readout ``f``.
+source default is the recovered ``f -> g -> f`` sequence, so the final readout
+is fitted against states produced by the current ``g``. Both singleton paths
+then execute zero-update artifact-aligned views. The base view reuses the exact
+pair; the direct view reuses the exact ``f`` with canonical identity ``g``.
+The emitted model-artifact contract validates those choices.
 
 The records are tiny synthetic fixtures with authoritative CMP counts. Learned
 DSPy execution requires optimizer/LM configuration (or injected compiler and
@@ -86,7 +87,7 @@ from treepo.tasks.manifesto.semantic_forest_reporting import (
 )
 from treepo.tree import TreeNode, TreeRecord
 
-GRID_VERSION = "treepo.examples.manifesto_semantic_forest_grid.v8"
+GRID_VERSION = "treepo.examples.manifesto_semantic_forest_grid.v9"
 EVIDENCE_CLASS = "synthetic_package_fixture_not_polmeth_evidence"
 TARGET_WIDTHS = (1, 3, 57)
 REPRESENTATION_PATHS = (
@@ -451,7 +452,7 @@ def fit_grid_cell(
     max_iterations: int = 3,
     dspy_backend_config: Mapping[str, Any] | None = None,
     fit_fn: Callable[..., Any] | None = None,
-    initial_artifacts: Mapping[str, Any] | None = None,
+    artifact_source: Mapping[str, Any] | None = None,
     shared_model_source_cell_id: str | None = None,
 ) -> dict[str, Any]:
     """Run one cell through ``treepo.fit`` and enforce exact row coverage."""
@@ -463,10 +464,10 @@ def fit_grid_cell(
         requested_max_iterations=max_iterations,
         dspy_execution=cell.dspy_execution,
     )
-    if g_contract["reuses_model_artifacts"] and initial_artifacts is None:
+    if g_contract["reuses_model_artifacts"] and artifact_source is None:
         raise ValueError(
             f"{cell.representation_path} evaluates the shared model from "
-            f"{g_contract['shared_model_source_path']}; initial_artifacts are required"
+            f"{g_contract['shared_model_source_path']}; artifact_source is required"
         )
     train_raw, test_raw = make_cmp_count_records(cell.representation_path)
     _require_exact_leaf_count(
@@ -598,12 +599,12 @@ def fit_grid_cell(
             "reduce_g_is_derived": True,
         },
     }
-    if initial_artifacts is not None:
-        model_artifacts = dict(initial_artifacts)
-        missing = [kind for kind in ("f", "g") if model_artifacts.get(kind) is None]
-        if missing:
-            raise ValueError(f"shared-model initial_artifacts are missing {missing!r}")
-        fit_kwargs["initial_artifacts"] = model_artifacts
+    if artifact_source is not None:
+        fit_kwargs = treepo.align_model_artifacts(
+            fit_kwargs,
+            artifact_source,
+            source_id=shared_model_source_cell_id,
+        )
     elif g_contract["g_mode"] == "fixed":
         fit_kwargs["initial_artifacts"] = {
             "g": {
@@ -629,12 +630,11 @@ def fit_grid_cell(
     model_artifacts = {kind: result_artifacts.get(kind) for kind in ("f", "g")}
     if any(model_artifacts[kind] is None for kind in ("f", "g")):
         raise ValueError("treepo.fit result must expose both f and g model artifacts")
-    if initial_artifacts is not None and model_artifacts != dict(initial_artifacts):
-        raise ValueError(
-            "evaluation-only shared-model view changed its f/g artifacts; "
-            "leaf-count views must reuse the exact trained pair"
-        )
     fit_summary = dict(result.summary or {})
+    model_artifact_contract = fit_summary.get("model_artifact_contract")
+    if not isinstance(model_artifact_contract, Mapping):
+        raise ValueError("treepo.fit result must expose model_artifact_contract")
+    model_artifact_contract = dict(model_artifact_contract)
     executed_g_contract = _validated_executed_g_contract(
         fit_summary.get("g_contract"),
         configured=g_contract,
@@ -700,6 +700,7 @@ def fit_grid_cell(
         "executed_g_contract": executed_g_contract,
         "manifest_path": result.manifest_path,
         "model_artifacts": model_artifacts,
+        "model_artifact_contract": model_artifact_contract,
         "reuses_model_artifacts": bool(g_contract["reuses_model_artifacts"]),
         "shared_model_source_cell_id": (shared_model_source_cell_id or cell.cell_id),
         "shared_g_updated_with_merge_domain": comparison_row["identity"][
@@ -744,7 +745,7 @@ def run_family_grid(
     def execute_cell(
         cell: GridCell,
         *,
-        initial_artifacts: Mapping[str, Any] | None = None,
+        artifact_source: Mapping[str, Any] | None = None,
         source_cell_id: str | None = None,
     ) -> dict[str, Any]:
         try:
@@ -754,7 +755,7 @@ def run_family_grid(
                 max_iterations=max_iterations,
                 dspy_backend_config=dspy_backend_config,
                 fit_fn=fit_fn,
-                initial_artifacts=initial_artifacts,
+                artifact_source=artifact_source,
                 shared_model_source_cell_id=source_cell_id,
             )
         except Exception as exc:
@@ -785,25 +786,32 @@ def run_family_grid(
             )
 
         by_path: dict[str, dict[str, Any]] = {}
-        direct_cell = make_cell("full_doc_direct")
-        by_path["full_doc_direct"] = execute_cell(direct_cell)
-
         recursive_cell = make_cell("ctree_recursive")
         recursive_report = execute_cell(recursive_cell)
         by_path["ctree_recursive"] = recursive_report
 
+        direct_cell = make_cell("full_doc_direct")
         base_cell = make_cell("ctree_base_summary")
         source_artifacts = recursive_report.get("model_artifacts")
         if recursive_report.get("status") == "success" and isinstance(source_artifacts, Mapping):
+            by_path["full_doc_direct"] = execute_cell(
+                direct_cell,
+                artifact_source=source_artifacts,
+                source_cell_id=recursive_cell.cell_id,
+            )
             by_path["ctree_base_summary"] = execute_cell(
                 base_cell,
-                initial_artifacts=source_artifacts,
+                artifact_source=source_artifacts,
                 source_cell_id=recursive_cell.cell_id,
             )
         else:
+            error = "RuntimeError: shared recursive model artifacts are unavailable"
+            by_path["full_doc_direct"] = _failed_cell_report(
+                direct_cell, error=error, fno_epochs=fno_epochs, max_iterations=max_iterations
+            )
             by_path["ctree_base_summary"] = _failed_cell_report(
                 base_cell,
-                error="RuntimeError: shared recursive model artifacts are unavailable",
+                error=error,
                 fno_epochs=fno_epochs,
                 max_iterations=max_iterations,
             )
@@ -888,7 +896,7 @@ def run_complete_grid(
     dspy_provenance = _dspy_execution_provenance(resolved_dspy_execution)
     if resolved_dspy_execution == "learned":
         dspy_paths = {
-            "full_doc_direct": "direct optimizer-backed vector f with identity g",
+            "full_doc_direct": "recursive-source f with canonical identity g; zero updates",
             "ctree_base_summary": "one-leaf learned shared DSPy g summary before f",
             "ctree_recursive": "recursive fold of the same learned shared DSPy g before f",
         }
@@ -896,7 +904,7 @@ def run_complete_grid(
         analytic_only = False
     else:
         dspy_paths = {
-            "full_doc_direct": "direct offline fixture program",
+            "full_doc_direct": "recursive-source fixture f with canonical identity g; zero updates",
             "ctree_base_summary": "one-leaf analytic fixture summary before f",
             "ctree_recursive": "recursive fold of the same analytic fixture g before f",
         }
@@ -1903,8 +1911,8 @@ def _optimizer(
 
 def _representation_path_contract(representation_path: str) -> dict[str, Any]:
     specs = {
-        "full_doc_direct": ("full_doc", "singleton", 1, 0, "f_direct", 0, False),
-        "ctree_base_summary": ("ctree", "singleton", 1, 0, "f_after_g", 1, False),
+        "full_doc_direct": ("full_doc", "singleton", 1, 0, "f_after_reduce_g", 1, False),
+        "ctree_base_summary": ("ctree", "singleton", 1, 0, "f_after_reduce_g", 1, False),
         "ctree_recursive": ("ctree", "recursive", 4, 3, "f_after_reduce_g", 4, True),
     }
     resolved = str(representation_path)
@@ -1943,18 +1951,18 @@ def _execution_path(
     if resolved_family == "dspy":
         if _resolve_dspy_execution(dspy_execution) == "learned":
             return {
-                "full_doc_direct": "full_document_direct_optimizer_backed_dspy_f",
-                "ctree_base_summary": "ctree_single_leaf_shared_learned_dspy_g",
+                "full_doc_direct": "singleton_aligned_source_dspy_f_identity_g",
+                "ctree_base_summary": "singleton_aligned_source_dspy_f_g",
                 "ctree_recursive": "ctree_recursive_shared_learned_dspy_g",
             }[resolved_path]
         return {
-            "full_doc_direct": "full_document_direct_offline_fixture_program",
-            "ctree_base_summary": "ctree_single_leaf_weighted_analytic_fixture_g",
+            "full_doc_direct": "singleton_aligned_source_fixture_f_identity_g",
+            "ctree_base_summary": "singleton_aligned_source_fixture_f_g",
             "ctree_recursive": "ctree_recursive_weighted_analytic_fixture_g",
         }[resolved_path]
     return {
-        "full_doc_direct": "full_document_single_unit_fno",
-        "ctree_base_summary": "singleton_shared_fno_g_then_f",
+        "full_doc_direct": "singleton_aligned_source_fno_f_identity_g",
+        "ctree_base_summary": "singleton_aligned_source_fno_f_g",
         "ctree_recursive": "recursive_fold_shared_fno_g_then_f",
     }[resolved_path]
 
@@ -1997,7 +2005,7 @@ def _g_contract(
         dspy_execution=resolved_dspy_execution,
     )
     schedule = "fg" if mode == "learned" else "f"
-    reuses_model_artifacts = representation_path == "ctree_base_summary"
+    reuses_model_artifacts = representation_path != "ctree_recursive"
     effective = (
         0
         if reuses_model_artifacts
@@ -2046,15 +2054,9 @@ def _g_contract(
         "learned_g_expected": expected_g_update_count > 0,
         "same_g_across_node_roles": True,
         "reduce_g_is_derived": True,
-        "model_scope": (
-            "direct_control_separate_from_shared_ctree_pair"
-            if representation_path == "full_doc_direct"
-            else "one_f_g_pair_per_target_width_and_family"
-        ),
+        "model_scope": "one_f_with_explicit_g_policy_per_target_width_and_family",
         "reuses_model_artifacts": reuses_model_artifacts,
-        "shared_model_source_path": (
-            "ctree_recursive" if reuses_model_artifacts else representation_path
-        ),
+        "shared_model_source_path": "ctree_recursive",
         "expected_g_training_call_roles": roles,
         "expected_g_training_role_evidence_source": expected_evidence_source,
         "expected_merge_domain_training_observed": merge_domain,
@@ -2516,8 +2518,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         default=3,
         help=(
-            "inclusive alternating iteration index; 3 gives the learned "
-            "f->g->f sequence (identity/fixed g paths elide g slots)"
+            "inclusive alternating iteration index for each recursive source; "
+            "3 gives f->g->f. Artifact-aligned singleton views always execute "
+            "iteration zero"
         ),
     )
     parser.add_argument("--plan-only", action="store_true")

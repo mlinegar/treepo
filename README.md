@@ -193,8 +193,9 @@ grids. DSPy and FNO each run the same nine cells:
 TOML backend config containing ``optimizer`` and ``lm_config`` (or injected
 program adapters for programmatic calls):
 
-Learned cells default to `--max-iterations 3`, the alternating `f -> g -> f`
-sequence; identity/fixed-`g` cells elide the `g` slot. The learned DSPy grid
+Recursive learned source cells default to `--max-iterations 3`, the alternating
+`f -> g -> f` sequence. Aligned singleton views execute iteration zero: they
+perform no training updates but still execute their declared `g`. The learned DSPy grid
 also defaults `f_record_source="generated_when_available"`: the first `f`
 pass may use reference states because no learned `g` exists yet, while the
 final `f` pass consumes states produced by the current shared `g`. Set
@@ -230,9 +231,10 @@ family and target width remain independent axes. A single document-sized leaf
 is already a valid C-Tree and has no merges. The package distinguishes three
 derived execution paths:
 
-- `full_doc_direct`: `f(X)`, with identity `g` operationally elided;
-- `ctree_base_summary`: `f(g(X))`, with one call to a nonidentity `g` and no
-  internal call; and
+- `full_doc_direct`: `f(reduce_g(T))` on one leaf with the package-owned
+  identity equation `g(X)=X`;
+- `ctree_base_summary`: `f(reduce_g(T)) = f(g(X))`, with one call to a
+  nonidentity `g` and no internal call; and
 - `ctree_recursive`: `f(reduce_g(T))` on `L >= 2` leaves, where the same `g`
   is called at leaves and internal nodes.
 
@@ -248,8 +250,12 @@ may use `ctree` as a short label for its deliberately multi-leaf arm, but that
 is a cell definition rather than the definition of a C-Tree. In the packaged
 Semantic-Forest grid, `ctree_recursive` fits one `(f, g)` pair for each
 family/target width and `ctree_base_summary` evaluates those exact artifacts
-at zero iterations. `full_doc_direct` is a separate direct-readout control,
-not a third independently fitted leaf-count view of that pair.
+at zero iterations. `full_doc_direct` also executes at zero iterations with
+the exact source `f` and the package's canonical identity `g`. It is a
+different `g` policy over the same fitted `f`, not an independently fitted
+model. `treepo.align_model_artifacts(...)`, or the `artifact_source=` argument
+to `treepo.fit(...)`, constructs these evaluation-only views and validates
+exact artifact reuse in the emitted `model_artifact_contract`.
 
 A fixed nonidentity operator must be declared `g_mode="fixed"`; a trainable
 operator is called learned only when `g_contract.learned_this_run` is true, or

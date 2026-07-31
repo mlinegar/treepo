@@ -56,8 +56,8 @@ PATH_CONTRACTS = {
         "topology_kind": "singleton",
         "leaf_count": 1,
         "merge_application_count": 0,
-        "readout_path": "f_direct",
-        "leaf_g_application_count": 0,
+        "readout_path": "f_after_reduce_g",
+        "leaf_g_application_count": 1,
         "composition_present": False,
     },
     "ctree_base_summary": {
@@ -66,7 +66,7 @@ PATH_CONTRACTS = {
         "topology_kind": "singleton",
         "leaf_count": 1,
         "merge_application_count": 0,
-        "readout_path": "f_after_g",
+        "readout_path": "f_after_reduce_g",
         "leaf_g_application_count": 1,
         "composition_present": False,
     },
@@ -97,7 +97,7 @@ def _expected_g_contract(
         g_mode = "fixed"
     else:
         g_mode = "learned"
-    reuses_model_artifacts = representation_path == "ctree_base_summary"
+    reuses_model_artifacts = representation_path != "ctree_recursive"
     effective_max_iterations = (
         0
         if reuses_model_artifacts
@@ -144,15 +144,9 @@ def _expected_g_contract(
         "learned_g_expected": expected_g_update_count > 0,
         "same_g_across_node_roles": True,
         "reduce_g_is_derived": True,
-        "model_scope": (
-            "direct_control_separate_from_shared_ctree_pair"
-            if representation_path == "full_doc_direct"
-            else "one_f_g_pair_per_target_width_and_family"
-        ),
+        "model_scope": "one_f_with_explicit_g_policy_per_target_width_and_family",
         "reuses_model_artifacts": reuses_model_artifacts,
-        "shared_model_source_path": (
-            "ctree_recursive" if reuses_model_artifacts else representation_path
-        ),
+        "shared_model_source_path": "ctree_recursive",
         "expected_g_training_call_roles": roles,
         "expected_g_training_role_evidence_source": evidence_source,
         "expected_merge_domain_training_observed": merge_domain,
@@ -438,32 +432,40 @@ def test_complete_grid_routes_every_cell_through_fit_and_common_metrics(
                 }
             )
         initial = dict(config.get("initial_artifacts") or {})
-        if initial.get("f") is not None and initial.get("g") is not None:
-            artifacts = {"f": initial["f"], "g": initial["g"]}
+        from treepo.methods._runtime_loop import canonical_g_artifact
+        from treepo.methods.artifact_alignment import build_model_artifact_contract
+        from treepo.methods.contracts import CTreePOLearningSpec
+
+        f_artifact = initial.get("f") or {
+            "kind": "fake_f",
+            "trained": "f",
+            "width": len(names),
+            "family": config["family"],
+        }
+        if config["g_mode"] == "identity":
+            g_artifact = canonical_g_artifact("identity")
         else:
-            artifacts = {
-                "f": {
-                    "kind": "fake_f",
-                    "trained": "f",
-                    "width": len(names),
-                    "family": config["family"],
-                },
-                "g": initial.get("g")
-                or {
-                    "kind": "fake_g",
-                    "trained": "g",
-                    "g_mode": config["g_mode"],
-                    "same_g_across_node_roles": True,
-                    "reduce_g_is_derived": True,
-                    "width": len(names),
-                    "family": config["family"],
-                },
+            g_artifact = initial.get("g") or {
+                "kind": "fake_g",
+                "trained": "g",
+                "g_mode": config["g_mode"],
+                "same_g_across_node_roles": True,
+                "reduce_g_is_derived": True,
+                "width": len(names),
+                "family": config["family"],
             }
+        artifacts = {"f": f_artifact, "g": g_artifact}
+        spec = CTreePOLearningSpec.from_mapping(config)
+        model_contract = build_model_artifact_contract(
+            spec=spec,
+            artifacts=artifacts,
+            output_dir=Path(config["backend_config"]["output_dir"]),
+        )
         return SimpleNamespace(
             status="success",
             metrics={"joint_f_l1": 0.0},
             artifacts=artifacts,
-            summary={"family": config["family"]},
+            summary={"family": config["family"], "model_artifact_contract": model_contract},
             manifest_path=None,
             history=[{"extra": {"prediction_rows": rows}}],
         )
@@ -547,8 +549,9 @@ def test_complete_grid_routes_every_cell_through_fit_and_common_metrics(
         assert metadata["effective_max_iterations"] == expected_g["effective_max_iterations"]
         assert metadata["g_contract"] == expected_g
         if expected_g["reuses_model_artifacts"]:
-            assert set(config["initial_artifacts"]) == {"f", "g"}
+            expected_artifact_keys = {"f"} if expected_g["g_mode"] == "identity" else {"f", "g"}
             assert config["axis"]["max_iterations"] == 0
+            assert set(config["initial_artifacts"]) == expected_artifact_keys
         elif expected_g["g_mode"] == "fixed":
             assert config["initial_artifacts"] == {
                 "g": {
@@ -665,6 +668,20 @@ def test_complete_grid_routes_every_cell_through_fit_and_common_metrics(
             base = by_key[(family, width, "ctree_base_summary")]
             recursive = by_key[(family, width, "ctree_recursive")]
             assert base["model_artifacts"] == recursive["model_artifacts"]
+            direct = by_key[(family, width, "full_doc_direct")]
+            source_contract = recursive["model_artifact_contract"]
+            base_contract = base["model_artifact_contract"]
+            direct_contract = direct["model_artifact_contract"]
+            assert direct["model_artifacts"]["f"] == recursive["model_artifacts"]["f"]
+            assert direct["model_artifacts"]["g"]["kind"] == "treepo_identity_g"
+            assert base_contract["source_pair_digest"] == source_contract["pair_digest"]
+            assert base_contract["pair_digest"] == source_contract["pair_digest"]
+            assert direct_contract["source_pair_digest"] == source_contract["pair_digest"]
+            assert direct_contract["f_digest"] == source_contract["f_digest"]
+            assert direct_contract["g_alignment"] == "canonical_identity"
+            assert direct["reuses_model_artifacts"] is True
+            assert direct["shared_model_source_cell_id"] == recursive["cell_id"]
+
             assert base["reuses_model_artifacts"] is True
             assert base["shared_model_source_cell_id"] == recursive["cell_id"]
 
@@ -827,6 +844,17 @@ def test_real_fit_executes_all_eighteen_tiny_cells(tmp_path: Path) -> None:
             base = by_key[(family, width, "ctree_base_summary")]
             recursive = by_key[(family, width, "ctree_recursive")]
             assert base["model_artifacts"] == recursive["model_artifacts"]
+            direct = by_key[(family, width, "full_doc_direct")]
+            source_contract = recursive["model_artifact_contract"]
+            base_contract = base["model_artifact_contract"]
+            direct_contract = direct["model_artifact_contract"]
+            assert direct["model_artifacts"]["f"] == recursive["model_artifacts"]["f"]
+            assert direct["model_artifacts"]["g"]["kind"] == "treepo_identity_g"
+            assert base_contract["source_pair_digest"] == source_contract["pair_digest"]
+            assert base_contract["pair_digest"] == source_contract["pair_digest"]
+            assert direct_contract["source_pair_digest"] == source_contract["pair_digest"]
+            assert direct_contract["f_digest"] == source_contract["f_digest"]
+            assert direct_contract["g_alignment"] == "canonical_identity"
 
 
 def test_executed_g_contract_must_match_configured_mode_and_update_count() -> None:

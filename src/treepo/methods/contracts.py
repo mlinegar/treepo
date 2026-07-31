@@ -115,10 +115,15 @@ class CTreePOLearningSpec:
     # tree fold and never names a second learner. Kept append-only for
     # positional compatibility. Topology is independent: every C-Tree has at
     # least one leaf, and a singleton may use identity, fixed, or learned g.
-    # ``identity`` permits semantic g applications to be elided, ``fixed``
-    # names an explicitly supplied analytic or family-owned non-trainable
-    # operator, and ``learned`` enables train_g.
+    # ``identity`` materializes the package-owned equation ``g(x)=x`` at the
+    # singleton leaf, ``fixed`` names an explicitly supplied analytic or
+    # family-owned non-trainable operator, and ``learned`` enables train_g.
+    # Every mode executes the same outer equation ``f(reduce_g(T))``.
     g_mode: str = G_MODE_LEARNED
+    # Package-wide artifact identity/reuse contract. Reuse is evaluation-only
+    # and keeps exactly one source f while selecting either that source g or
+    # the canonical identity g. Appended for positional compatibility.
+    artifact_alignment: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         raw = self.oracle_targets
@@ -126,6 +131,9 @@ class CTreePOLearningSpec:
         object.__setattr__(self, "oracle_targets", normalized)
         g_mode = normalize_g_mode(self.g_mode)
         object.__setattr__(self, "g_mode", g_mode)
+        if not isinstance(self.artifact_alignment, Mapping):
+            raise TypeError("artifact_alignment must be a mapping")
+        object.__setattr__(self, "artifact_alignment", dict(self.artifact_alignment or {}))
         schedule = str(self.schedule or "").strip()
         if not schedule:
             schedule = "fg" if g_mode == G_MODE_LEARNED else "f"
@@ -167,6 +175,7 @@ class CTreePOLearningSpec:
                 None if self.local_law_weight is None else float(self.local_law_weight)
             ),
             "g_mode": str(self.g_mode),
+            "artifact_alignment": jsonable(dict(self.artifact_alignment or {})),
         }
         if self.oracle_targets:
             payload["oracle_targets"] = [target.to_dict() for target in self.oracle_targets]
@@ -194,6 +203,7 @@ class CTreePOLearningSpec:
             axis=dict(payload.get("axis") or {}),
             oracle_targets=oracle_targets,
             doc_gold_n=(None if doc_gold_n is None else int(doc_gold_n)),
+            artifact_alignment=dict(payload.get("artifact_alignment") or {}),
             root_observed_doc_ids=(
                 None
                 if root_observed_doc_ids is None

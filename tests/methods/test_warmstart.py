@@ -8,12 +8,15 @@ time) must reconstruct the trained model exactly.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from treepo import fit
+from treepo import align_model_artifacts, fit
 from treepo.methods._fno_config import _target_schema_payload
+from treepo.methods.artifact_alignment import validate_artifact_alignment_before_fit
+from treepo.methods.contracts import CTreePOLearningSpec
 from treepo.methods.families import resolve_family
 from treepo.methods.fixtures import make_markov_changepoint_trees
 
@@ -41,11 +44,17 @@ def _tiny_conv1d_config() -> dict[str, object]:
     }
 
 
-def _markov_trees(n_trees: int, *, seed: int, split: str) -> list[Any]:
+def _markov_trees(
+    n_trees: int,
+    *,
+    seed: int,
+    split: str,
+    leaf_unit_count: int = 8,
+) -> list[Any]:
     return make_markov_changepoint_trees(
         n_trees=n_trees,
         doc_tokens=32,
-        leaf_unit_count=8,
+        leaf_unit_count=leaf_unit_count,
         vocabulary_size=64,
         seed=seed,
         split=split,
@@ -110,6 +119,82 @@ def test_fit_initial_artifacts_reproduce_predictions_without_training(tmp_path: 
     assert set(resumed_rows) == set(first_rows)
     for tree_id, prediction in resumed_rows.items():
         assert prediction == pytest.approx(first_rows[tree_id])
+
+    source_contract = first.summary["model_artifact_contract"]
+    resumed_contract = resumed.summary["model_artifact_contract"]
+    assert resumed.artifacts["f"] == first.artifacts["f"]
+    assert resumed.artifacts["g"] == first.artifacts["g"]
+    assert resumed_contract["universal_execution"] == "f(reduce_g(T))"
+    assert resumed_contract["mode"] == "reuse"
+    assert resumed_contract["source_pair_digest"] == source_contract["pair_digest"]
+    assert resumed_contract["pair_digest"] == source_contract["pair_digest"]
+    assert resumed_contract["f_alignment"] == "exact_source_artifact"
+    assert resumed_contract["g_alignment"] == "exact_source_artifact"
+    assert resumed_contract["evaluation_only"] is True
+
+    singleton_train = _markov_trees(6, seed=63, split="train", leaf_unit_count=32)
+    singleton_eval = _markov_trees(4, seed=64, split="test", leaf_unit_count=32)
+    direct = fit(
+        {
+            "family": "fno",
+            "g_mode": "identity",
+            "train_data": singleton_train,
+            "eval_data": singleton_eval,
+            "backend_config": {
+                **_tiny_fno_config(),
+                "output_dir": str(tmp_path / "direct"),
+            },
+            "axis": {
+                "max_iterations": 0,
+                "axis_value": 1,
+                "representation": "full_doc_direct",
+                "leaf_count": 1,
+            },
+        },
+        artifact_source=first,
+    )
+
+    direct_contract = direct.summary["model_artifact_contract"]
+    assert direct.status == "success"
+    assert direct.artifacts["f"] == first.artifacts["f"]
+    assert direct.artifacts["g"]["kind"] == "treepo_identity_g"
+    assert direct_contract["universal_execution"] == "f(reduce_g(T))"
+    assert direct_contract["mode"] == "reuse"
+    assert direct_contract["source_pair_digest"] == source_contract["pair_digest"]
+    assert direct_contract["f_digest"] == source_contract["f_digest"]
+    assert direct_contract["f_alignment"] == "exact_source_artifact"
+    assert direct_contract["g_alignment"] == "canonical_identity"
+    assert direct.summary["f_update_count"] == 0
+    assert direct.summary["g_update_count"] == 0
+    assert direct.summary["g_contract"]["identity_equation"] == "g(x)=x"
+    assert direct.summary["g_contract"]["leaf_g_materialized_application_count_per_tree"] == 1
+
+
+def test_artifact_alignment_fails_closed_on_nonzero_or_tampered_source() -> None:
+    source = {"f": {"kind": "source_f"}, "g": {"kind": "source_g"}}
+
+    with pytest.raises(ValueError, match="max_iterations=0"):
+        align_model_artifacts({"axis": {"max_iterations": 1}}, source)
+
+    bad_source = SimpleNamespace(
+        artifacts=source,
+        summary={"model_artifact_contract": {"pair_digest": "wrong"}},
+    )
+    with pytest.raises(ValueError, match="pair_digest"):
+        align_model_artifacts({"axis": {"max_iterations": 0}}, bad_source)
+
+    aligned = align_model_artifacts(
+        {"g_mode": "identity", "axis": {"max_iterations": 0}},
+        source,
+    )
+    assert aligned["initial_artifacts"] == {"f": source["f"]}
+    assert aligned["artifact_alignment"]["mode"] == "reuse"
+    assert aligned["artifact_alignment"]["g_policy"] == "identity"
+
+    aligned["artifact_alignment"]["source_f_digest"] = "wrong"
+    spec = CTreePOLearningSpec.from_mapping(aligned)
+    with pytest.raises(ValueError, match="initial f artifact"):
+        validate_artifact_alignment_before_fit(spec)
 
 
 def _final_prediction_rows(result: Any) -> dict[str, Any]:

@@ -68,6 +68,7 @@ def write_manifest(
         "schedule": str(spec.schedule),
         "g_mode": str(getattr(spec, "g_mode", "undeclared")),
         "initial_artifacts": dict(spec.initial_artifacts or {}),
+        "artifact_alignment": dict(getattr(spec, "artifact_alignment", None) or {}),
         "axis": dict(spec.axis or {}),
         "has_preference_data": bool(getattr(spec, "preference_data", None)),
         # backend_config may carry non-JSON-serializable instances.

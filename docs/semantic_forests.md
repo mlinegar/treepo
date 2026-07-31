@@ -57,9 +57,10 @@ merges.
 
 The package derives three execution paths:
 
-- `full_doc_direct`: `f(X)`, with identity `g` operationally elided;
-- `ctree_base_summary`: `f(g(X))`, where a fixed or learned nonidentity `g` is
-  called once and no internal call is invoked; and
+- `full_doc_direct`: `f(reduce_g(T)) = f(X)`, with one package-owned identity
+  call `g(X)=X`;
+- `ctree_base_summary`: `f(reduce_g(T)) = f(g(X))`, where a fixed or learned
+  nonidentity `g` is called once and no internal call is invoked; and
 - `ctree_recursive`: `f(reduce_g(T))` on `L >= 2` leaves, where the same `g`
   is called at leaves and internal nodes.
 
@@ -75,6 +76,12 @@ leaf inputs and concatenated child states may require typed packing, but that
 packing does not license separate learned functions. Eligible C1 and C3 losses
 feed the same training objective and update the one shared `g` artifact used by
 the whole fold; there is no separately trained reduction model.
+For artifact-aligned comparisons, fit the recursive source once. The base
+singleton reuses its exact `(f,g)` pair; the direct singleton reuses its exact
+`f` with canonical identity `g`. Both execute zero training iterations.
+`model_artifact_contract` carries the exact digests and source/scope IDs across
+the result, manifest, evidence, and grid surfaces.
+
 
 `full_doc` names full-span singleton geometry and may therefore be direct or
 summarized. `ctree` names the recursive grammar and includes its singleton
@@ -109,7 +116,7 @@ explicitly. A no-op `train_g` call therefore remains
 family-validated nontrainable artifact. The canonical identity artifact is
 package-owned. It is restricted to the singleton direct path: binary
 composition needs an operator mapping two child states back into one state and
-therefore cannot be an elided identity.
+therefore cannot use the unary canonical identity equation.
 
 The last row matters for evaluation-only and shortened ladders: trainability
 is a configuration property, not evidence that learning occurred. The fixed
@@ -169,10 +176,10 @@ The ordinary C-Tree laws then apply once to the shared `g`:
 
 For `ctree_base_summary`, the sole nonidentity `g(X)` call gives a realized C1
 obligation, but there are no internal nodes and hence no realized C3 rows. The
-direct identity path may elide that model call when raw text is admitted as
-its own state. In either singleton path, the empty C3 stratum is not a pass and
-does not establish universal merge closure or `g in G_epsilon`; it says only
-that root preservation for this realized tree has no inductive merge step.
+direct identity path materializes the canonical equation `g(X)=X`. In either
+singleton path, the empty C3 stratum is not a pass and does not establish
+universal merge closure or `g in G_epsilon`; it says only that root
+preservation for this realized tree has no inductive merge step.
 
 Full universal C1/C3, plus C2 when applicable, yields the usual structural
 induction for the shared joint relation. It does not follow from low finite

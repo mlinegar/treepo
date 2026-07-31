@@ -28,8 +28,8 @@ def _row() -> dict:
             "topology_kind": "singleton",
             "leaf_count": 1,
             "merge_application_count": 0,
-            "readout_path": "f_direct",
-            "leaf_g_application_count": 0,
+            "readout_path": "f_after_reduce_g",
+            "leaf_g_application_count": 1,
             "composition_present": False,
             "same_g_across_node_roles": True,
             "reduce_g_is_derived": True,
@@ -46,7 +46,7 @@ def _row() -> dict:
             "learned_this_run": False,
             "schedule": "f",
             "requested_max_iterations": 2,
-            "effective_max_iterations": 1,
+            "effective_max_iterations": 0,
             "leaf_scale": "leafs001",
             "eval_split": "test",
             "roster_digest": "roster",
@@ -225,7 +225,7 @@ def test_family_neutral_schema_allows_identity_on_base_summary() -> None:
             "topology_kind": "singleton",
             "leaf_count": 1,
             "merge_application_count": 0,
-            "readout_path": "f_after_g",
+            "readout_path": "f_after_reduce_g",
             "leaf_g_application_count": 1,
             "composition_present": False,
         }
@@ -236,7 +236,7 @@ def test_family_neutral_schema_allows_identity_on_base_summary() -> None:
     )
 
 
-def test_family_neutral_schema_allows_learned_mode_on_full_doc_direct() -> None:
+def test_full_doc_direct_requires_canonical_identity_g() -> None:
     row = _row()
     row["identity"].update(
         {
@@ -246,10 +246,11 @@ def test_family_neutral_schema_allows_learned_mode_on_full_doc_direct() -> None:
             "schedule": "fg",
         }
     )
-    validate_manifesto_semantic_forest_comparison_row(
-        row,
-        target_names=("rile_normalized",),
-    )
+    with pytest.raises(ValueError, match="full_doc_direct"):
+        validate_manifesto_semantic_forest_comparison_row(
+            row,
+            target_names=("rile_normalized",),
+        )
 
 
 @pytest.mark.parametrize(
@@ -511,7 +512,7 @@ def test_realized_g_operator_and_status_follow_mode_and_updates(
             "topology_kind": "singleton",
             "leaf_count": 1,
             "merge_application_count": 0,
-            "readout_path": "f_after_g",
+            "readout_path": "f_after_reduce_g",
             "leaf_g_application_count": 1,
             "composition_present": False,
             "g_mode": g_mode,

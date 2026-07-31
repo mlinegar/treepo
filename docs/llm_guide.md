@@ -104,8 +104,9 @@ of document C-Trees/views, not a loop of independent target fits. See
 Topology, `g_mode`, and target width are separate axes:
 
 - every binary C-Tree has `L >= 1` and `M = L - 1`;
-- `full_doc_direct` is the singleton `f(X)` path with identity `g` elided;
-- `ctree_base_summary` is singleton `f(g(X))`: it calls the shared `g` once
+- `full_doc_direct` is singleton `f(reduce_g(T))=f(X)` with one canonical
+  identity call `g(X)=X`;
+- `ctree_base_summary` is singleton `f(reduce_g(T))=f(g(X))`: it calls the shared `g` once
   and has no realized internal-call or C3 population;
 - `ctree_recursive` has `L >= 2` and recursively calls that same `g`;
 - `reduce_g(Leaf(b)) = g(b)` and

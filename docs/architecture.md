@@ -35,8 +35,10 @@ applications, so its singleton base case is one leaf and no merges. Identity
 `g` is restricted to that direct, no-composition case; a binary fold requires
 an explicit fixed or learned `g`. The package derives three explicit paths:
 
-- `full_doc_direct` computes `f(X)` with identity `g` elided;
-- `ctree_base_summary` computes `f(g(X))`, invoking `g` once; and
+- `full_doc_direct` computes `f(reduce_g(T)) = f(X)` with one package-owned
+  identity call `g(X)=X`;
+- `ctree_base_summary` computes `f(reduce_g(T)) = f(g(X))`, invoking `g`
+  once; and
 - `ctree_recursive` computes `f(reduce_g(T))` on `L >= 2` leaves, invoking
   that same `g` at leaves and internal nodes.
 
@@ -47,6 +49,13 @@ There is one `g` artifact, one parameter set, and one `train_g(...)` update
 surface. Eligible C1 and C3 training rows contribute to that same update; there
 is no `train_reduce_g(...)`. Input packing may distinguish raw leaves from
 concatenated child states, but it must not create another learned operator.
+
+`treepo.align_model_artifacts(...)` is the package-wide view constructor. It
+forces `axis.max_iterations=0`, reuses the exact source `f`, and selects either
+the exact source `g` or canonical identity `g`. `treepo.fit(...,
+artifact_source=source_result)` applies the same constructor. Result,
+manifest, evidence, and `results.json` surfaces mirror the validated
+`model_artifact_contract`.
 
 `full_doc` names the full-span singleton geometry and can be direct or
 summarized; `ctree` names the umbrella recursive grammar and includes its
