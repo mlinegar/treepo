@@ -67,15 +67,16 @@ families.
 The family protocol exposes both `train_f(...)` and `train_g(...)`, but that
 does not require every representation to train both sides.
 
-Tree topology is independent of `g_mode`. A recursive binary C-Tree has
-`L >= 1` leaves and exactly `M = L - 1` merge applications. `full_doc` names
-full-span singleton geometry; `ctree` is the umbrella grammar.
+A recursive binary C-Tree has `L >= 1` leaves and exactly `M = L - 1` merge
+applications. `full_doc` names full-span singleton geometry; `ctree` is the
+umbrella grammar. Identity `g` is defined only for the direct singleton path;
+recursive composition requires an explicit fixed or learned state operator.
 
 | Derived path | Tree shape | Merge applications | `g` status | Fit |
 |---|---|---:|---|---|
 | `full_doc_direct` | exactly one document-sized leaf | 0 | identity `g`, operationally elided | fit `f` on `X` |
 | `ctree_base_summary` | exactly one document-sized leaf | 0 | fixed or trainable nonidentity `g` | fit `f` on one call `g(X)`; an update has leaf-call support only |
-| `ctree_recursive` | `L >= 2` declared leaves | `L - 1` | the same identity, fixed/analytic, or trainable `g` at every call | fit `f` and, when scheduled, the one shared `g`; composition evidence additionally requires internal-call/C3 support |
+| `ctree_recursive` | `L >= 2` declared leaves | `L - 1` | the same fixed/analytic or trainable `g` at every call | fit `f` and, when scheduled, the one shared `g`; composition evidence additionally requires internal-call/C3 support |
 
 Experiment grids may use `ctree` as shorthand for their deliberately
 multi-leaf arm, but that does not exclude the singleton C-Tree base case.
@@ -89,9 +90,10 @@ The public `g_mode` is the configured execution policy; the result's
 
 | `g_mode` | `schedule` | Result operator |
 |---|---|---|
-| `identity` | `f` | `fixed_identity`; topology-independent no-op state mechanism |
+| `identity` | `f` | `fixed_identity`; direct singleton no-op state mechanism |
 | `fixed` | `f` | `fixed_nonidentity_or_family_owned`; explicit deterministic/frozen control |
 | `learned` | `fg` | `learned_shared` only after at least one `train_g` update |
+| `learned` | `fg` | `learned_shared_reused` when verified initial artifacts are evaluated without an update |
 | `learned` | `fg` | `trainable_not_updated_this_run` when the requested ladder never reaches a `g` update |
 
 The runtime records `train_g_call_count` and `g_update_count` separately. A

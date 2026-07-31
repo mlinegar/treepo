@@ -149,6 +149,7 @@ class _UnifiedGTreeModel:
             def __init__(self) -> None:
                 super().__init__()
                 dim = max(1, int(config.embedding_dim))
+                self.g_mode = "learned"
                 self.g = _SharedPairG(
                     operator_kind=operator_kind,
                     config=config,
@@ -166,6 +167,12 @@ class _UnifiedGTreeModel:
                     final = self.readout[-1]
                     torch.nn.init.zeros_(final.weight)
                     torch.nn.init.zeros_(final.bias)
+
+            def set_g_mode(self, mode: str) -> None:
+                resolved = str(mode).strip().lower()
+                if resolved not in {"identity", "learned"}:
+                    raise ValueError(f"unsupported neural-operator g execution mode {mode!r}")
+                self.g_mode = resolved
 
             def _encode_leaves(self, x: Any, lengths: Any | None = None) -> Any:
                 """Apply the same g used at merges to every real raw leaf."""
@@ -187,7 +194,10 @@ class _UnifiedGTreeModel:
                 rows = flat[real]
                 states = torch.zeros_like(flat)
                 if int(rows.shape[0]) > 0:
-                    states[real] = self.g(rows)
+                    if self.g_mode == "identity":
+                        states[real] = rows
+                    else:
+                        states[real] = self.g(rows)
                 return states.reshape(batch, max_leaves, dim)
 
             def _merge_rows(self, left: Any, right: Any) -> Any:

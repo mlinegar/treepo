@@ -131,16 +131,32 @@ class NeuralOperatorFamily:
         self._last_objective_components: dict[str, Any] | None = None
         self._law_state_supervision: dict[str, Any] | None = None
         self._last_optimizer_step_count: int = 0
+        self._last_parameter_change_count: int = 0
         self._last_g_role_activity: dict[str, bool] = {
             "shared_g_optimizer_eligible": False,
             "leaf_domain_gradient_path_present": False,
             "merge_domain_gradient_path_present": False,
         }
+        self._g_execution_mode = "learned"
         # Encoding cache keyed by tree identity. Each entry pins the tree
         # objects it was built from, so the id()-based key stays valid for as
         # long as the entry lives; the cache is bounded, evicting oldest first.
         self._encoding_cache: dict[tuple[Any, ...], tuple[Any, Any, tuple[Any, ...]]] = {}
         self._encoding_cache_max_entries = 16
+
+    def _configure_g_execution(self, artifact: Any) -> None:
+        mode = "learned"
+        if isinstance(artifact, Mapping):
+            mode = str(artifact.get("g_mode") or mode).strip().lower()
+        if mode == "fixed":
+            raise ValueError(
+                f"family={self.name!r} does not execute metadata-only fixed g artifacts"
+            )
+        if mode not in {"identity", "learned"}:
+            raise ValueError(f"family={self.name!r} got unsupported g_mode={mode!r}")
+        self._g_execution_mode = mode
+        if self._model is not None:
+            self._model.set_g_mode(mode)
 
     def train_f(
         self,
@@ -151,8 +167,9 @@ class NeuralOperatorFamily:
         output_dir: Path,
         iteration: int,
     ) -> Mapping[str, Any]:
-        del g
+        self._configure_g_execution(g)
         self._maybe_warmstart(f_init)
+        self._configure_g_execution(g)
         return self._train_side(kind="f", traces=traces, iteration=iteration, output_dir=output_dir)
 
     def train_g(
@@ -165,17 +182,20 @@ class NeuralOperatorFamily:
         iteration: int,
     ) -> Any:
         del f
+        self._configure_g_execution(g_init)
         self._maybe_warmstart(g_init)
+        self._configure_g_execution(g_init)
         artifact = self._train_side(
             kind="g", traces=traces, iteration=iteration, output_dir=output_dir
         )
         from treepo.methods.runtime import GTrainOutcome
 
         steps = int(self._last_optimizer_step_count)
+        changed = int(self._last_parameter_change_count)
         return GTrainOutcome(
             artifact=artifact,
-            update_performed=steps > 0,
-            reason=f"neural_operator_optimizer_steps={steps}",
+            update_performed=changed > 0,
+            reason=(f"neural_operator_optimizer_steps={steps};changed_parameter_tensors={changed}"),
         )
 
     def _maybe_warmstart(self, artifact: Any) -> None:
@@ -371,6 +391,15 @@ class NeuralOperatorFamily:
         )
         self._root_supervision_count = int(root_observed.sum().detach().cpu())
         self._ensure_model(output_dim=int(y.shape[1]))
+        self._last_parameter_change_count = 0
+        before_g = (
+            {
+                name: parameter.detach().clone()
+                for name, parameter in self._model.g.named_parameters()
+            }
+            if train_g
+            else {}
+        )
         y_train = self._normalized_targets(y, root_observed=root_observed)
         node_supervision = self._prepare_node_supervision(trees, width=int(y.shape[1]))
         rollup_weights = self._rollup_weights_tensor(trees, max_leaves=int(x.shape[1]))
@@ -385,6 +414,11 @@ class NeuralOperatorFamily:
             rollup_weights=rollup_weights,
             root_observed=root_observed,
         )
+        if train_g:
+            self._last_parameter_change_count = sum(
+                not self._torch.equal(before_g[name], parameter.detach())
+                for name, parameter in self._model.g.named_parameters()
+            )
         weights_path: Path | None = None
         if output_dir is not None and self._model is not None:
             out = Path(output_dir)
@@ -415,6 +449,7 @@ class NeuralOperatorFamily:
         g: Any,
         trees: Sequence[Any],
     ) -> list[Any | None]:
+        self._configure_g_execution(g)
         # f and g artifacts each snapshot the whole shared model at their own
         # training iteration; scoring must resume from the newest snapshot.
         candidates = [
@@ -426,6 +461,7 @@ class NeuralOperatorFamily:
             self._maybe_warmstart(
                 max(candidates, key=lambda artifact: int(artifact.get("iteration") or 0))
             )
+        self._configure_g_execution(g)
         tree_list = list(trees or [])
         if not tree_list:
             return []
@@ -462,6 +498,9 @@ class NeuralOperatorFamily:
     def validate_artifact(self, *, kind: str, artifact: Any) -> None:
         if kind in {"f", "g"} and not isinstance(artifact, Mapping):
             raise TypeError(f"family={self.name!r} {kind} artifact must be a mapping")
+        if kind == "g" and isinstance(artifact, Mapping):
+            if str(artifact.get("g_mode") or "").strip().lower() == "fixed":
+                self._configure_g_execution(artifact)
         if isinstance(artifact, Mapping):
             path = artifact.get("weights_path")
             if path and not Path(str(path)).exists():
@@ -521,9 +560,11 @@ class NeuralOperatorFamily:
             "trained": kind,
             "weights_path": str(weights_path) if weights_path is not None else None,
             "operator_kind": self.operator_kind,
+            "g_mode": self._g_execution_mode,
             "iteration": int(iteration),
             "n_train": int(n_train),
             "optimizer_step_count": int(self._last_optimizer_step_count),
+            "changed_parameter_tensor_count": int(self._last_parameter_change_count),
             "architecture_version": _SHARED_G_ARCHITECTURE_VERSION,
             "g_role_activity": dict(self._last_g_role_activity),
             "shared_g_optimizer_eligible": bool(
@@ -539,9 +580,7 @@ class NeuralOperatorFamily:
             "shared_g_contract": self._shared_g_contract_payload(),
             "loss": loss,
             "training_loss": str(self.config.training_loss),
-            "training_loss_definition": training_loss_definition(
-                self.config.training_loss
-            ),
+            "training_loss_definition": training_loss_definition(self.config.training_loss),
             "normalize_targets": bool(self.config.normalize_targets),
             "target_center": _tensor_payload(self._target_center),
             "target_scale": _tensor_payload(self._target_scale),
@@ -606,6 +645,7 @@ class NeuralOperatorFamily:
             torch=self._torch,
             output_dim=int(self._output_dim),
         ).to(self._device)
+        self._model.set_g_mode(self._g_execution_mode)
 
     def _task_readout_payload(self) -> dict[str, Any]:
         mode = self.config.law_state_root_readout
@@ -776,9 +816,7 @@ class NeuralOperatorFamily:
                 "merge_propensity": float(self.config.law_state_merge_propensity),
                 "evidence_kind": "task_supplied_exact_state_witness",
                 "vector_loss": str(self.config.training_loss),
-                "vector_loss_definition": training_loss_definition(
-                    self.config.training_loss
-                ),
+                "vector_loss_definition": training_loss_definition(self.config.training_loss),
                 "root_merge_is_separate_from_root_task_loss": True,
                 "c2_status": "not_applicable_one_pass_no_recompressor",
                 "c3_scope": "observed_realized_canonical_merges_not_universal_closure",
@@ -1411,9 +1449,7 @@ class NeuralOperatorFamily:
                 torch.full_like(losses, merge_w),
             )
             keep = mask & (row_w > 0.0)
-            tree_loss = (
-                (1.0 - lam) * root_point_loss if bool(root_observed[i]) else zero
-            )
+            tree_loss = (1.0 - lam) * root_point_loss if bool(root_observed[i]) else zero
             if bool(keep.any()):
                 node_mean = (row_w[keep] * losses[keep]).sum() / row_w[keep].sum()
                 tree_loss = tree_loss + lam * node_mean

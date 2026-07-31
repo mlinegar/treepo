@@ -23,6 +23,7 @@ from treepo.methods._supervision import (
 )
 from treepo.methods._topology_contract import TopologyContract, resolve_topology_contract
 from treepo.methods.contracts import (
+    G_MODE_IDENTITY,
     G_MODE_LEARNED,
     normalize_g_mode,
 )
@@ -190,16 +191,18 @@ def _require_g_mode_topology(
     axis: dict[str, Any],
     backend_config: dict[str, Any],
 ) -> TopologyContract:
-    # ``g_mode`` intentionally does not participate in topology validation.
-    # It controls state-operator trainability, while the tree alone determines
-    # whether leaf-build and merge applications exist.
-    del g_mode
-    return resolve_topology_contract(
+    topology = resolve_topology_contract(
         train_trees,
         eval_trees,
         axis=axis,
         backend_config=backend_config,
     )
+    if g_mode == G_MODE_IDENTITY and topology.composition_present:
+        raise ValueError(
+            "g_mode='identity' is only defined on a singleton direct path; "
+            "a binary merge requires an explicit fixed or learned g"
+        )
+    return topology
 
 
 def _require_g_mode_supervision(

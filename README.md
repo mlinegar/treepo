@@ -223,9 +223,10 @@ analytic ``g``; it runs no DSPy optimizer and must never be reported as the
 learned DSPy grid. Both modes use synthetic records, so neither command alone
 is publication or Polmeth evidence.
 
-Tree topology, whether `g` is invoked, model family, and target width are
-independent. A recursive binary C-Tree has `L >= 1` leaves and exactly
-`M = L - 1` merge applications. In particular, a single document-sized leaf
+A recursive binary C-Tree has `L >= 1` leaves and exactly `M = L - 1` merge
+applications. Identity `g` is restricted to the direct no-composition path;
+a binary fold requires an explicit fixed or learned state operator. Model
+family and target width remain independent axes. A single document-sized leaf
 is already a valid C-Tree and has no merges. The package distinguishes three
 derived execution paths:
 
@@ -244,11 +245,18 @@ optimization stage.
 Thus `full_doc` names full-span singleton geometry, not `g_mode`, and `ctree`
 is the umbrella grammar rather than shorthand for `L >= 2`. A comparison grid
 may use `ctree` as a short label for its deliberately multi-leaf arm, but that
-is a cell definition rather than the definition of a C-Tree. A fixed
-nonidentity operator must be declared `g_mode="fixed"`; a trainable operator
-is called learned only when `g_contract.learned_this_run` is true. On a
-singleton, such an update changes that same shared `g` using leaf-call support
-only; it supplies no internal-call or C3 evidence for composition.
+is a cell definition rather than the definition of a C-Tree. In the packaged
+Semantic-Forest grid, `ctree_recursive` fits one `(f, g)` pair for each
+family/target width and `ctree_base_summary` evaluates those exact artifacts
+at zero iterations. `full_doc_direct` is a separate direct-readout control,
+not a third independently fitted leaf-count view of that pair.
+
+A fixed nonidentity operator must be declared `g_mode="fixed"`; a trainable
+operator is called learned only when `g_contract.learned_this_run` is true, or
+learned-reused when a verified initial artifact is evaluated without an update.
+On a summarized singleton, an update changes the same shared `g` using
+leaf-call support only; it supplies no internal-call or C3 evidence for
+composition.
 `train_g_call_count` records attempted calls separately from `g_update_count`;
 downstream families can return `treepo.methods.GTrainOutcome` when artifact
 equality cannot disclose whether an update actually occurred.

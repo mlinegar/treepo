@@ -9,6 +9,7 @@ near the bottom of the FNO module DAG and depends only on the tensor-agnostic
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any, Mapping, TypeVar
 
@@ -142,6 +143,8 @@ class NeuralOperatorFamilyConfig:
 
     def __post_init__(self) -> None:
         self.training_loss = normalize_training_loss(self.training_loss)
+        if not math.isfinite(float(self.learning_rate)) or float(self.learning_rate) < 0.0:
+            raise ValueError(f"learning_rate must be finite and >= 0; got {self.learning_rate!r}")
         target_names = tuple(str(value).strip() for value in (self.target_names or ()))
         oracle_ids = tuple(str(value).strip() for value in (self.target_oracle_ids or ()))
         if any(not value for value in target_names):
@@ -269,9 +272,7 @@ def _target_schema_payload(config: NeuralOperatorFamilyConfig) -> dict[str, Any]
         ],
         "training_loss": str(config.training_loss),
         "training_loss_definition": training_loss_definition(config.training_loss),
-        "coordinate_reduction": (
-            "sum_not_mean" if str(config.training_loss) == SUM_L1 else "mean"
-        ),
+        "coordinate_reduction": ("sum_not_mean" if str(config.training_loss) == SUM_L1 else "mean"),
     }
     payload["schema_digest"] = stable_digest(payload)
     return payload

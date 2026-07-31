@@ -146,6 +146,40 @@ def build_result(
     )
 
 
+def _shared_g_evidence(mode: str, artifact: Any) -> tuple[bool, bool, str]:
+    """Return only executable/artifact-backed evidence for the one-g claim."""
+
+    if mode == G_MODE_IDENTITY:
+        return True, True, "package_canonical_identity"
+    if not isinstance(artifact, Mapping):
+        return False, False, "missing_g_artifact_contract"
+    nested = artifact.get("shared_g_contract")
+    nested = dict(nested) if isinstance(nested, Mapping) else {}
+    same_g = bool(
+        artifact.get("same_g_across_node_roles") is True
+        or (
+            nested.get("single_registered_g") is True
+            and nested.get("parameter_identity_shared_across_call_domains") is True
+        )
+    )
+    derived = bool(artifact.get("reduce_g_is_derived") is True or same_g)
+    if artifact.get("same_g_across_node_roles") is True:
+        source = "g_artifact_declaration"
+    elif same_g:
+        source = "registered_module_parameter_identity"
+    else:
+        source = "missing_g_artifact_contract"
+    return same_g, derived, source
+
+
+def _latest_g_artifact(records: Sequence[Any], initial: Any) -> Any:
+    for record in reversed(tuple(records)):
+        artifact = getattr(record, "g_artifact", None)
+        if artifact is not None:
+            return artifact
+    return initial
+
+
 def g_contract_payload(spec: Any, records: Sequence[Any]) -> dict[str, Any]:
     """Describe the shared state operator and the topology it executed over."""
 
@@ -164,6 +198,12 @@ def g_contract_payload(spec: Any, records: Sequence[Any]) -> dict[str, Any]:
     merge_applications = topology.get("merge_application_count_per_tree")
     initial_artifacts = dict(getattr(spec, "initial_artifacts", None) or {})
     initial_g_artifact_present = initial_artifacts.get("g") is not None
+    executed_g_artifact = _latest_g_artifact(records, initial_artifacts.get("g"))
+    (
+        same_g_across_node_roles,
+        reduce_g_is_derived,
+        shared_g_evidence_source,
+    ) = _shared_g_evidence(mode, executed_g_artifact)
     configured_max_iterations = int(axis.get("max_iterations", 2))
     if mode == G_MODE_IDENTITY:
         operator = "fixed_identity"
@@ -177,10 +217,22 @@ def g_contract_payload(spec: Any, records: Sequence[Any]) -> dict[str, Any]:
         skipped_g = "explicit_fixed_operator"
         merge_calls = 0 if singleton else None
         materialization = "family_owned_required"
-    elif g_updates:
+    elif g_updates and same_g_across_node_roles:
         operator = "learned_shared"
         fit_status = "fitted_this_run"
         skipped_g = None
+        merge_calls = 0 if singleton else None
+        materialization = "family_owned_required"
+    elif g_updates:
+        operator = "learned_unverified_operator"
+        fit_status = "updated_without_shared_g_evidence"
+        skipped_g = None
+        merge_calls = 0 if singleton else None
+        materialization = "family_owned_unverified"
+    elif initial_g_artifact_present and same_g_across_node_roles:
+        operator = "learned_shared_reused"
+        fit_status = "reused_without_update"
+        skipped_g = "reused_initial_artifact"
         merge_calls = 0 if singleton else None
         materialization = "family_owned_required"
     else:
@@ -216,12 +268,15 @@ def g_contract_payload(spec: Any, records: Sequence[Any]) -> dict[str, Any]:
         "merge_call_count": merge_calls,
         # There is one g. ``reduce_g`` is only the fold that repeatedly calls
         # it; neither a leaf-g learner nor a separate reduced-g learner exists.
-        "same_g_across_node_roles": True,
-        "reduce_g_is_derived": True,
+        "same_g_across_node_roles": same_g_across_node_roles,
+        "reduce_g_is_derived": reduce_g_is_derived,
+        "shared_g_evidence_source": shared_g_evidence_source,
         "g_training_call_roles": g_training_call_roles,
         "g_training_role_evidence_source": g_training_role_evidence_source,
         "merge_domain_training_observed": merge_domain_training_observed,
-        "shared_g_updated_with_merge_domain": bool(g_updates and merge_domain_training_observed),
+        "shared_g_updated_with_merge_domain": bool(
+            g_updates and same_g_across_node_roles and merge_domain_training_observed
+        ),
         "skipped_g_interpretation": skipped_g,
         "declared_representation": declared_representation,
         "topology_kind": topology.get("topology_kind"),

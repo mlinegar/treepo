@@ -95,10 +95,11 @@ family protocol exposes `train_g(...)` does not require every cell to call it.
 
 | `g_mode` | Required schedule | Outcome |
 |---|---|---|
-| `identity` | `f` | `fixed_identity`; merge count still comes from topology |
+| `identity` | `f` | `fixed_identity` on the singleton direct path only |
 | `fixed` | `f` | an explicitly supplied or family-owned nontrainable operator |
 | `learned` with a `g` update | `fg` | `learned_shared` and `learned_this_run=true` |
-| `learned` without a `g` update | `fg` | `trainable_not_updated_this_run`; no evidence that this run learned `g` |
+| `learned` with verified initial artifacts and no update | `fg` | `learned_shared_reused`; the exact prior artifact is evaluated |
+| `learned` without an update or verified artifact | `fg` | `trainable_not_updated_this_run`; no learned-`g` evidence |
 
 `train_g_call_count` records attempted calls; `g_update_count` records only
 realized updates. Families with in-place state or another artifact-identity
@@ -106,7 +107,9 @@ ambiguity return `treepo.methods.GTrainOutcome` to state that outcome
 explicitly. A no-op `train_g` call therefore remains
 `trainable_not_updated_this_run`. Fixed mode instead requires a concrete,
 family-validated nontrainable artifact. The canonical identity artifact is
-package-owned, but its use does not determine tree topology.
+package-owned. It is restricted to the singleton direct path: binary
+composition needs an operator mapping two child states back into one state and
+therefore cannot be an elided identity.
 
 The last row matters for evaluation-only and shortened ladders: trainability
 is a configuration property, not evidence that learning occurred. The fixed
@@ -216,6 +219,10 @@ result = treepo.fit(
 
 For learned operators the grid default `max_iterations=3` is the alternating
 `f -> g -> f` sequence; the last `f` is trained after the shared `g` update.
+For each fixed target width and family, that sequence runs once on
+`ctree_recursive`. The `ctree_base_summary` row then executes iteration zero
+with the exact resulting `f` and `g` artifacts. It is a second leaf-count view
+of one model, not an independently fitted cell.
 The learned DSPy grid uses
 `f_record_source="generated_when_available"`, allowing reference states on
 the first `f` pass when no learned `g` exists and current-`g` states on the

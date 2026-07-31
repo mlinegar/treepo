@@ -83,6 +83,8 @@ class RecordingFamily:
             "kind": "recording_g",
             "trained": "g",
             "iteration": int(iteration),
+            "same_g_across_node_roles": True,
+            "reduce_g_is_derived": True,
         }
 
     def score_roots_with_f(
@@ -262,6 +264,8 @@ def _fixed_g() -> dict[str, Any]:
         "g_mode": "fixed",
         "operator": "denominator_weighted_mean",
         "trainable": False,
+        "same_g_across_node_roles": True,
+        "reduce_g_is_derived": True,
     }
 
 
@@ -356,6 +360,8 @@ def test_identity_public_fit_is_f_only_and_persists_complete_provenance(
         "trainable": False,
         "train_g_enabled": False,
         "merge_call_count": 0,
+        "same_g_across_node_roles": True,
+        "reduce_g_is_derived": True,
     }
     assert result.status == "success"
     assert len(family.f_calls) == 1
@@ -402,6 +408,7 @@ def test_identity_public_fit_is_f_only_and_persists_complete_provenance(
         "merge_call_count": 0,
         "same_g_across_node_roles": True,
         "reduce_g_is_derived": True,
+        "shared_g_evidence_source": "package_canonical_identity",
         "g_training_call_roles": [],
         "g_training_role_evidence_source": "no_train_g_calls",
         "merge_domain_training_observed": False,
@@ -498,33 +505,19 @@ def test_singleton_ctree_accepts_every_g_mode_and_alias(
     assert len(family.g_calls) == (1 if g_mode == "learned" else 0)
 
 
-def test_identity_g_is_valid_on_a_recursive_ctree(tmp_path: Path) -> None:
+def test_identity_g_is_rejected_on_a_recursive_ctree(tmp_path: Path) -> None:
     family = RecordingFamily()
-    result = treepo.fit(
-        _fit_config(
-            tmp_path,
-            family,
-            g_mode="identity",
-            n_leaves=3,
-            representation="ctree_recursive",
+    with pytest.raises(ValueError, match="identity.*singleton direct path"):
+        treepo.fit(
+            _fit_config(
+                tmp_path,
+                family,
+                g_mode="identity",
+                n_leaves=3,
+                representation="ctree_recursive",
+            )
         )
-    )
-
-    contract = result.summary["g_contract"]
-    assert result.status == "success"
-    assert contract["topology_kind"] == "recursive"
-    assert contract["declared_leaf_count"] == 3
-    assert contract["leaf_g_application_count_per_tree"] == 3
-    assert contract["merge_application_count_per_tree"] == 2
-    assert contract["composition_present"] is True
-    assert contract["identity_single_leaf_contract"] is False
-    assert contract["leaf_g_application_materialization"] == "semantic_identity_elided"
-    assert contract["leaf_g_materialized_application_count_per_tree"] == 0
-    assert contract["g_training_call_roles"] == []
-    assert contract["g_training_role_evidence_source"] == "no_train_g_calls"
-    assert contract["merge_domain_training_observed"] is False
-    assert contract["shared_g_updated_with_merge_domain"] is False
-    assert family.g_calls == []
+    assert family.f_calls == family.g_calls == []
 
 
 def test_ctree_recursive_rejects_a_declared_singleton(tmp_path: Path) -> None:
@@ -811,6 +804,8 @@ def test_fixed_mode_requires_a_concrete_operator_artifact(tmp_path: Path) -> Non
                 "g_mode": "learned",
                 "operator": "frozen",
                 "trainable": False,
+                "same_g_across_node_roles": True,
+                "reduce_g_is_derived": True,
             },
             ValueError,
             "must declare g_mode='fixed'",
@@ -821,6 +816,8 @@ def test_fixed_mode_requires_a_concrete_operator_artifact(tmp_path: Path) -> Non
                 "g_mode": "fixed",
                 "operator": "frozen",
                 "trainable": True,
+                "same_g_across_node_roles": True,
+                "reduce_g_is_derived": True,
             },
             ValueError,
             "trainable=false",
@@ -1039,6 +1036,9 @@ def test_noop_train_g_call_is_not_reported_as_a_realized_update(tmp_path: Path) 
     assert contract["shared_g_updated_with_merge_domain"] is False
     assert contract["operator"] == "trainable_not_updated_this_run"
     assert contract["learned_this_run"] is False
+    assert contract["same_g_across_node_roles"] is False
+    assert contract["reduce_g_is_derived"] is False
+    assert contract["shared_g_evidence_source"] == "missing_g_artifact_contract"
 
 
 @pytest.mark.parametrize(
@@ -1055,7 +1055,13 @@ def test_explicit_g_train_outcome_is_authoritative(
         update_performed=update_performed,
         return_same_artifact=return_same_artifact,
     )
-    seed_g = {"kind": "seed_g", "trained": "g", "iteration": 0}
+    seed_g = {
+        "kind": "seed_g",
+        "trained": "g",
+        "iteration": 0,
+        "same_g_across_node_roles": True,
+        "reduce_g_is_derived": True,
+    }
     config = _fit_config(
         tmp_path,
         family,
@@ -1074,5 +1080,33 @@ def test_explicit_g_train_outcome_is_authoritative(
     assert contract["g_update_count"] == expected_updates
     assert contract["learned_this_run"] is bool(expected_updates)
     assert contract["operator"] == (
-        "learned_shared" if expected_updates else "trainable_not_updated_this_run"
+        "learned_shared" if expected_updates else "learned_shared_reused"
     )
+
+
+def test_g_update_without_one_operator_evidence_is_not_reported_as_shared(
+    tmp_path: Path,
+) -> None:
+    family = ExplicitOutcomeFamily(
+        update_performed=True,
+        return_same_artifact=True,
+    )
+    seed_g = {"kind": "unverified_g", "trained": "g", "iteration": 0}
+    config = _fit_config(
+        tmp_path,
+        family,
+        g_mode="learned",
+        n_leaves=2,
+        max_iterations=2,
+    )
+    config["initial_artifacts"] = {"g": seed_g}
+
+    result = treepo.fit(config)
+
+    contract = result.summary["g_contract"]
+    assert contract["g_update_count"] == 1
+    assert contract["learned_this_run"] is True
+    assert contract["operator"] == "learned_unverified_operator"
+    assert contract["fit_status"] == "updated_without_shared_g_evidence"
+    assert contract["same_g_across_node_roles"] is False
+    assert contract["reduce_g_is_derived"] is False

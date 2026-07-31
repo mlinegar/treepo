@@ -97,8 +97,13 @@ def _expected_g_contract(
         g_mode = "fixed"
     else:
         g_mode = "learned"
+    reuses_model_artifacts = representation_path == "ctree_base_summary"
     effective_max_iterations = (
-        requested_max_iterations if g_mode == "learned" else int(requested_max_iterations > 0)
+        0
+        if reuses_model_artifacts
+        else requested_max_iterations
+        if g_mode == "learned"
+        else int(requested_max_iterations > 0)
     )
     expected_g_update_count = effective_max_iterations // 2 if g_mode == "learned" else 0
     train_g_called = expected_g_update_count > 0
@@ -139,6 +144,15 @@ def _expected_g_contract(
         "learned_g_expected": expected_g_update_count > 0,
         "same_g_across_node_roles": True,
         "reduce_g_is_derived": True,
+        "model_scope": (
+            "direct_control_separate_from_shared_ctree_pair"
+            if representation_path == "full_doc_direct"
+            else "one_f_g_pair_per_target_width_and_family"
+        ),
+        "reuses_model_artifacts": reuses_model_artifacts,
+        "shared_model_source_path": (
+            "ctree_recursive" if reuses_model_artifacts else representation_path
+        ),
         "expected_g_training_call_roles": roles,
         "expected_g_training_role_evidence_source": evidence_source,
         "expected_merge_domain_training_observed": merge_domain,
@@ -359,7 +373,7 @@ def test_learned_dspy_grid_fails_closed_without_optimizer_lm_or_program_config(
 ) -> None:
     cell = grid.GridCell(
         target_width=3,
-        representation_path="ctree_base_summary",
+        representation_path="ctree_recursive",
         family="dspy",
         seed=21,
         output_dir=tmp_path / "learned",
@@ -423,9 +437,32 @@ def test_complete_grid_routes_every_cell_through_fit_and_common_metrics(
                     "target_by_name": dict(target),
                 }
             )
+        initial = dict(config.get("initial_artifacts") or {})
+        if initial.get("f") is not None and initial.get("g") is not None:
+            artifacts = {"f": initial["f"], "g": initial["g"]}
+        else:
+            artifacts = {
+                "f": {
+                    "kind": "fake_f",
+                    "trained": "f",
+                    "width": len(names),
+                    "family": config["family"],
+                },
+                "g": initial.get("g")
+                or {
+                    "kind": "fake_g",
+                    "trained": "g",
+                    "g_mode": config["g_mode"],
+                    "same_g_across_node_roles": True,
+                    "reduce_g_is_derived": True,
+                    "width": len(names),
+                    "family": config["family"],
+                },
+            }
         return SimpleNamespace(
             status="success",
             metrics={"joint_f_l1": 0.0},
+            artifacts=artifacts,
             summary={"family": config["family"]},
             manifest_path=None,
             history=[{"extra": {"prediction_rows": rows}}],
@@ -509,7 +546,10 @@ def test_complete_grid_routes_every_cell_through_fit_and_common_metrics(
         assert metadata["requested_max_iterations"] == requested_max_iterations
         assert metadata["effective_max_iterations"] == expected_g["effective_max_iterations"]
         assert metadata["g_contract"] == expected_g
-        if expected_g["g_mode"] == "fixed":
+        if expected_g["reuses_model_artifacts"]:
+            assert set(config["initial_artifacts"]) == {"f", "g"}
+            assert config["axis"]["max_iterations"] == 0
+        elif expected_g["g_mode"] == "fixed":
             assert config["initial_artifacts"] == {
                 "g": {
                     "kind": "manifesto_fixture_fixed_g",
@@ -615,6 +655,18 @@ def test_complete_grid_routes_every_cell_through_fit_and_common_metrics(
             "shared_g_updated_with_merge_domain",
         ):
             assert f"identity.{field}" in row["measurement_status"]["missing_field_reasons"]
+
+    by_key = {
+        (cell["family"], cell["target_width"], cell["representation_path"]): cell
+        for cell in report["cells"]
+    }
+    for family in ("dspy", "fno"):
+        for width in (1, 3, 57):
+            base = by_key[(family, width, "ctree_base_summary")]
+            recursive = by_key[(family, width, "ctree_recursive")]
+            assert base["model_artifacts"] == recursive["model_artifacts"]
+            assert base["reuses_model_artifacts"] is True
+            assert base["shared_model_source_cell_id"] == recursive["cell_id"]
 
 
 def test_failed_cell_leaves_realized_g_outcome_null(tmp_path: Path) -> None:
@@ -732,6 +784,15 @@ def test_real_fit_executes_all_eighteen_tiny_cells(tmp_path: Path) -> None:
             assert executed["g_training_role_evidence_source"] == "no_train_g_calls"
             assert executed["merge_domain_training_observed"] is False
             assert executed["shared_g_updated_with_merge_domain"] is False
+        elif cell["representation_path"] == "ctree_base_summary" and cell["family"] == "fno":
+            assert executed["operator"] == "learned_shared_reused"
+            assert executed["fit_status"] == "reused_without_update"
+            assert executed["g_update_count"] == 0
+            assert executed["learned_this_run"] is False
+            assert executed["g_training_call_roles"] == []
+            assert executed["g_training_role_evidence_source"] == "no_train_g_calls"
+            assert executed["merge_domain_training_observed"] is False
+            assert executed["shared_g_updated_with_merge_domain"] is False
         elif cell["family"] == "dspy":
             assert executed["operator"] == "fixed_nonidentity_or_family_owned"
             assert executed["fit_status"] == "not_trainable"
@@ -756,6 +817,16 @@ def test_real_fit_executes_all_eighteen_tiny_cells(tmp_path: Path) -> None:
             )
             assert executed["merge_domain_training_observed"] is merge_supported
             assert executed["shared_g_updated_with_merge_domain"] is merge_supported
+
+    by_key = {
+        (cell["family"], cell["target_width"], cell["representation_path"]): cell
+        for cell in report["cells"]
+    }
+    for family in ("dspy", "fno"):
+        for width in (1, 3, 57):
+            base = by_key[(family, width, "ctree_base_summary")]
+            recursive = by_key[(family, width, "ctree_recursive")]
+            assert base["model_artifacts"] == recursive["model_artifacts"]
 
 
 def test_executed_g_contract_must_match_configured_mode_and_update_count() -> None:

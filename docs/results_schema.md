@@ -16,9 +16,10 @@ readout and one declared `g`; there are no target child fits or
 target-owned artifacts. `cell.g_mode` records configured policy;
 `g_contract` records realized operator, fit status, warm-start presence, and
 separate call/update counts. The mechanism is called learned in this run only
-when `g_contract.learned_this_run=true`.
+when `g_contract.learned_this_run=true`; a verified learned warm start is
+reported separately as `learned_shared_reused`.
 
-Topology provenance is independent of operator policy. Every binary C-Tree has
+Every binary C-Tree has
 `L >= 1` leaves and `M = L - 1` merge applications. `full_doc` is full-span
 singleton geometry, not a synonym for identity; `ctree` is the recursive
 grammar and includes that singleton. `cell.execution_path` distinguishes:
@@ -34,9 +35,12 @@ grammar and includes that singleton. `cell.execution_path` distinguishes:
 Call-count fields may separate leaf and internal support, but all updates and
 parameters belong to the one recorded `g` artifact.
 
-`g_mode` records identity, fixed, or learned policy independently. A learned
-operator records `operator=learned_shared` only after an executed update;
-otherwise it is `operator=trainable_not_updated_this_run`. A singleton update
+`g_mode` records identity, fixed, or learned policy. Identity is valid only on
+the direct singleton path; recursive composition requires fixed or learned
+`g`. A learned operator records `operator=learned_shared` only after an
+executed update, `operator=learned_shared_reused` for a verified initial
+artifact evaluated without an update, and otherwise
+`operator=trainable_not_updated_this_run`. A summarized-singleton update
 changes the shared `g` from leaf-call support only; it is not learned
 composition. A deterministic
 operator declares `g_mode=fixed` and a concrete fixed artifact. Neither an

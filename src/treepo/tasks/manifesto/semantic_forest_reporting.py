@@ -82,8 +82,7 @@ _COMPARISON_REPORT_SCHEMA: dict[str, Any] = {
                 "inference from train_g calls and training topology"
             ),
             "merge_domain_training_observed": (
-                "binary merge-domain training support, not unary recompression or C3 "
-                "certification"
+                "binary merge-domain training support, not unary recompression or C3 certification"
             ),
             "shared_g_updated_with_merge_domain": (
                 "one shared-g update occurred while merge-domain support was present"
@@ -447,6 +446,9 @@ def validate_manifesto_semantic_forest_comparison_row(
         elif g_mode == "fixed":
             expected_operator = "fixed_nonidentity_or_family_owned"
             expected_fit_status = "not_trainable"
+        elif identity.get("reuses_model_artifacts") is True:
+            expected_operator = "learned_shared_reused"
+            expected_fit_status = "reused_without_update"
         elif int(g_update_count) > 0:
             expected_operator, expected_fit_status = "learned_shared", "fitted_this_run"
         else:

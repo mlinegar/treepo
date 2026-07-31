@@ -206,8 +206,9 @@ def test_fit_can_use_llm_family_with_injected_predict_fn(tmp_path: Path) -> None
     assert result.summary["g_contract"]["g_update_count"] == 0
     assert result.summary["g_contract"]["learned_this_run"] is False
     assert result.summary["g_contract"]["operator"] == "trainable_not_updated_this_run"
-    assert result.summary["g_contract"]["same_g_across_node_roles"] is True
-    assert result.summary["g_contract"]["reduce_g_is_derived"] is True
+    assert result.summary["g_contract"]["same_g_across_node_roles"] is False
+    assert result.summary["g_contract"]["reduce_g_is_derived"] is False
+    assert result.summary["g_contract"]["shared_g_evidence_source"] == "missing_g_artifact_contract"
     assert result.summary["g_contract"]["g_training_role_evidence_source"] == (
         "inferred_from_train_g_and_topology"
     )
@@ -443,8 +444,9 @@ def test_dspy_prompt_uses_preference_supervision(tmp_path: Path) -> None:
     assert result.summary["g_contract"]["g_update_count"] == 0
     assert result.summary["g_contract"]["learned_this_run"] is False
     assert result.summary["g_contract"]["operator"] == "trainable_not_updated_this_run"
-    assert result.summary["g_contract"]["same_g_across_node_roles"] is True
-    assert result.summary["g_contract"]["reduce_g_is_derived"] is True
+    assert result.summary["g_contract"]["same_g_across_node_roles"] is False
+    assert result.summary["g_contract"]["reduce_g_is_derived"] is False
+    assert result.summary["g_contract"]["shared_g_evidence_source"] == "missing_g_artifact_contract"
     assert result.summary["g_contract"]["g_training_role_evidence_source"] == (
         "inferred_from_train_g_and_topology"
     )

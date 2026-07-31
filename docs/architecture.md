@@ -30,9 +30,10 @@ name the coordinates and oracle provenance of one joint target vector. The
 same entrypoint performs one fit over shared train/evaluation trees, one
 state space, one joint `f`, and one declared `g`. It does not repeat the fit
 once per target. `g` is learned only in a cell that actually trains it.
-Topology and `g_mode` are independent. A recursive binary C-Tree has
-`L >= 1` leaves and exactly `M = L - 1` merge applications, so its singleton
-base case is one leaf and no merges. The package derives three explicit paths:
+A recursive binary C-Tree has `L >= 1` leaves and exactly `M = L - 1` merge
+applications, so its singleton base case is one leaf and no merges. Identity
+`g` is restricted to that direct, no-composition case; a binary fold requires
+an explicit fixed or learned `g`. The package derives three explicit paths:
 
 - `full_doc_direct` computes `f(X)` with identity `g` elided;
 - `ctree_base_summary` computes `f(g(X))`, invoking `g` once; and
@@ -51,9 +52,9 @@ concatenated child states, but it must not create another learned operator.
 summarized; `ctree` names the umbrella recursive grammar and includes its
 singleton base case. Grids may deliberately use a multi-leaf `ctree` arm to
 keep comparison cells disjoint. A fixed nonidentity/analytic `g` is a named
-control; learned mode means only that an update occurred. When the tree is a
-singleton, the shared operator is updated from leaf-call support only; the run
-has no internal-call or C3 evidence for learned composition. The resulting
+control; learned mode means an update occurred or a verified learned artifact
+was reused. When a nonidentity singleton operator is updated, it has leaf-call
+support only and no internal-call or C3 evidence for composition. The resulting
 Semantic Forest is the population of document C-Trees (and any declared views)
 processed by the declared operator;
 see [`semantic_forests.md`](semantic_forests.md).

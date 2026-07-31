@@ -69,6 +69,30 @@ def test_neural_operator_family_rejects_unknown_operator_kind() -> None:
         )
 
 
+@pytest.mark.parametrize("learning_rate", [-0.01, math.inf, math.nan])
+def test_neural_operator_requires_a_real_nonnegative_learning_rate(
+    learning_rate: float,
+) -> None:
+    with pytest.raises(ValueError, match="learning_rate must be finite and >= 0"):
+        NeuralOperatorFamilyConfig(learning_rate=learning_rate)
+
+
+def test_neural_operator_rejects_metadata_only_fixed_g() -> None:
+    family = resolve_family("neural_operator", {**_tiny_fno_config(), "operator_kind": "conv1d"})
+    with pytest.raises(ValueError, match="does not execute metadata-only fixed g"):
+        family.validate_artifact(
+            kind="g",
+            artifact={
+                "kind": "fixed_fixture",
+                "g_mode": "fixed",
+                "operator": "external_operator_name",
+                "trainable": False,
+                "same_g_across_node_roles": True,
+                "reduce_g_is_derived": True,
+            },
+        )
+
+
 def test_neural_operator_family_is_builtin_with_conv1d_option() -> None:
     family = resolve_family(
         "neural_operator",
@@ -137,6 +161,9 @@ def test_neural_operator_statistic_is_available_after_training(tmp_path: Path) -
     )
     assert g_outcome.update_performed is True
     g_artifact = g_outcome.artifact
+    assert g_artifact["changed_parameter_tensor_count"] > 0
+    assert "changed_parameter_tensors=" in g_outcome.reason
+    assert g_artifact["g_mode"] == "learned"
     statistic = family.as_statistic(f=f_artifact, g=g_artifact)
     assert isinstance(statistic, ComposableStatistic)
     assert statistic.info.exact is False
@@ -149,6 +176,18 @@ def test_neural_operator_statistic_is_available_after_training(tmp_path: Path) -
     rows = statistic.local_law_rows(eval_trees)
     assert rows
     assert {row.metadata["check"] for row in rows} == {"numeric_transition_state"}
+
+
+def test_zero_learning_rate_is_truthfully_reported_as_no_g_update(tmp_path: Path) -> None:
+    family = resolve_family("fno", {**_tiny_fno_config(), "learning_rate": 0.0})
+    trees = make_markov_changepoint_trees(n_trees=4, doc_tokens=8, leaf_unit_count=2, seed=9)
+    outcome = family.train_g(
+        g_init=None, f=None, traces=trees, output_dir=tmp_path / "g_zero", iteration=2
+    )
+
+    assert outcome.update_performed is False
+    assert outcome.artifact["changed_parameter_tensor_count"] == 0
+    assert "changed_parameter_tensors=0" in outcome.reason
 
 
 def test_named_singleton_fno_keeps_vector_transport_through_statistic(

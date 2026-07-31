@@ -94,6 +94,26 @@ def test_masked_mean_residual_has_coherent_shared_identity_initialization() -> N
     assert torch.equal(g(left, right), 0.5 * (left + right))
 
 
+def test_identity_singleton_bypasses_the_learned_g_module() -> None:
+    torch = pytest.importorskip("torch")
+    family = resolve_family("neural_operator", _config("conv1d"))
+    family._ensure_model(output_dim=1)
+    model = family._model
+    assert model is not None
+    model.set_g_mode("identity")
+
+    calls: list[object] = []
+    handle = model.g.register_forward_hook(lambda *_args: calls.append(object()))
+    try:
+        x = torch.randn(1, 1, 8)
+        _prediction, traces = model.forward_with_trace(x, torch.tensor([1]))
+    finally:
+        handle.remove()
+
+    assert calls == []
+    assert torch.equal(traces[0], x[0])
+
+
 def test_singleton_and_recursive_tree_reuse_one_g_for_every_logical_node() -> None:
     torch = pytest.importorskip("torch")
     family = resolve_family("neural_operator", _config("conv1d"))

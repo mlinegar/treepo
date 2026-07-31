@@ -10,12 +10,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from treepo.methods.families import resolve_family
-from treepo.methods.fixtures import make_markov_changepoint_trees
+import pytest
+
 from treepo.methods._fno_transition import (
     _numeric_transition_rows,
     _pairwise_merge_depths,
 )
+from treepo.methods._topology_contract import resolve_topology_contract
+from treepo.methods.families import resolve_family
+from treepo.methods.fixtures import make_markov_changepoint_trees
 from treepo.tree import TreeRecord, local_law_rows_from_tree_records
 
 
@@ -50,6 +53,38 @@ def test_pairwise_merge_depths_follow_carry_parent() -> None:
     assert _pairwise_merge_depths(5) == [3, 3, 3, 3, 1, 2, 2, 1, 0]
 
 
+def test_explicit_tree_must_match_the_canonical_balanced_fold() -> None:
+    record = TreeRecord(
+        tree_id="unbalanced",
+        nodes=[
+            {"node_id": "a", "parent_id": "ab", "position": 0},
+            {"node_id": "b", "parent_id": "ab", "position": 1},
+            {"node_id": "c", "parent_id": "abc", "position": 2},
+            {"node_id": "d", "parent_id": "root", "position": 3},
+            {
+                "node_id": "ab",
+                "parent_id": "abc",
+                "left_child_id": "a",
+                "right_child_id": "b",
+            },
+            {
+                "node_id": "abc",
+                "parent_id": "root",
+                "left_child_id": "ab",
+                "right_child_id": "c",
+            },
+            {
+                "node_id": "root",
+                "unit_type": "root",
+                "left_child_id": "abc",
+                "right_child_id": "d",
+            },
+        ],
+    )
+    with pytest.raises(ValueError, match="does not match the canonical balanced fold"):
+        resolve_topology_contract([record], [record], axis={"representation": "ctree_recursive"})
+
+
 def test_model_trace_matches_targets_on_odd_leaf_count(tmp_path: Path) -> None:
     family = resolve_family(
         "neural_operator",
@@ -67,9 +102,7 @@ def test_model_trace_matches_targets_on_odd_leaf_count(tmp_path: Path) -> None:
     f_artifact = family.train_f(
         f_init=None, g=None, traces=train, output_dir=tmp_path / "f", iteration=1
     )
-    family.train_g(
-        g_init=None, f=f_artifact, traces=train, output_dir=tmp_path / "g", iteration=2
-    )
+    family.train_g(g_init=None, f=f_artifact, traces=train, output_dir=tmp_path / "g", iteration=2)
     statistic = family.as_statistic()
     rows = statistic.local_law_rows(train)
     per_tree = len(rows) // len(train)

@@ -90,6 +90,8 @@ def canonical_g_artifact(g_mode: str) -> dict[str, Any]:
         "trainable": False,
         "train_g_enabled": False,
         "merge_call_count": 0,
+        "same_g_across_node_roles": True,
+        "reduce_g_is_derived": True,
     }
 
 
@@ -115,7 +117,14 @@ def resolve_g_artifact(g_mode: str, g_init: Any) -> Any:
         )
     if not isinstance(g_init, Mapping):
         raise TypeError("g_mode='fixed' initial_artifacts['g'] must be a mapping")
-    required = ("kind", "g_mode", "operator", "trainable")
+    required = (
+        "kind",
+        "g_mode",
+        "operator",
+        "trainable",
+        "same_g_across_node_roles",
+        "reduce_g_is_derived",
+    )
     missing = [key for key in required if key not in g_init]
     if missing:
         raise ValueError(
@@ -129,6 +138,10 @@ def resolve_g_artifact(g_mode: str, g_init: Any) -> Any:
         raise ValueError("g_mode='fixed' artifact operator must be non-empty")
     if g_init.get("trainable") is not False:
         raise ValueError("g_mode='fixed' artifact must declare trainable=false")
+    if g_init.get("same_g_across_node_roles") is not True:
+        raise ValueError("g_mode='fixed' artifact must declare one shared g")
+    if g_init.get("reduce_g_is_derived") is not True:
+        raise ValueError("g_mode='fixed' artifact must declare reduce_g as a derived fold")
     if g_init.get("train_g_enabled") not in (None, False):
         raise ValueError("g_mode='fixed' artifact cannot enable train_g")
     return g_init

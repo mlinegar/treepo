@@ -36,6 +36,8 @@ def hll_fit_config(
         "operator": "classical_sketch:hll",
         "trainable": False,
         "train_g_enabled": False,
+        "same_g_across_node_roles": True,
+        "reduce_g_is_derived": True,
     }
     return {
         "family": "classical_sketch",

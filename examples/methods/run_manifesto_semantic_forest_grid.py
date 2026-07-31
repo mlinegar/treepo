@@ -451,6 +451,8 @@ def fit_grid_cell(
     max_iterations: int = 3,
     dspy_backend_config: Mapping[str, Any] | None = None,
     fit_fn: Callable[..., Any] | None = None,
+    initial_artifacts: Mapping[str, Any] | None = None,
+    shared_model_source_cell_id: str | None = None,
 ) -> dict[str, Any]:
     """Run one cell through ``treepo.fit`` and enforce exact row coverage."""
 
@@ -461,6 +463,11 @@ def fit_grid_cell(
         requested_max_iterations=max_iterations,
         dspy_execution=cell.dspy_execution,
     )
+    if g_contract["reuses_model_artifacts"] and initial_artifacts is None:
+        raise ValueError(
+            f"{cell.representation_path} evaluates the shared model from "
+            f"{g_contract['shared_model_source_path']}; initial_artifacts are required"
+        )
     train_raw, test_raw = make_cmp_count_records(cell.representation_path)
     _require_exact_leaf_count(
         (*train_raw, *test_raw),
@@ -591,7 +598,13 @@ def fit_grid_cell(
             "reduce_g_is_derived": True,
         },
     }
-    if g_contract["g_mode"] == "fixed":
+    if initial_artifacts is not None:
+        model_artifacts = dict(initial_artifacts)
+        missing = [kind for kind in ("f", "g") if model_artifacts.get(kind) is None]
+        if missing:
+            raise ValueError(f"shared-model initial_artifacts are missing {missing!r}")
+        fit_kwargs["initial_artifacts"] = model_artifacts
+    elif g_contract["g_mode"] == "fixed":
         fit_kwargs["initial_artifacts"] = {
             "g": {
                 "kind": "manifesto_fixture_fixed_g",
@@ -612,6 +625,15 @@ def fit_grid_cell(
         result = fit_fn(fit_kwargs)
     fit_wall_seconds = float(time.perf_counter() - fit_wall_start)
     measurement_finished_at = _utc_now()
+    result_artifacts = dict(getattr(result, "artifacts", {}) or {})
+    model_artifacts = {kind: result_artifacts.get(kind) for kind in ("f", "g")}
+    if any(model_artifacts[kind] is None for kind in ("f", "g")):
+        raise ValueError("treepo.fit result must expose both f and g model artifacts")
+    if initial_artifacts is not None and model_artifacts != dict(initial_artifacts):
+        raise ValueError(
+            "evaluation-only shared-model view changed its f/g artifacts; "
+            "leaf-count views must reuse the exact trained pair"
+        )
     fit_summary = dict(result.summary or {})
     executed_g_contract = _validated_executed_g_contract(
         fit_summary.get("g_contract"),
@@ -677,6 +699,9 @@ def fit_grid_cell(
         "fit_summary": fit_summary,
         "executed_g_contract": executed_g_contract,
         "manifest_path": result.manifest_path,
+        "model_artifacts": model_artifacts,
+        "reuses_model_artifacts": bool(g_contract["reuses_model_artifacts"]),
+        "shared_model_source_cell_id": (shared_model_source_cell_id or cell.cell_id),
         "shared_g_updated_with_merge_domain": comparison_row["identity"][
             "shared_g_updated_with_merge_domain"
         ],
@@ -686,6 +711,9 @@ def fit_grid_cell(
         "fit_contract": {
             "public_api": "treepo.fit",
             "single_fit_call": True,
+            "model_scope": g_contract["model_scope"],
+            "reuses_model_artifacts": bool(g_contract["reuses_model_artifacts"]),
+            "shared_model_source_cell_id": (shared_model_source_cell_id or cell.cell_id),
             **g_contract,
             **_target_api_contract(),
         },
@@ -712,13 +740,35 @@ def run_family_grid(
     resolved_dspy_execution = _resolve_dspy_execution(dspy_execution)
     root = Path(output_dir)
     cells: list[dict[str, Any]] = []
-    # K changes only the ordered named-vector catalog/width. The representation
-    # path selects the explicit singleton/direct, singleton/summarized, or
-    # compositional topology and its identity/fixed/learned g contract.
-    # fit_grid_cell then makes the one public call: treepo.fit(**fit_kwargs).
+
+    def execute_cell(
+        cell: GridCell,
+        *,
+        initial_artifacts: Mapping[str, Any] | None = None,
+        source_cell_id: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            return fit_grid_cell(
+                cell,
+                fno_epochs=fno_epochs,
+                max_iterations=max_iterations,
+                dspy_backend_config=dspy_backend_config,
+                fit_fn=fit_fn,
+                initial_artifacts=initial_artifacts,
+                shared_model_source_cell_id=source_cell_id,
+            )
+        except Exception as exc:
+            return _failed_cell_report(
+                cell,
+                error=f"{type(exc).__name__}: {exc}",
+                fno_epochs=fno_epochs,
+                max_iterations=max_iterations,
+            )
+
     for target_width in TARGET_WIDTHS:
-        for representation_path in REPRESENTATION_PATHS:
-            cell = GridCell(
+
+        def make_cell(representation_path: str) -> GridCell:
+            return GridCell(
                 target_width=target_width,
                 representation_path=representation_path,
                 family=resolved,
@@ -733,22 +783,31 @@ def run_family_grid(
                 ),
                 dspy_execution=resolved_dspy_execution,
             )
-            try:
-                report = fit_grid_cell(
-                    cell,
-                    fno_epochs=fno_epochs,
-                    max_iterations=max_iterations,
-                    dspy_backend_config=dspy_backend_config,
-                    fit_fn=fit_fn,
-                )
-            except Exception as exc:
-                report = _failed_cell_report(
-                    cell,
-                    error=f"{type(exc).__name__}: {exc}",
-                    fno_epochs=fno_epochs,
-                    max_iterations=max_iterations,
-                )
-            cells.append(report)
+
+        by_path: dict[str, dict[str, Any]] = {}
+        direct_cell = make_cell("full_doc_direct")
+        by_path["full_doc_direct"] = execute_cell(direct_cell)
+
+        recursive_cell = make_cell("ctree_recursive")
+        recursive_report = execute_cell(recursive_cell)
+        by_path["ctree_recursive"] = recursive_report
+
+        base_cell = make_cell("ctree_base_summary")
+        source_artifacts = recursive_report.get("model_artifacts")
+        if recursive_report.get("status") == "success" and isinstance(source_artifacts, Mapping):
+            by_path["ctree_base_summary"] = execute_cell(
+                base_cell,
+                initial_artifacts=source_artifacts,
+                source_cell_id=recursive_cell.cell_id,
+            )
+        else:
+            by_path["ctree_base_summary"] = _failed_cell_report(
+                base_cell,
+                error="RuntimeError: shared recursive model artifacts are unavailable",
+                fno_epochs=fno_epochs,
+                max_iterations=max_iterations,
+            )
+        cells.extend(by_path[path] for path in REPRESENTATION_PATHS)
 
     schema = comparison_report_schema()
     payload = {
@@ -1342,6 +1401,9 @@ def _validated_executed_g_contract(
     elif mode == "fixed":
         expected_operator = "fixed_nonidentity_or_family_owned"
         expected_fit_status = "not_trainable"
+    elif configured.get("reuses_model_artifacts") is True:
+        expected_operator = "learned_shared_reused"
+        expected_fit_status = "reused_without_update"
     elif update_count_int > 0:
         expected_operator, expected_fit_status = "learned_shared", "fitted_this_run"
     else:
@@ -1488,6 +1550,7 @@ def _comparison_row(
             "seed": int(cell.seed),
             "leaf_scale": f"leafs{int(g_contract['leaf_count']):03d}",
             "g_mode": g_contract["g_mode"],
+            "reuses_model_artifacts": bool(g_contract["reuses_model_artifacts"]),
             "g_operator": (
                 None if executed_g_contract is None else executed_g_contract["operator"]
             ),
@@ -1934,7 +1997,14 @@ def _g_contract(
         dspy_execution=resolved_dspy_execution,
     )
     schedule = "fg" if mode == "learned" else "f"
-    effective = max(0, requested) if mode == "learned" else int(requested > 0)
+    reuses_model_artifacts = representation_path == "ctree_base_summary"
+    effective = (
+        0
+        if reuses_model_artifacts
+        else max(0, requested)
+        if mode == "learned"
+        else int(requested > 0)
+    )
     expected_g_update_count = effective // 2 if mode == "learned" else 0
     train_g_called = expected_g_update_count > 0
     roles = ["leaf"] if train_g_called else []
@@ -1976,6 +2046,15 @@ def _g_contract(
         "learned_g_expected": expected_g_update_count > 0,
         "same_g_across_node_roles": True,
         "reduce_g_is_derived": True,
+        "model_scope": (
+            "direct_control_separate_from_shared_ctree_pair"
+            if representation_path == "full_doc_direct"
+            else "one_f_g_pair_per_target_width_and_family"
+        ),
+        "reuses_model_artifacts": reuses_model_artifacts,
+        "shared_model_source_path": (
+            "ctree_recursive" if reuses_model_artifacts else representation_path
+        ),
         "expected_g_training_call_roles": roles,
         "expected_g_training_role_evidence_source": expected_evidence_source,
         "expected_merge_domain_training_observed": merge_domain,

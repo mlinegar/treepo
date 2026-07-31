@@ -33,6 +33,7 @@ def test_fit_success_with_parse_drop_fails_exact_roster_coverage(
         return SimpleNamespace(
             status="success",
             metrics={},
+            artifacts={"f": {"kind": "test_f"}, "g": {"kind": "test_g"}},
             summary={"family": "dspy"},
             manifest_path=None,
             history=[{"extra": {"prediction_rows": []}}],
@@ -78,6 +79,7 @@ def test_duplicate_id_cannot_hide_a_missing_eval_document(tmp_path: Path) -> Non
             status="success",
             metrics={"joint_f_l1": 0.0},
             summary={"family": "dspy"},
+            artifacts={"f": {"kind": "test_f"}, "g": {"kind": "test_g"}},
             manifest_path=None,
             history=[{"extra": {"prediction_rows": rows}}],
         )
@@ -122,6 +124,7 @@ def test_spoofed_gold_vector_cannot_authenticate_itself(tmp_path: Path) -> None:
             metrics={"joint_f_l1": 0.0},
             summary={"family": "dspy"},
             manifest_path=None,
+            artifacts={"f": {"kind": "test_f"}, "g": {"kind": "test_g"}},
             history=[{"extra": {"prediction_rows": rows}}],
         )
 

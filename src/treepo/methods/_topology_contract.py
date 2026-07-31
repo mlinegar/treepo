@@ -11,7 +11,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping, Sequence
 
-from treepo.tree import tree_leaves
+from treepo.schedule import fold_with_trace
+from treepo.tree import TreeRecord, tree_leaves
 
 _SINGLETON_REPRESENTATIONS = frozenset({"full_doc", "full_doc_direct", "ctree_base_summary"})
 _RECURSIVE_REPRESENTATIONS = frozenset({"ctree_recursive"})
@@ -83,6 +84,8 @@ def resolve_topology_contract(
         # share the package-wide non-empty C-Tree domain.
         required_min, required_max = 1, None
 
+    _validate_canonical_explicit_topology("train", train_trees)
+    _validate_canonical_explicit_topology("eval", eval_trees)
     train_observed = _validate_split(
         "train",
         train_trees,
@@ -159,6 +162,78 @@ def resolve_topology_contract(
         observed_leaf_count_min=min(observed_counts) if observed_counts else None,
         observed_leaf_count_max=max(observed_counts) if observed_counts else None,
     )
+
+
+def _validate_canonical_explicit_topology(
+    split_name: str,
+    trees: Sequence[Any],
+) -> None:
+    """Require the binary skeleton of stored topology to equal the canonical fold.
+
+    Unary C2 recompression nodes collapse out: they supervise g(g(x)) ~= g(x)
+    but do not create a second merge rule or a binary composition edge.
+    """
+
+    from treepo.methods._dspy_records import binary_topology
+
+    for index, tree in enumerate(trees):
+        raw_nodes = tree.get("nodes") if isinstance(tree, Mapping) else getattr(tree, "nodes", None)
+        if not raw_nodes:
+            continue
+        record = tree if isinstance(tree, TreeRecord) else TreeRecord.from_value(tree)
+        has_stored_edges = any(
+            node.has_children() or node.parent_id is not None for node in record.nodes
+        )
+        if not has_stored_edges:
+            continue
+        leaves = tuple(record.leaves())
+        if not leaves:
+            continue
+        tree_id = str(record.tree_id or index)
+        try:
+            topology = binary_topology(record)
+        except ValueError as exc:
+            raise ValueError(
+                f"{split_name} tree {tree_id!r} is not one canonical binary C-Tree: {exc}"
+            ) from exc
+
+        leaf_index = {str(node.node_id): position for position, node in enumerate(leaves)}
+        expected_trace = fold_with_trace(
+            [(position,) for position in range(len(leaves))],
+            lambda left, right: left + right,
+            schedule="balanced",
+        )
+        expected_internal = set(expected_trace[len(leaves) :])
+        actual_internal: list[tuple[int, ...]] = []
+        cache: dict[str, tuple[int, ...]] = {}
+
+        def shape(node: Any) -> tuple[int, ...]:
+            node_id = str(node.node_id)
+            if node_id in cache:
+                return cache[node_id]
+            children = topology.children(node)
+            if not children:
+                if node_id not in leaf_index:
+                    raise ValueError(
+                        f"{split_name} tree {tree_id!r} has an internal node without children"
+                    )
+                value = (leaf_index[node_id],)
+            elif len(children) == 1:
+                value = shape(children[0])
+            else:
+                value = shape(children[0]) + shape(children[1])
+                actual_internal.append(value)
+            cache[node_id] = value
+            return value
+
+        root_shape = shape(topology.root)
+        expected_root = expected_trace[-1]
+        if root_shape != expected_root or set(actual_internal) != expected_internal:
+            raise ValueError(
+                f"{split_name} tree {tree_id!r} does not match the canonical balanced fold; "
+                f"expected internal leaf spans {sorted(expected_internal)!r}, "
+                f"got {sorted(set(actual_internal))!r}"
+            )
 
 
 def _validate_split(
