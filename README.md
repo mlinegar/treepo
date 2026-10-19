@@ -3,7 +3,7 @@
 **Auditable tree summarization for long documents.** `treepo` is the Python
 package behind **C-TreePO** (Compression-Tree Preference Optimization), from
 the paper *What Makes a Good Summary? Learning Sufficient Representations at
-Scale* (Mitchell Linegar; paper link forthcoming).
+Scale* (Mitchell Linegar; [paper](https://mlinegar.github.io/research.html)).
 
 ## The idea
 
@@ -337,7 +337,8 @@ uv run treepo-bench check release --json  # packaging and docs hygiene gates
 ## Paper and author
 
 - Paper: Mitchell Linegar, *What Makes a Good Summary? Learning Sufficient
-  Representations at Scale*. Paper link forthcoming.
+  Representations at Scale*. Available at
+  [mlinegar.github.io/research.html](https://mlinegar.github.io/research.html).
 - Author: Mitchell Linegar, <https://mlinegar.github.io>
 
 License: PolyForm Noncommercial 2.0.0-pre.2. See [`LICENSE`](LICENSE).
