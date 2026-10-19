@@ -1,10 +1,9 @@
 """First-class supervision-grid axes: validation, pinned selection, provenance.
 
-Covers Phase 3 of ``docs/treepo_fit_grid_upgrade_plan_2026_07_10.md``: the
-``doc_gold_n`` / ``local_label_mix`` / ``seed`` spec axes, their deterministic
-pinned selection, the grid-cell expander, and the provenance that ``fit()``
-persists so every cell at the same ``(seed, n)`` trains on the identical,
-nested subset.
+Covers the ``doc_gold_n`` / ``local_label_mix`` / ``seed`` spec axes, their
+deterministic pinned selection, the grid-cell expander, and the provenance that
+``fit()`` persists so every cell at the same ``(seed, n)`` trains on the
+identical, nested subset.
 """
 
 from __future__ import annotations

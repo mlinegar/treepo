@@ -1,9 +1,8 @@
 """First-class grid axes for ``treepo.fit``: doc-gold-n, local-label-mix, seed.
 
-Phase 3 of ``docs/treepo_fit_grid_upgrade_plan_2026_07_10.md`` promotes three
-supervision-grid knobs that ThinkingTrees expresses across three separate
-scripts today into validated spec fields with pinned, deterministic selection
-and persisted provenance:
+This module promotes three supervision-grid knobs that ThinkingTrees
+expresses across three separate scripts today into validated spec fields with
+pinned, deterministic selection and persisted provenance:
 
 * ``doc_gold_n`` — how many documents contribute gold document-level labels.
   Selection is drawn from a single per-seed permutation and taken as a prefix,

@@ -70,9 +70,8 @@ class CTreePOLearningSpec:
     eval_data: Any = None
     backend_config: Mapping[str, Any] = field(default_factory=dict)
     axis: Mapping[str, Any] = field(default_factory=dict)
-    # First-class supervision-grid axes (see treepo.methods._grid_axes and
-    # docs/treepo_fit_grid_upgrade_plan_2026_07_10.md Phase 3). Defaults keep
-    # today's behavior: all documents, root-only labels, seed 0.
+    # First-class supervision-grid axes (see treepo.methods._grid_axes).
+    # Defaults keep today's behavior: all documents, root-only labels, seed 0.
     doc_gold_n: int | None = None
     local_label_mix: str = "none"
     gold_fraction_p: float = 1.0
