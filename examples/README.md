@@ -1,5 +1,14 @@
 # treepo Examples
 
+Start with [`quickstart.py`](quickstart.py). It builds C1/C2/C3 audit rows
+for a lossy toy summarizer, draws a 20% node audit, and compares the
+design-based violation-rate estimates with the true rates. It needs only the
+core install:
+
+```bash
+uv run --no-dev python examples/quickstart.py
+```
+
 Examples are small source-tree fixtures that run from a repo checkout. Each
 `examples/methods/run_*.py` file is a self-contained walkthrough: it uses
 package fixtures plus local helpers in `examples/methods/example_setup/`, and
@@ -56,6 +65,19 @@ Run any method example with:
 ```bash
 uv run python examples/methods/run_NAME.py --output-dir outputs/NAME
 ```
+
+The exception is `run_tree_visualization.py`, which takes no arguments and
+always writes to `outputs/tree_visualization/`. `uv run` installs the dev
+group, which includes every extra. With a slimmer install, the examples need
+these extras:
+
+| Examples | Extra |
+|---|---|
+| `quickstart.py`, `run_local_law_certificate.py`, `run_llm_backends.py`, `run_preference_optimizer_views.py`, `run_finetune_views.py`, `run_manifesto_*.py` | core |
+| `run_fno_markov.py`, `run_neural_operator_markov_*.py`, `run_tree_visualization.py` | `torch` |
+| `run_neural_operator_lda*.py` | `torch` and `lda` |
+| `run_hll_sketch.py` | `sketches` |
+| `treepo-bench run ...` with YAML configs | `bench` |
 
 For the LLM backend adapter shapes:
 

@@ -73,8 +73,8 @@ result = treepo.fit(
 
 The path is:
 
-1. `treepo.fit(...)` normalizes a mapping into `FitConfig`.
-2. `treepo.methods.contracts.CTreePOLearningSpec` receives the public spec.
+1. `treepo.fit(...)` (`src/treepo/learning.py`) merges keyword overrides into the mapping and defaults `backend_config["output_dir"]` to `outputs/treepo_fit`.
+2. `treepo.methods.contracts.CTreePOLearningSpec.from_mapping(...)` turns the mapping into the public spec.
 3. `treepo.methods.families.resolve_family(...)` builds a `FamilyRuntime`, unless `backend_config["family_runtime"]` injects one for tests or downstream adapters.
 4. `treepo.methods._grid_axes.apply_grid_axes(...)` pins the `doc_gold_n` document subset and resolves the `local_label_mix` node-label source before training (see `docs/training_defaults.md` for the axis surface and defaults).
 5. `treepo.methods.runtime.run_alternating_family(...)` alternates f/g training and evaluates splits.
@@ -89,7 +89,7 @@ A family runtime must implement:
 - `score_roots_with_f(...)`
 - `validate_artifact(...)`
 
-Built-in family names are intentionally few: `oracle`, `learnable_constant`, `classical_sketch`, `neural_operator`, `fno`, `llm`, and `dspy`. Register application workflows from the owning downstream package; `treepo` keeps its family registry small and branch-free.
+Built-in family names are intentionally few: `oracle`, `learnable_constant`, `classical_sketch`, `neural_operator`, `fno`, `sklearn_lda`, `llm`, and `dspy`. Register application workflows from the owning downstream package; `treepo` keeps its family registry small and branch-free.
 
 When adding a built-in family, it should be dependency-light, generally useful, small enough for package tests, and registered in `treepo.methods.families`. Put family-specific knobs in `backend_config`; keep the public fit shape stable.
 

@@ -194,7 +194,7 @@ illustrative, and a publication run supplies the task's finite-sample bound.
 choices live in `backend_config`; for example, `family = "neural_operator"`
 uses `operator_kind = "fno"` for the FNO route. The built-in families are
 `oracle`, `learnable_constant`, `classical_sketch`, `neural_operator`, `fno`,
-`llm`, and `dspy`. The LLM/DSPy families are provider-neutral: `api_base`
+`sklearn_lda`, `llm`, and `dspy`. The LLM/DSPy families are provider-neutral: `api_base`
 targets OpenAI-compatible servers, while `predict_fn`, `program`, and
 `dspy_program` cover direct local runtimes and prompt-tuned programs. Local-law
 penalties are objective terms.

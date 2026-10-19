@@ -32,6 +32,7 @@ The built-in families are:
 | `classical_sketch` | Exact classical sketch adapters (e.g. HLL) as a composable-statistic family. |
 | `neural_operator` | Generic neural-operator root-score scorer over embedded leaf sequences; supports `operator_kind="fno"`, `operator_kind="tfno"`, `operator_kind="uno"`, and the local `operator_kind="conv1d"` baseline. |
 | `fno` | Concrete FNO route over the shared neural-operator runtime. Use `family="neural_operator"` when selecting a non-FNO operator kind explicitly. |
+| `sklearn_lda` | scikit-learn LDA baseline for topic-proportion trees (needs the `lda` extra; requires `n_topics` and `vocabulary_size`). |
 | `llm` | Provider-neutral prompt wrapper. Pass `api_base` for OpenAI-compatible servers such as vLLM/SGLang, or `predict_fn` for direct runtimes such as Transformers. |
 | `dspy` | Provider-neutral DSPy wrapper. Pass `dspy_program`, `program`, or `predict_fn`; DSPy loads only when a program runs. |
 
@@ -73,7 +74,7 @@ today's behavior: all documents, root-only labels, seed 0.
 | `doc_gold_n` | `int \| None` | `None` | How many documents contribute gold document-level labels. Drawn from one per-seed permutation and taken as a prefix, so cells at increasing `n` are nested (`25 ⊂ 50 ⊂ 100`) and the selected ids are pinned/persisted. `None` uses all documents. |
 | `local_label_mix` | `"none" \| "gold_fraction" \| "llm_distilled"` | `"none"` | Node-level supervision. `none` = root-only. `gold_fraction` keeps gold node labels on a deterministic `p`-fraction of nodes (pinned per seed). `llm_distilled` routes to a cached-teacher node source. |
 | `gold_fraction_p` | `float` | `1.0` | Kept-node fraction for `gold_fraction` (in `[0, 1]`). |
-| `distilled_labels_path` | `str \| None` | `None` | Cached `teacher_node_rows.jsonl` source for `llm_distilled`. Absent one, supply a callable in `backend_config["node_oracle_predictor"]` (or `["predict_fn"]`); otherwise `fit()` errors naming what to configure. The cached-jsonl loader itself is Phase 2. |
+| `distilled_labels_path` | `str \| None` | `None` | Cached `teacher_node_rows.jsonl` source for `llm_distilled`. Absent one, supply a callable in `backend_config["node_oracle_predictor"]` (or `["predict_fn"]`); otherwise `fit()` errors naming what to configure. `fit()` loads the cached rows through `treepo.distilled.load_teacher_node_rows`. |
 | `seed` | `int` | `0` | One seed per `fit()` call; drives every pinned selection and seeds the backend when unset. |
 
 ```python

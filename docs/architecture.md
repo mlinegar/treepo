@@ -22,8 +22,9 @@ mapping spec, resolves one family runtime from the registry in
 `treepo.methods.runtime`, and assembles a `FitResult` with metrics, artifacts,
 history, and a manifest.
 
-Seven families are built in: `oracle`, `learnable_constant`,
-`classical_sketch`, `neural_operator`, `fno`, `llm`, and `dspy`. Downstream
+Eight families are built in: `oracle`, `learnable_constant`,
+`classical_sketch`, `neural_operator`, `fno`, `sklearn_lda` (behind the `lda`
+extra), `llm`, and `dspy`. Downstream
 packages register additional runtimes with
 `treepo.methods.families.register_family(...)` against the `FamilyRuntime`
 protocol in `treepo.methods.contracts`. Wrappers own the training loop and
